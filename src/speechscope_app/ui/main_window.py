@@ -23,6 +23,7 @@ from .. import __version__, contract
 from ..backend.command import extract_args
 from ..backend.protocol import Protocol, all_protocols
 from ..backend.settings import AppSettings
+from .models_dialog import ModelsDownloadDialog
 from .pages.batch import BatchPage
 from .pages.environment import EnvironmentPage
 from .pages.results import ResultsPage
@@ -30,6 +31,11 @@ from .pages.run import RunPage
 from .settings_dialog import SettingsDialog
 
 PAGE_ENV, PAGE_BATCH, PAGE_RUN, PAGE_RESULTS = range(4)
+
+
+def _has_models(models_dir: Path) -> bool:
+    """Laciný test bez volání knihovny: složka existuje a není prázdná."""
+    return models_dir.is_dir() and any(models_dir.iterdir())
 
 
 def _slug(text: str) -> str:
@@ -83,16 +89,29 @@ class MainWindow(QMainWindow):
 
         menu = self.menuBar().addMenu("Aplikace")
         menu.addAction("Nastavení…", self._open_settings)
+        menu.addAction("Stáhnout modely…", self.download_models)
         menu.addSeparator()
         menu.addAction("Konec", self.close)
 
         self.env_page.settings_requested.connect(self._open_settings)
+        self.env_page.download_requested.connect(self.download_models)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
 
         self._apply_settings()
-        self.nav.setCurrentRow(PAGE_BATCH if self.library is not None else PAGE_ENV)
+        page = self.start_page()
+        self.nav.setCurrentRow(page)
+        if page == PAGE_ENV and self.library is not None:
+            self.env_page.refresh()  # první spuštění: rovnou ukázat, co chybí
+
+    def start_page(self) -> int:
+        """Klinik začíná na Datech; bez knihovny nebo bez modelů na Prostředí."""
+        if self.library is None:
+            return PAGE_ENV
+        if not self.settings.use_fake_library and not _has_models(self.settings.models_dir):
+            return PAGE_ENV
+        return PAGE_BATCH
 
     # --- nastavení ------------------------------------------------------------
 
@@ -118,6 +137,16 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self.settings, self)
         if dialog.exec():
             self._apply_settings()
+
+    def download_models(self) -> None:
+        if self.library is None:
+            QMessageBox.warning(self, "SpeechScope", "Knihovna není nastavená.")
+            return
+        dialog = ModelsDownloadDialog(self.library, self.settings.models_dir, self)
+        dialog.exec()
+        if dialog.downloaded:
+            self.library.clear_cache()
+            self.env_page.refresh()
 
     # --- protokoly ------------------------------------------------------------
 

@@ -33,6 +33,7 @@ class Runner(QObject):
         self._stdout_buf = ""
         self._stderr_buf = ""
         self._cancelled = False
+        self._parse_events = True
         self.log_lines: list[str] = []
         self._log_file: Path | None = None
         self._log_pos = 0
@@ -46,9 +47,21 @@ class Runner(QObject):
         return self._proc is not None and self._proc.state() != QProcess.ProcessState.NotRunning
 
     def start(
-        self, argv: list[str], *, cwd: str | None = None, log_file: Path | None = None
+        self,
+        argv: list[str],
+        *,
+        cwd: str | None = None,
+        log_file: Path | None = None,
+        parse_events: bool = True,
+        extra_env: dict[str, str] | None = None,
     ) -> None:
-        """`log_file` je tentýž soubor, který dostala knihovna přes `--log-file`."""
+        """Spustí knihovnu.
+
+        `log_file` je tentýž soubor, který dostala knihovna přes `--log-file`.
+        `parse_events=False` je pro příkazy bez `--progress-json` (stahování
+        modelů): stdout pak jde do logu místo do událostí. `extra_env` jsou
+        proměnné navíc, třeba tokeny pro stahování.
+        """
         if self.running:
             raise RuntimeError("běh už probíhá")
         self.state = BatchState()
@@ -56,6 +69,7 @@ class Runner(QObject):
         self._stdout_buf = ""
         self._stderr_buf = ""
         self._cancelled = False
+        self._parse_events = parse_events
         self._log_file = log_file
         self._log_pos = log_file.stat().st_size if log_file and log_file.is_file() else 0
         self._log_tail = ""
@@ -64,7 +78,7 @@ class Runner(QObject):
 
         proc = QProcess(self)
         env = QProcessEnvironment()
-        for key, value in subprocess_env().items():
+        for key, value in {**subprocess_env(), **(extra_env or {})}.items():
             env.insert(key, value)
         proc.setProcessEnvironment(env)
         if cwd:
@@ -132,6 +146,9 @@ class Runner(QObject):
         self._log_file = None
 
     def _handle_line(self, line: str) -> None:
+        if not self._parse_events:
+            self._emit_log(line)
+            return
         try:
             event: Event | None = parse_event(line)
         except ContractError as exc:

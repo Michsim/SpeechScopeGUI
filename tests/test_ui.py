@@ -9,7 +9,7 @@ from pytestqt.qtbot import QtBot
 
 from speechscope_app.backend.library import ParamInfo
 from speechscope_app.backend.settings import AppSettings
-from speechscope_app.ui.main_window import PAGE_RESULTS, MainWindow
+from speechscope_app.ui.main_window import PAGE_BATCH, PAGE_ENV, PAGE_RESULTS, MainWindow
 from speechscope_app.ui.widgets.param_form import ParamForm
 
 
@@ -85,6 +85,45 @@ def test_save_protocol_from_advanced_mode(qtbot: QtBot, settings: AppSettings) -
     # stejné jméno podruhé přepíše soubor, nevznikne druhý
     again = window.save_protocol(proto)
     assert again == path and len(list(settings.protocols_dir().glob("*.yaml"))) == 1
+
+
+def test_start_page_depends_on_models(settings: AppSettings, qtbot: QtBot) -> None:
+    """Skutečná knihovna bez modelů: začít na Prostředí a rovnou zkontrolovat."""
+    from speechscope_app.backend.library import fake_command
+
+    settings.use_fake_library = False
+    settings.library_command = fake_command()  # chová se jako skutečná, ale bez modelů
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    assert window.nav.currentRow() == PAGE_ENV
+    assert window.env_page.report is not None  # refresh proběhl sám
+
+    settings.models_dir.mkdir(parents=True)
+    (settings.models_dir / "whisper-large-v3-ct2").mkdir()
+    window2 = MainWindow(settings)
+    qtbot.addWidget(window2)
+    assert window2.nav.currentRow() == PAGE_BATCH
+
+
+def test_models_dialog_downloads_missing(
+    qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from speechscope_app.ui.models_dialog import ModelsDownloadDialog
+
+    monkeypatch.setenv("SPEECHSCOPE_FAKE_DOCTOR", "missing")
+    library = settings.make_library()
+    assert library is not None
+    dialog = ModelsDownloadDialog(library, settings.models_dir)
+    qtbot.addWidget(dialog)
+    assert set(dialog.selected()) == {"whisper", "stanza"}
+    assert dialog.hf_token.isHidden() and dialog.gh_token.isHidden()  # pyannote ani onnx nechybí
+    assert "phnrec" not in dialog.note.text()  # phnrec je na místě
+
+    with qtbot.waitSignal(dialog.runner.finished, timeout=15000):
+        dialog.start()
+    assert dialog.downloaded
+    text = dialog.log.toPlainText()
+    assert "stahuji whisper" in text and "stahuji stanza" in text and "wavlm" not in text
 
 
 def test_param_form_overrides(qtbot: QtBot) -> None:

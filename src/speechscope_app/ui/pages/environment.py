@@ -101,8 +101,12 @@ class StatusCard(Card):
 # --- stránka ------------------------------------------------------------------
 
 
+DOWNLOADABLE = ("whisper", "wavlm", "pyannote", "stanza", "onnx")
+
+
 class EnvironmentPage(QWidget):
     settings_requested = Signal()
+    download_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -146,6 +150,10 @@ class EnvironmentPage(QWidget):
         self.settings_btn.clicked.connect(self.settings_requested)
         self.settings_btn.hide()
         row.addWidget(self.settings_btn, 0, Qt.AlignmentFlag.AlignTop)
+        self.download_btn = QPushButton("Stáhnout modely…")
+        self.download_btn.clicked.connect(self.download_requested)
+        self.download_btn.hide()
+        row.addWidget(self.download_btn, 0, Qt.AlignmentFlag.AlignTop)
         self.check_btn = QPushButton("Zkontrolovat")
         theme.set_role(self.check_btn, "primary")
         self.check_btn.clicked.connect(self.refresh)
@@ -213,6 +221,7 @@ class EnvironmentPage(QWidget):
         self.check_btn.setEnabled(library is not None)
         self.check_btn.setText("Zkontrolovat")
         self.settings_btn.setVisible(library is None)
+        self.download_btn.hide()
         self.report = None
         if library is None:
             self._set_status(
@@ -237,6 +246,7 @@ class EnvironmentPage(QWidget):
         except LibraryError as exc:
             self.report = None
             self._set_status("missing", "Knihovnu se nepodařilo spustit.", str(exc))
+            self.download_btn.hide()
             self._clear_cards()
             return
         finally:
@@ -262,6 +272,10 @@ class EnvironmentPage(QWidget):
     def _show(self, version: str, report: dict[str, Any]) -> None:
         providers = report.get("providers", {})
         models = report.get("models", {})
+        missing_downloadable = [
+            k for k in DOWNLOADABLE if k in models and not models[k].get("present")
+        ]
+        self.download_btn.setVisible(bool(missing_downloadable))
         self._show_summary(version, report, providers, models)
         self._show_providers(providers)
         self._show_models(models)

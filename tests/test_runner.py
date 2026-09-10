@@ -7,7 +7,7 @@ from pathlib import Path
 from pytestqt.qtbot import QtBot
 
 from speechscope_app import contract
-from speechscope_app.backend.command import ExtractRequest, extract_args
+from speechscope_app.backend.command import ExtractRequest, extract_args, models_download_args
 from speechscope_app.backend.library import Library
 from speechscope_app.backend.runner import Runner
 
@@ -50,6 +50,20 @@ def test_runner_tails_log_file(
     assert log_file.is_file()
     assert any("vybráno" in line for line in logs)
     assert logs == runner.log_lines and len(logs) == len(set(logs))  # nic dvakrát
+
+
+def test_runner_log_only_mode(qtbot: QtBot, fake_library: Library, tmp_path: Path) -> None:
+    """`models download` nemá --progress-json: stdout i stderr jdou do logu."""
+    runner = Runner()
+    logs: list[str] = []
+    runner.log.connect(logs.append)
+    argv = fake_library.argv(models_download_args(only=["onnx"], models_dir=tmp_path))
+    with qtbot.waitSignal(runner.finished, timeout=15000) as blocker:
+        runner.start(argv, parse_events=False, extra_env={"HF_TOKEN": "x"})
+    code, cancelled = blocker.args
+    assert code == 0 and not cancelled
+    assert any("stahuji onnx" in line for line in logs)
+    assert runner.state.total == 0 and not runner.state.finished
 
 
 def test_runner_cancel(
