@@ -1,0 +1,4 @@
+# Totéž co [tool.uv] override-dependencies v pyprojectu knihovny:
+# faster-whisper si žádá základní onnxruntime, na Windows ho nahrazuje
+# onnxruntime-directml (stejný modul). Bez přepisu by DirectML nefungoval.
+onnxruntime>=1.18; sys_platform != 'win32'

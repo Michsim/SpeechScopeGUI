@@ -50,13 +50,20 @@ def creation_flags() -> int:
 def find_default_command() -> list[str] | None:
     """Kde hledat knihovnu, když uživatel nic nenastavil.
 
-    1. Prostředí přibalené k zabalené aplikaci (`speechscope-lib/` vedle exe).
+    1. Prostředí přibalené k zabalené aplikaci (`speechscope-lib/` vedle exe):
+       samostatný Python s knihovnou, spouští se `python -m speechscope.cli`,
+       protože launcher `speechscope.exe` má v sobě absolutní cestu z build
+       stroje. Venv se `Scripts\\speechscope.exe` bereme jako zálohu.
     2. `speechscope` na PATH.
     """
     if getattr(sys, "frozen", False):
-        bundled = Path(sys.executable).parent / "speechscope-lib" / "Scripts" / "speechscope.exe"
-        if bundled.is_file():
-            return [str(bundled)]
+        lib = Path(sys.executable).parent / "speechscope-lib"
+        python = lib / "python.exe"
+        if python.is_file():
+            return [str(python), "-m", "speechscope.cli"]
+        launcher = lib / "Scripts" / "speechscope.exe"
+        if launcher.is_file():
+            return [str(launcher)]
     exe = shutil.which("speechscope")
     if exe:
         return [exe]
