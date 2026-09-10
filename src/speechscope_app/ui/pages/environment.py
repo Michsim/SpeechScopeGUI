@@ -107,6 +107,7 @@ DOWNLOADABLE = ("whisper", "wavlm", "pyannote", "stanza", "onnx")
 class EnvironmentPage(QWidget):
     settings_requested = Signal()
     download_requested = Signal()
+    install_requested = Signal()  # modely ze souboru (balík z `models pack`)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -154,6 +155,14 @@ class EnvironmentPage(QWidget):
         self.download_btn.clicked.connect(self.download_requested)
         self.download_btn.hide()
         row.addWidget(self.download_btn, 0, Qt.AlignmentFlag.AlignTop)
+        self.install_btn = QPushButton("Modely ze souboru…")
+        self.install_btn.setToolTip(
+            "Nainstaluje modely z balíku (zip) z USB, sdíleného disku nebo odkazu; "
+            "bez internetu a bez tokenů."
+        )
+        self.install_btn.clicked.connect(self.install_requested)
+        self.install_btn.hide()
+        row.addWidget(self.install_btn, 0, Qt.AlignmentFlag.AlignTop)
         self.check_btn = QPushButton("Zkontrolovat")
         theme.set_role(self.check_btn, "primary")
         self.check_btn.clicked.connect(self.refresh)
@@ -222,6 +231,7 @@ class EnvironmentPage(QWidget):
         self.check_btn.setText("Zkontrolovat")
         self.settings_btn.setVisible(library is None)
         self.download_btn.hide()
+        self.install_btn.setVisible(library is not None)
         self.report = None
         if library is None:
             self._set_status(

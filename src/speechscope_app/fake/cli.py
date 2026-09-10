@@ -264,6 +264,32 @@ def cmd_models_download(ns: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_models_unpack(ns: argparse.Namespace) -> int:
+    """Jako skutečné `models unpack`: zip s manifestem projde, cokoli jiného kód 2."""
+    import zipfile
+
+    archive = Path(ns.archive)
+    if not archive.is_file():
+        print(f"soubor {archive} neexistuje", file=sys.stderr)
+        return 2
+    try:
+        with zipfile.ZipFile(archive) as zf:
+            manifest = json.loads(zf.read("manifest.json"))
+    except (zipfile.BadZipFile, KeyError, json.JSONDecodeError):
+        print(f"{archive.name} není balík modelů SpeechScope (chybí manifest)", file=sys.stderr)
+        return 2
+    if manifest.get("format") != "speechscope-models":
+        print(f"{archive.name} není balík modelů SpeechScope", file=sys.stderr)
+        return 2
+    keys = ns.only.split(",") if ns.only else list(manifest.get("models", {}))
+    _log(f"rozbaluji {archive.name} do {_models_dir(ns)}", None)
+    for key in keys:
+        for pct in (25, 50, 75, 100):
+            _log(f"{key}: rozbaleno {pct} %", None)
+            time.sleep(_delay() / 4)
+    return 0
+
+
 def _value(name: str, column: str) -> float:
     digest = hashlib.md5(f"{name}:{column}".encode()).hexdigest()
     return round(int(digest[:8], 16) / 0xFFFFFFFF * 100, 4)
@@ -460,6 +486,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--only")
     p.add_argument("--log-level", default="INFO")
     p.set_defaults(func=cmd_models_download)
+    p = models.add_parser("unpack")
+    p.add_argument("archive")
+    p.add_argument("--only")
+    p.add_argument("--log-level", default="INFO")
+    p.set_defaults(func=cmd_models_unpack)
 
     p = sub.add_parser("extract")
     _add_batch_options(p)

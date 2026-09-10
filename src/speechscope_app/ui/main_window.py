@@ -24,6 +24,7 @@ from ..backend.command import extract_args
 from ..backend.protocol import Protocol, all_protocols
 from ..backend.settings import AppSettings
 from .models_dialog import ModelsDownloadDialog
+from .models_install_dialog import ModelsInstallDialog
 from .pages.batch import BatchPage
 from .pages.environment import EnvironmentPage
 from .pages.results import ResultsPage
@@ -90,11 +91,13 @@ class MainWindow(QMainWindow):
         menu = self.menuBar().addMenu("Aplikace")
         menu.addAction("Nastavení…", self._open_settings)
         menu.addAction("Stáhnout modely…", self.download_models)
+        menu.addAction("Nainstalovat modely ze souboru…", self.install_models)
         menu.addSeparator()
         menu.addAction("Konec", self.close)
 
         self.env_page.settings_requested.connect(self._open_settings)
         self.env_page.download_requested.connect(self.download_models)
+        self.env_page.install_requested.connect(self.install_models)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
@@ -145,6 +148,16 @@ class MainWindow(QMainWindow):
         dialog = ModelsDownloadDialog(self.library, self.settings.models_dir, self)
         dialog.exec()
         if dialog.downloaded:
+            self.library.clear_cache()
+            self.env_page.refresh()
+
+    def install_models(self, archive: Path | None = None) -> None:
+        if self.library is None:
+            QMessageBox.warning(self, "SpeechScope", "Knihovna není nastavená.")
+            return
+        dialog = ModelsInstallDialog(self.library, self.settings.models_dir, self, archive=archive)
+        dialog.exec()
+        if dialog.installed:
             self.library.clear_cache()
             self.env_page.refresh()
 

@@ -33,6 +33,9 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
 - `segments.model=auto` bere jen hotovou cache. Protokol, který potřebuje
   segmentaci, musí mít v `config` `segments.model` nastavený.
 - `doctor --json` končí kódem 1, když něco chybí; to není chyba.
+- Modely pro kliniky jdou z balíku (`models unpack BALÍK`, dialog
+  „Modely ze souboru“): kód 1 = některý model selhal, kód 2 = není to
+  balík. Stahování z Hugging Face je záloha.
 - `list --params` neumí providery (vrací "neznámá feature"). Proto
   `contract.PROVIDER_PARAMS`.
 - Do složky s nahrávkami se nikdy nezapisuje. Výstupy do

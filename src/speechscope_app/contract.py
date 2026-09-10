@@ -45,6 +45,10 @@ AUDIO_SUFFIXES: tuple[str, ...] = (".wav", ".flac", ".ogg", ".mp3", ".m4a")
 LABELS_SUFFIX = ".labels.txt"
 TRANSCRIPT_SUFFIX = ".txt"
 
+# Balík modelů z `speechscope models pack`: zip s `manifest.json`. Instaluje
+# ho `models unpack`; kód 1 = některý model selhal, kód 2 = není to balík.
+MODELS_BUNDLE_FILTER = "Balík modelů SpeechScope (*.zip)"
+
 PROVIDER_LABELS: dict[str, str] = {
     "segments": "Segmentace řeči",
     "transcript": "Přepis (Whisper)",

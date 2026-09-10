@@ -20,12 +20,19 @@ repozitář knihovny, když neleží vedle (`..\SpeechScope\SpeechScope`).
 | knihovna `speechscope-lib\` | samostatný Python z `uv python install` (python-build-standalone, přenositelný) + wheel knihovny s extras `whisper,nlp,onnx`, torch jen CPU | ~2 GB |
 | ikona, odinstalátor | Inno Setup 6 (`speechscope.iss`), instalace pro uživatele bez admin práv do `%LOCALAPPDATA%\Programs\SpeechScope` | |
 
-Modely (přes 4 GB) v instalátoru nejsou. GUI je při prvním startu nabídne
-ke stažení do `%LOCALAPPDATA%\SAMI\SpeechScopeApp\models` (Prostředí →
-Stáhnout modely), nebo se v Nastavení ukáže na sdílenou složku kliniky.
-phnrec se stáhnout nedá, dialog řekne, kam ho zkopírovat. pyannote chce
-token Hugging Face, ONNX segmentace token GitHubu (nebo se vyexportuje
-z torche, což zabalené prostředí bez extras `dnn` neumí).
+Modely (přes 4 GB) v instalátoru nejsou. Hlavní cesta pro kliniky je
+**balík modelů**: na stroji s modely `uv run speechscope models pack
+--only whisper,stanza,onnx --out speechscope-modely-v1.zip` (v repu
+knihovny; 5,2 GB, zip bez komprese s otisky souborů), klinik ho dostane
+na USB, ze sdíleného disku nebo odkazem a v aplikaci klikne Prostředí →
+Modely ze souboru. Bez internetu, bez tokenů. Záloha je stažení
+z Hugging Face (Prostředí → Stáhnout modely) do
+`%LOCALAPPDATA%\SAMI\SpeechScopeApp\models`, nebo se v Nastavení ukáže
+na sdílenou složku kliniky. phnrec se stáhnout nedá, dialog řekne, kam ho
+zkopírovat. pyannote chce token Hugging Face, ONNX segmentace token
+GitHubu (nebo se vyexportuje z torche, což zabalené prostředí bez extras
+`dnn` neumí). WavLM a pyannote klinika nepotřebuje, segmentace jede
+přes ONNX.
 
 `backend/library.find_default_command()` hledá `speechscope-lib\python.exe`
 vedle zabaleného exe a spouští `python -m speechscope.cli`, takže po

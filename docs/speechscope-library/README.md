@@ -35,6 +35,19 @@ uv sync
 Knihovna běží i bez extras. Když si vyžádáš něco, na co nemá závislosti,
 řekne ti, co doinstalovat, místo aby spadla.
 
+### Po naklonování, v kostce
+
+1. `uv sync --all-extras`
+2. Nastav tokeny: `HF_TOKEN` pro pyannote (nejdřív odsouhlas podmínky
+   modelu na Hugging Face) a `GITHUB_TOKEN` pro hotové ONNX modely (bez něj
+   se vyexportují z torche, jen to trvá déle).
+3. `uv run speechscope models download`
+4. phnrec zkopíruj ručně do `models/phnrec/`, není nikde ke stažení.
+   Bez něj nejde jen artikulace samohlásek.
+5. `uv run speechscope doctor` musí skončit kódem 0.
+
+Detaily ke každému kroku jsou níž.
+
 ### Modely
 
 Velké modely nejsou v gitu, mají dohromady přes tři gigabajty. Po
@@ -66,6 +79,36 @@ složku s `phnrec.exe`, `atlas.dll` a modelem `PHN_CZ_SPDAT_LCRC_N1500`.
 Ukládají se do `models/` vedle projektu, nebo do adresáře z proměnné
 `SPEECHSCOPE_MODELS`. Jednotlivě se dají dotáhnout přes
 `models download --only wavlm`.
+
+Model je „na místě“, jen když má všechny soubory, které provider čte
+(u Whisperu `model.bin`, u Stanzy `resources.json` a jazyky, u ONNX
+`meta.json`). Stahuje se do složky `<model>.part` a na místo se
+přejmenuje až hotové; po chybě se rozpracovaná kopie smaže. `doctor`
+tedy nikdy nehlásí hotový model, který není. Cache Hugging Face se
+během stahování drží ve složce modelů (`.hf-cache`, bez symbolických
+odkazů, po stažení se smaže), protože výchozí cache v profilu uživatele
+na Windows zlobí; kdo má `HF_HUB_CACHE` nastavenou sám, tomu se nechá.
+Whisper se stahuje jako plochá kopie repozitáře přes `snapshot_download`,
+tedy přesně v tvaru, který provider čte.
+
+### Balík modelů pro kliniky
+
+Klinika nepotřebuje Hugging Face ani tokeny. Na počítači, kde modely
+jsou, se zabalí do jednoho zipu, a na klinice se nainstalují ze souboru
+(v aplikaci tlačítkem „Modely ze souboru“, nebo příkazem):
+
+```bash
+uv run speechscope models pack --only whisper,stanza,onnx --out speechscope-modely-v1.zip
+uv run speechscope models unpack speechscope-modely-v1.zip
+```
+
+Zip je bez komprese (váhy se stlačit nedají, balení i rozbalení jde
+rychlostí disku) a nese `manifest.json` s otiskem SHA-256 každého
+souboru. `unpack` každý soubor při zápisu ověřuje, rozbaluje přes
+`.part` a poškozený balík nechá na disku to, co tam bylo. Modely, které
+už jsou na místě, balík nahradí. Kódy: 1 = některý model se nepovedl,
+2 = soubor není balík modelů SpeechScope. Bez `--only` se balí všechno,
+co je na místě, včetně phnrec.
 
 Váhy vlastního modelu segmentace jsou výjimka, ty se vezou přímo
 v balíčku, protože jsou naše a mají jen 21 MB.
@@ -154,7 +197,7 @@ značka `models-onnx-v1`, soubor `segmentation-onnx.zip`):
 
 ```bash
 uv run speechscope models download --only onnx    # export, potřebuje wavlm a pyannote
-uv run speechscope models pack --out out\segmentation-onnx.zip   # 287 MB
+uv run speechscope models pack-onnx --out out\segmentation-onnx.zip   # 287 MB
 ```
 
 Když se změní export (jiné okno, jiné váhy), zvedni značku v
@@ -519,15 +562,36 @@ Na stdout jde jeden JSON objekt na řádek, všechno ostatní na stderr:
 {"event":"saved","out":"out/story.csv"}
 ```
 
-Tvar událostí je smlouva a nemění se bez zvednutí verze.
+Tvar událostí je smlouva a nemění se bez zvednutí verze. Stejný
+`--progress-json` mají i `segment` a `transcribe`; u nich je `features`
+prázdný seznam, `providers` má jediný prvek a `saved` nese pracovní složku.
 
-Seznam feature i jejich parametry si GUI vytáhne strojově, takže nemusí
-nic duplikovat:
+Stdout i stderr jsou **vždy UTF-8**, i když jsou přesměrované do roury nebo
+do souboru. CLI si to nastaví samo, `PYTHONUTF8=1` není potřeba. GUI tedy
+čte oba proudy jako UTF-8.
+
+Seznam feature, providerů i jejich parametry si GUI vytáhne strojově,
+takže nemusí nic duplikovat:
 
 ```bash
 uv run speechscope list --task story --json
 uv run speechscope list --params acoustic.quality.cpp --json
+uv run speechscope list --providers --json          # včetně parametrů
+uv run speechscope list --params segments --json    # totéž pro jeden provider
 ```
+
+Odpověď na `--params` má klíč `kind` (`feature` nebo `provider`); provider
+nemá `tasks`, `vad` ani `outputs`.
+
+Co GUI předává při každém volání:
+
+- `--models-dir`, jinak se modely hledají v `models/` v aktuálním
+  adresáři, což u podprocesu z jiného projektu není to pravé.
+- `--work-dir`, aby se segmentace a přepis ukládaly a nepočítaly znovu.
+- `--log-file`, jinak se log nikam neukládá a na klinice nebude co číst.
+- Před `extract --vad` buď zavolat `segment --model ...`, nebo poslat
+  `--set segments.model=conformer`. Výchozí `auto` bere jen hotovou
+  segmentaci z pracovní složky a bez ní skončí chybou u každé nahrávky.
 
 ---
 

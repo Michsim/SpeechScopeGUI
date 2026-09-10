@@ -179,5 +179,10 @@ def models_download_args(
     return args
 
 
+def models_unpack_args(archive: Path, *, models_dir: Path | None = None) -> list[str]:
+    """Instalace modelů z balíku (`models pack`), ověřuje se otisk každého souboru."""
+    return [*_common(models_dir), "models", "unpack", str(archive)]
+
+
 def version_args() -> list[str]:
     return ["version"]

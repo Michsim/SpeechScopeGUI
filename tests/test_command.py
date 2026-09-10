@@ -70,3 +70,13 @@ def test_query_args() -> None:
         "--only",
         "onnx,whisper",
     ]
+
+
+def test_models_unpack_args() -> None:
+    assert command.models_unpack_args(Path("modely.zip"), models_dir=Path("M")) == [
+        "--models-dir",
+        "M",
+        "models",
+        "unpack",
+        "modely.zip",
+    ]

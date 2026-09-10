@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -141,3 +142,44 @@ def test_param_form_overrides(qtbot: QtBot) -> None:
     assert form.overrides() == {"f_min": 75.0, "mode": "fixed", "flag": True}
     form.set_value("f_min", 60.0)
     assert "f_min" not in form.overrides()
+
+
+def _bundle(path: Path, *, valid: bool = True) -> Path:
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as zf:
+        if valid:
+            manifest = {"format": "speechscope-models", "version": 1, "models": {"whisper": {}}}
+            zf.writestr("manifest.json", json.dumps(manifest))
+        else:
+            zf.writestr("neco.txt", "x")
+    return path
+
+
+def test_models_install_dialog_unpacks_bundle(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    from speechscope_app.ui.models_install_dialog import ModelsInstallDialog
+
+    library = settings.make_library()
+    assert library is not None
+    dialog = ModelsInstallDialog(library, settings.models_dir, archive=_bundle(tmp_path / "m.zip"))
+    qtbot.addWidget(dialog)
+    assert dialog.start_btn.isEnabled()
+    with qtbot.waitSignal(dialog.runner.finished, timeout=15000):
+        dialog.start()
+    assert dialog.installed
+    assert "whisper: rozbaleno 100 %" in dialog.log.toPlainText()
+
+    bad = ModelsInstallDialog(
+        library, settings.models_dir, archive=_bundle(tmp_path / "cizi.zip", valid=False)
+    )
+    qtbot.addWidget(bad)
+    with qtbot.waitSignal(bad.runner.finished, timeout=15000):
+        bad.start()
+    assert not bad.installed
+    assert "není balík" in bad.status.text()
+
+    empty = ModelsInstallDialog(library, settings.models_dir)
+    qtbot.addWidget(empty)
+    assert not empty.start_btn.isEnabled()

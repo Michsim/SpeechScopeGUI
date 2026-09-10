@@ -54,6 +54,11 @@ aplikace (Flet) žije v samostatném repu a volá odsud CLI jako subprocess.
   leží: `SPEECHSCOPE_MODELS`, jinak `models/`. Stahuje je
   `speechscope models download`. **Nikdy nic nenačítat ze složky `legacy/`**,
   ta v provozu nebude existovat.
+- Model je „na místě“ jen se všemi `markers` z katalogu (samotná složka
+  nestačí, zůstane po přerušeném stažení). Stahování i rozbalení jde přes
+  `<model>.part` a na místo se přejmenuje až hotové (`_install`). Balík pro
+  kliniky: `models pack` → zip bez komprese s `manifest.json` (SHA-256),
+  `models unpack` ho ověřuje; verze formátu `BUNDLE_VERSION`.
 - Výjimka jsou váhy vlastního modelu segmentace, ty jdou v balíčku
   (`src/speechscope/models/`), protože jsou naše a mají 21 MB.
 
