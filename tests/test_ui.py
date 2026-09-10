@@ -14,14 +14,8 @@ from speechscope_app.ui.widgets.param_form import ParamForm
 
 
 @pytest.fixture
-def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AppSettings:
-    from PySide6.QtCore import QSettings
-
-    QSettings.setDefaultFormat(QSettings.Format.IniFormat)
-    QSettings.setPath(
-        QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(tmp_path / "settings")
-    )
-    s = AppSettings()
+def settings(tmp_path: Path) -> AppSettings:
+    s = AppSettings(tmp_path / "settings.ini")
     s.use_fake_library = True
     s.models_dir = tmp_path / "models"
     s.work_root = tmp_path / "work"

@@ -28,8 +28,17 @@ def app_data_dir() -> Path:
 
 
 class AppSettings:
-    def __init__(self) -> None:
-        self._q = QSettings(ORG, APP)
+    def __init__(self, path: Path | None = None) -> None:
+        """Bez `path` registr uživatele; s `path` INI soubor (testy, snímky).
+
+        `QSettings.setDefaultFormat` na konstruktor `QSettings(org, app)`
+        nepůsobí, proto explicitní soubor: jinak testy přepisují skutečné
+        nastavení uživatele.
+        """
+        if path is None:
+            self._q = QSettings(ORG, APP)
+        else:
+            self._q = QSettings(str(path), QSettings.Format.IniFormat)
 
     # --- knihovna -------------------------------------------------------------
 
