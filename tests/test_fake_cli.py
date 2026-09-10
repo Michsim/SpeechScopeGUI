@@ -46,7 +46,18 @@ def test_params_json_and_unknown() -> None:
     bare = json.loads(run("list", "--params", "linguistic.syntactic.mlu", "--json").stdout)
     assert bare["params"] == {}
     bad = run("list", "--params", "nope", "--json")
-    assert bad.returncode == 2 and "neznámá feature" in bad.stderr
+    assert bad.returncode == 2 and "neznámá feature ani provider" in bad.stderr
+
+
+def test_providers_json_and_provider_params() -> None:
+    providers = json.loads(run("list", "--providers", "--json").stdout)
+    assert [p["name"] for p in providers] == ["nlp", "phonemes", "segments", "transcript"]
+    assert "model" in providers[2]["params"]
+    seg = json.loads(run("list", "--params", "segments", "--json").stdout)
+    assert seg["kind"] == "provider"
+    assert seg["params"]["model"]["choices"] == ["auto", "labels", "pyannote", "conformer"]
+    f0 = json.loads(run("list", "--params", "acoustic.pitch.f0", "--json").stdout)
+    assert f0["kind"] == "feature"
 
 
 def test_doctor_json_and_models_dir(tmp_path: Path) -> None:
@@ -176,6 +187,16 @@ def test_library_wrapper_reads_fake(fake_library: Library) -> None:
     assert f0.vad_supported and [p.name for p in f0.params][:2] == ["f_min", "f_max"]
     assert f0.params[0].bounds == {"gt": 0}
     assert {m["key"] for m in fake_library.models()["models"]} >= {"whisper", "onnx"}
+    providers = fake_library.providers()
+    assert [p.name for p in providers] == ["nlp", "phonemes", "segments", "transcript"]
+    assert all(p.kind == "provider" for p in providers)
+    transcript = fake_library.params("transcript")
+    assert transcript.kind == "provider"
+    assert next(p for p in transcript.params if p.name == "device").choices == [
+        "auto",
+        "cpu",
+        "cuda",
+    ]
     with pytest.raises(LibraryError):
         fake_library.params("nope")
 

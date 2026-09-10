@@ -62,6 +62,7 @@ def test_query_args() -> None:
         "acoustic.pitch.f0",
         "--json",
     ]
+    assert command.providers_args() == ["list", "--providers", "--json"]
     assert command.doctor_args(models_dir=Path("M")) == ["--models-dir", "M", "doctor", "--json"]
     assert command.models_download_args(only=["onnx", "whisper"]) == [
         "models",

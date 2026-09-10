@@ -123,7 +123,10 @@ class ParamInfo:
 
 @dataclass(slots=True)
 class FeatureParams:
+    """Parametry feature nebo providera (`kind` je "feature" nebo "provider")."""
+
     name: str
+    kind: str
     vad_supported: bool
     vad_required: bool
     vad_default: dict[str, bool]
@@ -134,6 +137,7 @@ class FeatureParams:
         vad = item.get("vad", {})
         return cls(
             name=item["name"],
+            kind=str(item.get("kind", "feature")),
             vad_supported=bool(vad.get("supported", False)),
             vad_required=bool(vad.get("required", False)),
             vad_default=dict(vad.get("default", {})),
@@ -151,6 +155,7 @@ class Library:
         self.models_dir = models_dir
         self._features: dict[str | None, list[FeatureInfo]] = {}
         self._params: dict[str, FeatureParams] = {}
+        self._providers: list[FeatureParams] | None = None
 
     def argv(self, args: list[str]) -> list[str]:
         return [*self.command, *args]
@@ -216,16 +221,23 @@ class Library:
         return list(self._features[task])
 
     def params(self, name: str) -> FeatureParams:
+        """Parametry feature nebo providera; jméno providera je `segments` apod."""
         if name not in self._params:
             payload = self.run_json(command.params_args(name, models_dir=self.models_dir))
             self._params[name] = FeatureParams.from_json(payload)
         return self._params[name]
 
-    def provider_params(self, provider: str) -> list[ParamInfo]:
-        """Parametry providerů, dokud je knihovna nevydává sama."""
-        declared = contract.PROVIDER_PARAMS.get(provider, {})
-        return [ParamInfo.from_json(k, v) for k, v in declared.items()]
+    def providers(self) -> list[FeatureParams]:
+        """Všechny providery i s parametry, jedním dotazem."""
+        if self._providers is None:
+            payload = self.run_json(command.providers_args(models_dir=self.models_dir))
+            found = [FeatureParams.from_json({"kind": "provider", **item}) for item in payload]
+            for fp in found:
+                self._params.setdefault(fp.name, fp)
+            self._providers = found
+        return list(self._providers)
 
     def clear_cache(self) -> None:
         self._features.clear()
         self._params.clear()
+        self._providers = None

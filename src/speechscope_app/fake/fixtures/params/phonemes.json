@@ -1,0 +1,25 @@
+{
+  "kind": "provider",
+  "name": "phonemes",
+  "version": "1.1",
+  "requires": [],
+  "params": {
+    "phnrec_dir": {
+      "default": "",
+      "type": "str",
+      "description": "Složka s phnrec.exe a modelem; prázdné = úložiště modelů"
+    },
+    "min_phones": {
+      "default": 5,
+      "type": "int",
+      "description": "Pod tolik rozpoznaných fonémů se výstup zahodí jako nespolehlivý",
+      "ge": 1
+    },
+    "timeout": {
+      "default": 600.0,
+      "type": "float",
+      "description": "Nejdelší povolený běh rozpoznávače (s)",
+      "gt": 0
+    }
+  }
+}

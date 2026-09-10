@@ -1,0 +1,113 @@
+{
+  "kind": "provider",
+  "name": "segments",
+  "version": "2.1",
+  "requires": [],
+  "params": {
+    "model": {
+      "default": "auto",
+      "type": "str",
+      "description": "Zdroj segmentace: auto (co je po ruce), labels (jen hotové labely), pyannote, conformer",
+      "choices": [
+        "auto",
+        "labels",
+        "pyannote",
+        "conformer"
+      ]
+    },
+    "labels_dir": {
+      "default": "",
+      "type": "str",
+      "description": "Adresář s hotovými labely; prázdné = hledat vedle nahrávky"
+    },
+    "labels_suffix": {
+      "default": ".labels.txt",
+      "type": "str",
+      "description": "Přípona souboru s labely"
+    },
+    "speech_labels": {
+      "default": "speech,sv,su",
+      "type": "str",
+      "description": "Popisky brané jako řeč, oddělené čárkou"
+    },
+    "cut_audio": {
+      "default": false,
+      "type": "bool",
+      "description": "Uložit i vyříznutou řeč jako wav do pracovní složky"
+    },
+    "model_path": {
+      "default": "",
+      "type": "str",
+      "description": "Cesta k souboru s modelem; prázdné = váhy dodané s knihovnou (conformer), nebo stažení z Hugging Face (pyannote)"
+    },
+    "hf_token": {
+      "default": "",
+      "type": "str",
+      "description": "Token Hugging Face pro pyannote; prázdné = z proměnné HF_TOKEN"
+    },
+    "onset": {
+      "default": 0.7,
+      "type": "float",
+      "description": "Práh náběhu binarizace pyannote",
+      "ge": 0,
+      "le": 1
+    },
+    "offset": {
+      "default": 0.7,
+      "type": "float",
+      "description": "Práh doběhu binarizace pyannote",
+      "ge": 0,
+      "le": 1
+    },
+    "min_duration_on": {
+      "default": 0.0,
+      "type": "float",
+      "description": "Nejkratší řečový úsek (s)",
+      "ge": 0
+    },
+    "min_duration_off": {
+      "default": 0.1,
+      "type": "float",
+      "description": "Nejkratší pauza (s)",
+      "ge": 0
+    },
+    "min_breath_duration": {
+      "default": 0.15,
+      "type": "float",
+      "description": "Kratší nádech se u modelu conformer přepíše na ticho (s)",
+      "ge": 0
+    },
+    "chunk_seconds": {
+      "default": 30.0,
+      "type": "float",
+      "description": "Conformer počítá po oknech této délky (s); 0 = celá nahrávka najednou, paměť pak roste s druhou mocninou délky",
+      "ge": 0
+    },
+    "chunk_overlap": {
+      "default": 5.0,
+      "type": "float",
+      "description": "Překryv sousedních oken conformeru (s)",
+      "ge": 0
+    },
+    "runtime": {
+      "default": "auto",
+      "type": "str",
+      "description": "Čím počítat modely: auto (ONNX když je vyexportované, jinak torch), onnx (bez torche), torch",
+      "choices": [
+        "auto",
+        "onnx",
+        "torch"
+      ]
+    },
+    "onnx_device": {
+      "default": "auto",
+      "type": "str",
+      "description": "Zařízení pro onnxruntime: auto (karta když jde, jinak procesor), cpu, gpu nebo gpu:N"
+    },
+    "onnx_dir": {
+      "default": "",
+      "type": "str",
+      "description": "Složka s ONNX modely; prázdné = segmentation-onnx v úložišti modelů"
+    }
+  }
+}

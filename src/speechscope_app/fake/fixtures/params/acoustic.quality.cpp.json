@@ -1,4 +1,5 @@
 {
+  "kind": "feature",
   "name": "acoustic.quality.cpp",
   "version": "1.0",
   "tasks": [

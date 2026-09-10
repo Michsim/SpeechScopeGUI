@@ -154,7 +154,12 @@ def list_args(
 
 
 def params_args(name: str, *, models_dir: Path | None = None) -> list[str]:
+    """Parametry jedné feature nebo providera (`segments`, `transcript`, ...)."""
     return [*_common(models_dir), "list", "--params", name, "--json"]
+
+
+def providers_args(*, models_dir: Path | None = None) -> list[str]:
+    return [*_common(models_dir), "list", "--providers", "--json"]
 
 
 def doctor_args(*, models_dir: Path | None = None) -> list[str]:

@@ -20,23 +20,7 @@ TASKS = ("phonation", "ddk", "story", "monologue", "reading")
 PROTOCOL_VERSION = 1
 FAKE_VERSION = "0.1.0"
 
-# Parametry providerů, které skutečná knihovna přijímá přes --set,
-# ale zatím nevypisuje. Používá se jen pro validaci --set.
-PROVIDER_PARAMS: dict[str, set[str]] = {
-    "segments": {
-        "model", "labels_dir", "labels_suffix", "speech_labels", "cut_audio", "model_path",
-        "hf_token", "onset", "offset", "min_duration_on", "min_duration_off",
-        "min_breath_duration", "chunk_seconds", "chunk_overlap", "runtime", "onnx_device",
-        "onnx_dir",
-    },
-    "transcript": {
-        "language", "model", "device", "compute_type", "beam_size", "word_timestamps",
-        "drop_repetitions", "repetition_min_length", "repetition_max_length",
-        "repetition_min_count",
-    },
-    "nlp": {"language", "mattr_window"},
-    "phonemes": set(),
-}  # fmt: skip
+PROVIDERS = ("nlp", "phonemes", "segments", "transcript")
 
 
 class Fail(Exception):
@@ -54,6 +38,7 @@ def _features() -> list[dict[str, Any]]:
 
 
 def _params_of(name: str) -> dict[str, Any] | None:
+    """Parametry feature nebo providera, jako `list --params NAME --json`."""
     path = FIXTURES / "params" / f"{name}.json"
     if path.is_file():
         return json.loads(path.read_text(encoding="utf-8"))
@@ -62,6 +47,7 @@ def _params_of(name: str) -> dict[str, Any] | None:
         return None
     # Skutečná knihovna vrací pro feature bez parametrů prázdný slovník.
     return {
+        "kind": "feature",
         "name": spec["name"],
         "version": spec["version"],
         "tasks": spec["tasks"],
@@ -170,15 +156,11 @@ def _validate_sets(items: list[str]) -> None:
             raise Fail(f"--set čeká NAME.PARAM=VALUE, dostal {item!r}")
         key, _ = item.split("=", 1)
         owner, _, param = key.rpartition(".")
-        if owner in PROVIDER_PARAMS:
-            if param not in PROVIDER_PARAMS[owner]:
-                raise Fail(f"provider {owner!r} nemá parametr {param!r}")
-            continue
-        if owner not in names:
+        if owner not in names and owner not in PROVIDERS:
             raise Fail(f"neznámá feature nebo provider {owner!r}")
         spec = _params_of(owner) or {}
         if param not in spec.get("params", {}) and param != "use_vad":
-            raise Fail(f"feature {owner!r} nemá parametr {param!r}")
+            raise Fail(f"{owner!r} nemá parametr {param!r}")
 
 
 def _validate_config(path: str | None) -> None:
@@ -198,8 +180,16 @@ def cmd_list(ns: argparse.Namespace) -> int:
     if ns.params:
         payload = _params_of(ns.params)
         if payload is None:
-            raise Fail(f"neznámá feature {ns.params!r}")
+            raise Fail(f"neznámá feature ani provider {ns.params!r}")
         print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+    if ns.providers:
+        payload = _load("providers.json")
+        if ns.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            for item in payload:
+                print(f"{item['name']:12} {', '.join(item['params']) or '-'}")
         return 0
     specs = _features()
     if ns.task:
@@ -451,6 +441,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--task")
     p.add_argument("--domain")
     p.add_argument("--params")
+    p.add_argument("--providers", action="store_true")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_list)
 

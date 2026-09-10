@@ -1,0 +1,67 @@
+{
+  "kind": "provider",
+  "name": "transcript",
+  "version": "1.0",
+  "requires": [],
+  "params": {
+    "language": {
+      "default": "cs",
+      "type": "str",
+      "description": "Kód jazyka nahrávky; prázdné = nechat model rozhodnout"
+    },
+    "model": {
+      "default": "large-v3",
+      "type": "str",
+      "description": "Model Whisperu, jméno nebo cesta"
+    },
+    "device": {
+      "default": "auto",
+      "type": "str",
+      "description": "Kde počítat",
+      "choices": [
+        "auto",
+        "cpu",
+        "cuda"
+      ]
+    },
+    "compute_type": {
+      "default": "auto",
+      "type": "str",
+      "description": "Přesnost výpočtu; auto vybere nejrychlejší, kterou zařízení umí. Ruční volby jsou třeba float16, int8_float16 nebo int8"
+    },
+    "beam_size": {
+      "default": 5,
+      "type": "int",
+      "description": "Šířka svazku při dekódování",
+      "ge": 1
+    },
+    "word_timestamps": {
+      "default": true,
+      "type": "bool",
+      "description": "Vrátit i časy jednotlivých slov (potřebné pro tempo řeči)"
+    },
+    "drop_repetitions": {
+      "default": true,
+      "type": "bool",
+      "description": "Zahodit opakované fráze, typický projev halucinace Whisperu"
+    },
+    "repetition_min_length": {
+      "default": 2,
+      "type": "int",
+      "description": "Nejkratší fráze, která se hlídá na opakování (slova)",
+      "ge": 1
+    },
+    "repetition_max_length": {
+      "default": 10,
+      "type": "int",
+      "description": "Nejdelší fráze, která se hlídá na opakování (slova)",
+      "ge": 1
+    },
+    "repetition_min_count": {
+      "default": 4,
+      "type": "int",
+      "description": "Kolikrát se fráze musí opakovat, aby se zkrátila",
+      "ge": 2
+    }
+  }
+}

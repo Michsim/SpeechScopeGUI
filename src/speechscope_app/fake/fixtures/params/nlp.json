@@ -1,0 +1,21 @@
+{
+  "kind": "provider",
+  "name": "nlp",
+  "version": "1.0",
+  "requires": [
+    "transcript"
+  ],
+  "params": {
+    "language": {
+      "default": "",
+      "type": "str",
+      "description": "Jazyk rozboru; prázdné = vzít z přepisu"
+    },
+    "mattr_window": {
+      "default": 50,
+      "type": "int",
+      "description": "Šířka klouzavého okna pro MATTR a NPMI (slova). Původní skript ji odvozoval z nejkratšího přepisu v dávce",
+      "ge": 2
+    }
+  }
+}

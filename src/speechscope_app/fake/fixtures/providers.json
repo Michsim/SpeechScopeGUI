@@ -1,0 +1,224 @@
+[
+  {
+    "name": "nlp",
+    "version": "1.0",
+    "requires": [
+      "transcript"
+    ],
+    "params": {
+      "language": {
+        "default": "",
+        "type": "str",
+        "description": "Jazyk rozboru; prázdné = vzít z přepisu"
+      },
+      "mattr_window": {
+        "default": 50,
+        "type": "int",
+        "description": "Šířka klouzavého okna pro MATTR a NPMI (slova). Původní skript ji odvozoval z nejkratšího přepisu v dávce",
+        "ge": 2
+      }
+    }
+  },
+  {
+    "name": "phonemes",
+    "version": "1.1",
+    "requires": [],
+    "params": {
+      "phnrec_dir": {
+        "default": "",
+        "type": "str",
+        "description": "Složka s phnrec.exe a modelem; prázdné = úložiště modelů"
+      },
+      "min_phones": {
+        "default": 5,
+        "type": "int",
+        "description": "Pod tolik rozpoznaných fonémů se výstup zahodí jako nespolehlivý",
+        "ge": 1
+      },
+      "timeout": {
+        "default": 600.0,
+        "type": "float",
+        "description": "Nejdelší povolený běh rozpoznávače (s)",
+        "gt": 0
+      }
+    }
+  },
+  {
+    "name": "segments",
+    "version": "2.1",
+    "requires": [],
+    "params": {
+      "model": {
+        "default": "auto",
+        "type": "str",
+        "description": "Zdroj segmentace: auto (co je po ruce), labels (jen hotové labely), pyannote, conformer",
+        "choices": [
+          "auto",
+          "labels",
+          "pyannote",
+          "conformer"
+        ]
+      },
+      "labels_dir": {
+        "default": "",
+        "type": "str",
+        "description": "Adresář s hotovými labely; prázdné = hledat vedle nahrávky"
+      },
+      "labels_suffix": {
+        "default": ".labels.txt",
+        "type": "str",
+        "description": "Přípona souboru s labely"
+      },
+      "speech_labels": {
+        "default": "speech,sv,su",
+        "type": "str",
+        "description": "Popisky brané jako řeč, oddělené čárkou"
+      },
+      "cut_audio": {
+        "default": false,
+        "type": "bool",
+        "description": "Uložit i vyříznutou řeč jako wav do pracovní složky"
+      },
+      "model_path": {
+        "default": "",
+        "type": "str",
+        "description": "Cesta k souboru s modelem; prázdné = váhy dodané s knihovnou (conformer), nebo stažení z Hugging Face (pyannote)"
+      },
+      "hf_token": {
+        "default": "",
+        "type": "str",
+        "description": "Token Hugging Face pro pyannote; prázdné = z proměnné HF_TOKEN"
+      },
+      "onset": {
+        "default": 0.7,
+        "type": "float",
+        "description": "Práh náběhu binarizace pyannote",
+        "ge": 0,
+        "le": 1
+      },
+      "offset": {
+        "default": 0.7,
+        "type": "float",
+        "description": "Práh doběhu binarizace pyannote",
+        "ge": 0,
+        "le": 1
+      },
+      "min_duration_on": {
+        "default": 0.0,
+        "type": "float",
+        "description": "Nejkratší řečový úsek (s)",
+        "ge": 0
+      },
+      "min_duration_off": {
+        "default": 0.1,
+        "type": "float",
+        "description": "Nejkratší pauza (s)",
+        "ge": 0
+      },
+      "min_breath_duration": {
+        "default": 0.15,
+        "type": "float",
+        "description": "Kratší nádech se u modelu conformer přepíše na ticho (s)",
+        "ge": 0
+      },
+      "chunk_seconds": {
+        "default": 30.0,
+        "type": "float",
+        "description": "Conformer počítá po oknech této délky (s); 0 = celá nahrávka najednou, paměť pak roste s druhou mocninou délky",
+        "ge": 0
+      },
+      "chunk_overlap": {
+        "default": 5.0,
+        "type": "float",
+        "description": "Překryv sousedních oken conformeru (s)",
+        "ge": 0
+      },
+      "runtime": {
+        "default": "auto",
+        "type": "str",
+        "description": "Čím počítat modely: auto (ONNX když je vyexportované, jinak torch), onnx (bez torche), torch",
+        "choices": [
+          "auto",
+          "onnx",
+          "torch"
+        ]
+      },
+      "onnx_device": {
+        "default": "auto",
+        "type": "str",
+        "description": "Zařízení pro onnxruntime: auto (karta když jde, jinak procesor), cpu, gpu nebo gpu:N"
+      },
+      "onnx_dir": {
+        "default": "",
+        "type": "str",
+        "description": "Složka s ONNX modely; prázdné = segmentation-onnx v úložišti modelů"
+      }
+    }
+  },
+  {
+    "name": "transcript",
+    "version": "1.0",
+    "requires": [],
+    "params": {
+      "language": {
+        "default": "cs",
+        "type": "str",
+        "description": "Kód jazyka nahrávky; prázdné = nechat model rozhodnout"
+      },
+      "model": {
+        "default": "large-v3",
+        "type": "str",
+        "description": "Model Whisperu, jméno nebo cesta"
+      },
+      "device": {
+        "default": "auto",
+        "type": "str",
+        "description": "Kde počítat",
+        "choices": [
+          "auto",
+          "cpu",
+          "cuda"
+        ]
+      },
+      "compute_type": {
+        "default": "auto",
+        "type": "str",
+        "description": "Přesnost výpočtu; auto vybere nejrychlejší, kterou zařízení umí. Ruční volby jsou třeba float16, int8_float16 nebo int8"
+      },
+      "beam_size": {
+        "default": 5,
+        "type": "int",
+        "description": "Šířka svazku při dekódování",
+        "ge": 1
+      },
+      "word_timestamps": {
+        "default": true,
+        "type": "bool",
+        "description": "Vrátit i časy jednotlivých slov (potřebné pro tempo řeči)"
+      },
+      "drop_repetitions": {
+        "default": true,
+        "type": "bool",
+        "description": "Zahodit opakované fráze, typický projev halucinace Whisperu"
+      },
+      "repetition_min_length": {
+        "default": 2,
+        "type": "int",
+        "description": "Nejkratší fráze, která se hlídá na opakování (slova)",
+        "ge": 1
+      },
+      "repetition_max_length": {
+        "default": 10,
+        "type": "int",
+        "description": "Nejdelší fráze, která se hlídá na opakování (slova)",
+        "ge": 1
+      },
+      "repetition_min_count": {
+        "default": 4,
+        "type": "int",
+        "description": "Kolikrát se fráze musí opakovat, aby se zkrátila",
+        "ge": 2
+      }
+    }
+  }
+]

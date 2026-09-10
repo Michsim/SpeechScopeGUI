@@ -202,9 +202,10 @@ class BatchPage(QWidget):
                 0, f.description or "\n".join(f"{k}: {v}" for k, v in f.outputs.items())
             )
             item.setData(0, Qt.ItemDataRole.UserRole, f.name)
-        for provider in contract.PROVIDER_PARAMS:
-            item = QTreeWidgetItem(self.tree, [f"[{contract.PROVIDER_LABELS[provider]}]", ""])
-            item.setData(0, Qt.ItemDataRole.UserRole, provider)
+        for provider in self._library.providers():
+            label = contract.PROVIDER_LABELS.get(provider.name, provider.name)
+            item = QTreeWidgetItem(self.tree, [f"[{label}]", ""])
+            item.setData(0, Qt.ItemDataRole.UserRole, provider.name)
         self.tree.expandAll()
         self.tree.blockSignals(False)
         self._update_providers()
@@ -266,10 +267,7 @@ class BatchPage(QWidget):
         form = self._param_forms.get(name)
         if form is None:
             try:
-                if name in contract.PROVIDER_PARAMS:
-                    params = self._library.provider_params(name)
-                else:
-                    params = self._library.params(name).params
+                params = self._library.params(name).params
             except LibraryError as exc:
                 self.params_host.addWidget(QLabel(str(exc)))
                 return

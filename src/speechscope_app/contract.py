@@ -1,8 +1,8 @@
 """Smlouva mezi GUI a knihovnou SpeechScope.
 
-Všechno, co GUI o knihovně ví napevno, je tady. Zbytek (feature, jejich
-parametry, stav modelů) si GUI tahá za běhu přes `list --json`,
-`list --params NAME --json` a `doctor --json`.
+Všechno, co GUI o knihovně ví napevno, je tady. Zbytek (feature a providery,
+jejich parametry, stav modelů) si GUI tahá za běhu přes `list --json`,
+`list --providers --json`, `list --params NAME --json` a `doctor --json`.
 
 Tvar událostí `--progress-json` je smlouva knihovny (viz její `_progress.py`):
 ``start`` -> ``file`` (pro každou nahrávku) -> ``done`` -> ``saved``.
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any
 
 # Verze smlouvy událostí, kterou GUI umí. Porovnává se s polem `protocol`
 # v události `start`.
@@ -52,83 +51,6 @@ PROVIDER_LABELS: dict[str, str] = {
     "nlp": "Jazykový rozbor (Stanza)",
     "phonemes": "Fonémy (phnrec)",
 }
-
-# Parametry providerů, které GUI potřebuje nabídnout uživateli.
-#
-# Knihovna je zatím přes `list --params` nevydává (vrací "neznámá feature"),
-# takže jsou tady opsané z `providers/segments.py` a `providers/transcript.py`.
-# Jakmile knihovna začne providery vypisovat, tenhle slovník zmizí.
-PROVIDER_PARAMS: dict[str, dict[str, dict[str, Any]]] = {
-    "segments": {
-        "model": {
-            "default": "auto",
-            "type": "str",
-            "description": "Model segmentace; auto bere jen hotovou cache",
-            "choices": ["auto", "labels", "pyannote", "conformer"],
-        },
-        "speech_labels": {
-            "default": "speech,sv,su",
-            "type": "str",
-            "description": "Popisky, které se počítají jako řeč",
-        },
-        "chunk_seconds": {
-            "default": 30.0,
-            "type": "float",
-            "description": "Délka okna conformeru (s); 0 = v celku",
-            "ge": 0,
-        },
-        "chunk_overlap": {
-            "default": 5.0,
-            "type": "float",
-            "description": "Překryv oken conformeru (s)",
-            "ge": 0,
-        },
-        "runtime": {
-            "default": "auto",
-            "type": "str",
-            "description": "auto bere ONNX, když jsou modely, jinak torch",
-            "choices": ["auto", "onnx", "torch"],
-        },
-        "onnx_device": {
-            "default": "auto",
-            "type": "str",
-            "description": "auto, cpu, gpu nebo gpu:N",
-        },
-    },
-    "transcript": {
-        "language": {
-            "default": "cs",
-            "type": "str",
-            "description": "Jazyk přepisu",
-            "choices": ["cs", "en", "de", "fr", "es"],
-        },
-        "model": {
-            "default": "large-v3",
-            "type": "str",
-            "description": "Model Whisperu, jméno nebo cesta",
-        },
-        "beam_size": {
-            "default": 5,
-            "type": "int",
-            "description": "Šířka svazku při dekódování",
-            "ge": 1,
-        },
-    },
-    "nlp": {
-        "language": {
-            "default": "",
-            "type": "str",
-            "description": "Jazyk rozboru; prázdné = vzít z přepisu",
-        },
-        "mattr_window": {
-            "default": 50,
-            "type": "int",
-            "description": "Šířka okna MATTR (slova)",
-            "ge": 2,
-        },
-    },
-}
-
 
 # --- události --progress-json -------------------------------------------------
 
