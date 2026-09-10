@@ -100,8 +100,8 @@ def test_extract_progress_json(recordings: Path, tmp_path: Path) -> None:
     assert "linguistic.lexical.mattr" not in rows[0]
     assert "stahuji" not in log.read_text(encoding="utf-8")
     assert "vybráno" in log.read_text(encoding="utf-8")
-    # stdout je čistý JSON, log jde jen na stderr
-    assert "INFO" in proc.stderr and "INFO" not in proc.stdout
+    # stdout je čistý JSON; s --log-file jde log jen do souboru, jako u skutečné knihovny
+    assert proc.stderr == "" and "INFO" not in proc.stdout
 
 
 def test_extract_no_recursive(recordings: Path, tmp_path: Path) -> None:

@@ -34,6 +34,24 @@ def test_runner_collects_events(
     assert not runner.running
 
 
+def test_runner_tails_log_file(
+    qtbot: QtBot, fake_library: Library, recordings: Path, tmp_path: Path
+) -> None:
+    """S --log-file knihovna na stderr nepíše; log se musí dočítat ze souboru."""
+    runner = Runner()
+    logs: list[str] = []
+    runner.log.connect(logs.append)
+    log_file = tmp_path / "run" / "speechscope.log"
+    req = ExtractRequest(
+        inputs=[recordings], task="story", out=tmp_path / "o.csv", log_file=log_file
+    )
+    with qtbot.waitSignal(runner.finished, timeout=15000):
+        runner.start(fake_library.argv(extract_args(req)), log_file=log_file)
+    assert log_file.is_file()
+    assert any("vybráno" in line for line in logs)
+    assert logs == runner.log_lines and len(logs) == len(set(logs))  # nic dvakrát
+
+
 def test_runner_cancel(
     qtbot: QtBot, fake_library: Library, recordings: Path, tmp_path: Path, monkeypatch
 ) -> None:

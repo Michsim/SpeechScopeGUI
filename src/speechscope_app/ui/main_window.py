@@ -138,12 +138,13 @@ class MainWindow(QMainWindow):
             config_path.write_text(proto.config_yaml(), encoding="utf-8")
         proto.save(run_dir / "protocol.yaml")  # co přesně se spustilo
 
+        log_file = run_dir / "speechscope.log"
         req = proto.to_request(
             inputs,
             out=run_dir / "features.csv",
             work_dir=work_dir,
             config_path=config_path,
-            log_file=run_dir / "speechscope.log",
+            log_file=log_file,
         )
         argv = self.library.argv(extract_args(req, models_dir=self.settings.models_dir))
 
@@ -151,7 +152,7 @@ class MainWindow(QMainWindow):
         if inputs:
             self.settings.last_input_dir = inputs[0].parent
         self.nav.setCurrentRow(PAGE_RUN)
-        self.run_page.start(argv, title=f"Spouštím {proto.name}…")
+        self.run_page.start(argv, title=f"Spouštím {proto.name}…", log_file=log_file)
 
     def _batch_finished(self, state: contract.BatchState, code: int, cancelled: bool) -> None:
         if cancelled or code != 0 or not state.out:

@@ -67,12 +67,15 @@ def _delay() -> float:
 
 
 def _log(msg: str, log_file: Path | None, level: str = "INFO") -> None:
+    """Jako skutečná knihovna: s `--log-file` jen do souboru, jinak na stderr."""
     line = f"{level} fake: {msg}"
-    print(line, file=sys.stderr, flush=True)
     if log_file:
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with log_file.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
+            fh.flush()
+    else:
+        print(line, file=sys.stderr, flush=True)
 
 
 def _emit(payload: dict[str, Any]) -> None:

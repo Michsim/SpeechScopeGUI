@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -61,7 +62,7 @@ class RunPage(QWidget):
         bottom.addWidget(self.cancel_btn)
         layout.addLayout(bottom)
 
-    def start(self, argv: list[str], *, title: str) -> None:
+    def start(self, argv: list[str], *, title: str, log_file: Path | None = None) -> None:
         self.files.setRowCount(0)
         self.log.clear()
         self.bar.setRange(0, 0)
@@ -70,7 +71,7 @@ class RunPage(QWidget):
         self._started_at = time.monotonic()
         self.log.appendPlainText("$ " + " ".join(argv))
         self.cancel_btn.setEnabled(True)
-        self.runner.start(argv)
+        self.runner.start(argv, log_file=log_file)
 
     def _on_event(self, event: contract.Event) -> None:
         state = self.runner.state

@@ -1,16 +1,22 @@
 """Řízení dlouhého běhu knihovny přes QProcess.
 
-Stdout se čte po řádcích a překládá na události ze `contract`, stderr
-jde ven jako log. Zrušení je `kill()`; knihovna nemá měkké přerušení
-a mezivýsledky z pracovní složky zůstávají použitelné.
+Stdout se čte po řádcích a překládá na události ze `contract`. Log jde
+ven po řádcích ze stderr a z `--log-file`: s `--log-file` knihovna na
+stderr nepíše nic, takže se soubor průběžně dočítá. Zrušení je `kill()`;
+knihovna nemá měkké přerušení a mezivýsledky z pracovní složky zůstávají
+použitelné.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal
+from pathlib import Path
+
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
 from ..contract import BatchState, ContractError, Event, parse_event
 from .library import subprocess_env
+
+LOG_POLL_MS = 500
 
 
 class Runner(QObject):
@@ -28,12 +34,21 @@ class Runner(QObject):
         self._stderr_buf = ""
         self._cancelled = False
         self.log_lines: list[str] = []
+        self._log_file: Path | None = None
+        self._log_pos = 0
+        self._log_tail = ""
+        self._log_timer = QTimer(self)
+        self._log_timer.setInterval(LOG_POLL_MS)
+        self._log_timer.timeout.connect(self._poll_log_file)
 
     @property
     def running(self) -> bool:
         return self._proc is not None and self._proc.state() != QProcess.ProcessState.NotRunning
 
-    def start(self, argv: list[str], *, cwd: str | None = None) -> None:
+    def start(
+        self, argv: list[str], *, cwd: str | None = None, log_file: Path | None = None
+    ) -> None:
+        """`log_file` je tentýž soubor, který dostala knihovna přes `--log-file`."""
         if self.running:
             raise RuntimeError("běh už probíhá")
         self.state = BatchState()
@@ -41,6 +56,11 @@ class Runner(QObject):
         self._stdout_buf = ""
         self._stderr_buf = ""
         self._cancelled = False
+        self._log_file = log_file
+        self._log_pos = log_file.stat().st_size if log_file and log_file.is_file() else 0
+        self._log_tail = ""
+        if log_file is not None:
+            self._log_timer.start()
 
         proc = QProcess(self)
         env = QProcessEnvironment()
@@ -85,6 +105,32 @@ class Runner(QObject):
         for line in lines:
             self._emit_log(line)
 
+    def _poll_log_file(self) -> None:
+        """Dočte, co knihovna od minula do logu přidala."""
+        if self._log_file is None or not self._log_file.is_file():
+            return
+        try:
+            with self._log_file.open("rb") as fh:
+                fh.seek(self._log_pos)
+                chunk = fh.read()
+        except OSError:
+            return
+        if not chunk:
+            return
+        self._log_pos += len(chunk)
+        self._log_tail += chunk.decode("utf-8", errors="replace")
+        *lines, self._log_tail = self._log_tail.split("\n")
+        for line in lines:
+            self._emit_log(line)
+
+    def _stop_log_file(self) -> None:
+        self._log_timer.stop()
+        self._poll_log_file()
+        if self._log_tail.strip():
+            self._emit_log(self._log_tail)
+        self._log_tail = ""
+        self._log_file = None
+
     def _handle_line(self, line: str) -> None:
         try:
             event: Event | None = parse_event(line)
@@ -105,6 +151,7 @@ class Runner(QObject):
 
     def _on_error(self, error: QProcess.ProcessError) -> None:
         if error == QProcess.ProcessError.FailedToStart:
+            self._stop_log_file()
             self._emit_log("knihovnu se nepodařilo spustit")
             self.finished.emit(-1, False)
             self._proc = None
@@ -117,5 +164,6 @@ class Runner(QObject):
         if self._stderr_buf.strip():
             self._emit_log(self._stderr_buf)
             self._stderr_buf = ""
+        self._stop_log_file()
         self.finished.emit(code, self._cancelled)
         self._proc = None
