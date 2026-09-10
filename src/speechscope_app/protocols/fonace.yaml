@@ -1,0 +1,6 @@
+format: 1
+name: Fonace, základní
+description: Kvalita hlasu a F0 z prodloužené samohlásky. Bez segmentace a přepisu.
+task: phonation
+domain: acoustic
+vad: false

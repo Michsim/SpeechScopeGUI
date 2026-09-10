@@ -1,0 +1,36 @@
+{
+  "name": "acoustic.timing.segmentation",
+  "version": "1.0",
+  "tasks": [
+    "monologue",
+    "reading",
+    "story"
+  ],
+  "requires": [
+    "segments"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "monologue": false,
+      "reading": false,
+      "story": false
+    }
+  },
+  "outputs": {
+    "dpi": "Medián délky pauz, DPI (ms)",
+    "dbi": "Medián délky nádechů, DBI (ms)",
+    "vsdr": "Podíl znělé řeči na celkové řeči, VSDR (-)",
+    "ste": "Entropie časování řeči ze zastoupení čtyř tříd, STE (bit)",
+    "ssr_change": "Změna počtu řečových segmentů za minutu, poslední třetina nahrávky minus první, ΔSSR (seg/min)"
+  },
+  "params": {
+    "min_segments": {
+      "default": 6,
+      "type": "int",
+      "description": "Nejméně segmentů, aby se počítala změna tempa (ssr_change)",
+      "ge": 2
+    }
+  }
+}

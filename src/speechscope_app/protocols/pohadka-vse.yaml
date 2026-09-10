@@ -1,0 +1,9 @@
+format: 1
+name: Pohádka, akustika i lingvistika
+description: Všechny feature pro vyprávění. Spouští Whisper i Stanzu, trvá minuty na nahrávku.
+task: story
+config:
+  segments:
+    model: conformer
+  transcript:
+    language: cs

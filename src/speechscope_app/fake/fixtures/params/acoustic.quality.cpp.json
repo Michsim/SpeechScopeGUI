@@ -1,0 +1,54 @@
+{
+  "name": "acoustic.quality.cpp",
+  "version": "1.0",
+  "tasks": [
+    "ddk",
+    "monologue",
+    "phonation",
+    "reading",
+    "story"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": true,
+    "required": false,
+    "default": {
+      "ddk": false,
+      "monologue": false,
+      "phonation": false,
+      "reading": false,
+      "story": false
+    }
+  },
+  "outputs": {
+    "cpp": "Cepstral peak prominence (dB)",
+    "cpps": "Cepstral peak prominence smoothed (dB)"
+  },
+  "params": {
+    "window_length": {
+      "default": 0.041,
+      "type": "float",
+      "description": "Délka okna (s)",
+      "gt": 0
+    },
+    "window_overlap": {
+      "default": 90.0,
+      "type": "float",
+      "description": "Překryv oken (%)",
+      "ge": 0,
+      "lt": 100
+    },
+    "time_smoothing": {
+      "default": 10,
+      "type": "int",
+      "description": "Řád filtru pro časové průměrování cepster (jen CPPS)",
+      "ge": 1
+    },
+    "quefrency_smoothing": {
+      "default": 5,
+      "type": "int",
+      "description": "Řád filtru pro vyhlazení v kvefrenci (jen CPPS)",
+      "ge": 1
+    }
+  }
+}

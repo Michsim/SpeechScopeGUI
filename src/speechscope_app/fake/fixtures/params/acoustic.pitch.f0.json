@@ -1,0 +1,73 @@
+{
+  "name": "acoustic.pitch.f0",
+  "version": "1.0",
+  "tasks": [
+    "ddk",
+    "monologue",
+    "phonation",
+    "reading",
+    "story"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": true,
+    "required": false,
+    "default": {
+      "ddk": false,
+      "monologue": false,
+      "phonation": false,
+      "reading": false,
+      "story": false
+    }
+  },
+  "outputs": {
+    "std": "Směrodatná odchylka kontury F0 (půltóny)",
+    "median": "Medián kontury F0 (půltóny)",
+    "mean": "Průměr kontury F0 (půltóny)",
+    "max": "Maximum kontury F0 (půltóny)",
+    "min": "Minimum kontury F0 (půltóny)"
+  },
+  "params": {
+    "f_min": {
+      "default": 60.0,
+      "type": "float",
+      "description": "Nejnižší povolená hodnota F0 (Hz)",
+      "gt": 0
+    },
+    "f_max": {
+      "default": 400.0,
+      "type": "float",
+      "description": "Nejvyšší povolená hodnota F0 (Hz)",
+      "gt": 0
+    },
+    "timestep": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Krok analyzačního okna (s)",
+      "gt": 0
+    },
+    "strength_threshold": {
+      "default": 0.3,
+      "type": "float",
+      "description": "Minimální síla tónu, pod kterou je rámec neznělý",
+      "ge": 0,
+      "le": 1
+    },
+    "semitone_ref_mode": {
+      "default": "fmin",
+      "type": "str",
+      "description": "Reference půltónů: fmin (jako starý skript), fixed (pevná Hz), median (medián mluvčího)",
+      "choices": [
+        "fmin",
+        "fixed",
+        "median"
+      ]
+    },
+    "semitone_ref_hz": {
+      "default": 100.0,
+      "type": "float",
+      "description": "Referenční frekvence pro režim fixed (Hz)",
+      "gt": 0
+    }
+  }
+}

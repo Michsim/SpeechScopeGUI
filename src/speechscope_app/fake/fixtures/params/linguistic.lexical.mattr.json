@@ -1,0 +1,23 @@
+{
+  "name": "linguistic.lexical.mattr",
+  "version": "1.0",
+  "tasks": [
+    "monologue",
+    "reading",
+    "story"
+  ],
+  "requires": [
+    "nlp"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "monologue": false,
+      "reading": false,
+      "story": false
+    }
+  },
+  "outputs": {},
+  "params": {}
+}

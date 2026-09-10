@@ -1,0 +1,582 @@
+[
+  {
+    "name": "acoustic.articulation.vowels",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "phonemes"
+    ],
+    "description": "",
+    "outputs": {
+      "f1a": "F1 samohlásky /a/, střed shluku (Hz)",
+      "f2a": "F2 samohlásky /a/, střed shluku (Hz)",
+      "f1i": "F1 samohlásky /i/, střed shluku (Hz)",
+      "f2i": "F2 samohlásky /i/, střed shluku (Hz)",
+      "f1u": "F1 samohlásky /u/, střed shluku (Hz)",
+      "f2u": "F2 samohlásky /u/, střed shluku (Hz)",
+      "VSA": "Plocha samohláskového prostoru (Hz²)",
+      "VAI": "Index artikulace samohlásek (-)",
+      "IU": "Poměr F2 mezi /i/ a /u/ (-)",
+      "FRI": "Index poměru formantů (-)",
+      "SFRI": "Index poměru druhých formantů (-)"
+    },
+    "columns": [
+      "acoustic.articulation.vowels.f1a",
+      "acoustic.articulation.vowels.f2a",
+      "acoustic.articulation.vowels.f1i",
+      "acoustic.articulation.vowels.f2i",
+      "acoustic.articulation.vowels.f1u",
+      "acoustic.articulation.vowels.f2u",
+      "acoustic.articulation.vowels.VSA",
+      "acoustic.articulation.vowels.VAI",
+      "acoustic.articulation.vowels.IU",
+      "acoustic.articulation.vowels.FRI",
+      "acoustic.articulation.vowels.SFRI"
+    ]
+  },
+  {
+    "name": "acoustic.intensity.stats",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "median": "Medián relativní intenzity v řeči (dB)",
+      "mean": "Průměr relativní intenzity v řeči (dB)",
+      "std": "Směrodatná odchylka relativní intenzity v řeči (dB)",
+      "kurt": "Špičatost relativní intenzity v řeči (-)"
+    },
+    "columns": [
+      "acoustic.intensity.stats.median",
+      "acoustic.intensity.stats.mean",
+      "acoustic.intensity.stats.std",
+      "acoustic.intensity.stats.kurt"
+    ]
+  },
+  {
+    "name": "acoustic.pitch.f0",
+    "version": "1.0",
+    "tasks": [
+      "ddk",
+      "monologue",
+      "phonation",
+      "reading",
+      "story"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "std": "Směrodatná odchylka kontury F0 (půltóny)",
+      "median": "Medián kontury F0 (půltóny)",
+      "mean": "Průměr kontury F0 (půltóny)",
+      "max": "Maximum kontury F0 (půltóny)",
+      "min": "Minimum kontury F0 (půltóny)"
+    },
+    "columns": [
+      "acoustic.pitch.f0.std",
+      "acoustic.pitch.f0.median",
+      "acoustic.pitch.f0.mean",
+      "acoustic.pitch.f0.max",
+      "acoustic.pitch.f0.min"
+    ]
+  },
+  {
+    "name": "acoustic.quality.cpp",
+    "version": "1.0",
+    "tasks": [
+      "ddk",
+      "monologue",
+      "phonation",
+      "reading",
+      "story"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "cpp": "Cepstral peak prominence (dB)",
+      "cpps": "Cepstral peak prominence smoothed (dB)"
+    },
+    "columns": [
+      "acoustic.quality.cpp.cpp",
+      "acoustic.quality.cpp.cpps"
+    ]
+  },
+  {
+    "name": "acoustic.spectral.ltas",
+    "version": "1.0",
+    "tasks": [
+      "ddk",
+      "monologue",
+      "phonation",
+      "reading",
+      "story"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "mean": "Těžiště LTAS, spektrální centroid (Hz)",
+      "std": "Rozptyl LTAS kolem těžiště, spektrální šířka (Hz)",
+      "skew": "Šikmost LTAS (-)",
+      "kurt": "Špičatost LTAS (-)"
+    },
+    "columns": [
+      "acoustic.spectral.ltas.mean",
+      "acoustic.spectral.ltas.std",
+      "acoustic.spectral.ltas.skew",
+      "acoustic.spectral.ltas.kurt"
+    ]
+  },
+  {
+    "name": "acoustic.spectral.mfcc",
+    "version": "1.0",
+    "tasks": [
+      "ddk",
+      "monologue",
+      "phonation",
+      "reading",
+      "story"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "mean_c1": "Průměr koeficientu c1",
+      "mean_c2": "Průměr koeficientu c2",
+      "mean_c3": "Průměr koeficientu c3",
+      "mean_c4": "Průměr koeficientu c4",
+      "mean_c5": "Průměr koeficientu c5",
+      "mean_c6": "Průměr koeficientu c6",
+      "mean_c7": "Průměr koeficientu c7",
+      "mean_c8": "Průměr koeficientu c8",
+      "mean_c9": "Průměr koeficientu c9",
+      "mean_c10": "Průměr koeficientu c10",
+      "mean_c11": "Průměr koeficientu c11",
+      "mean_c12": "Průměr koeficientu c12",
+      "mean_c13": "Průměr koeficientu c13",
+      "mean_c14": "Průměr koeficientu c14",
+      "mean_c15": "Průměr koeficientu c15",
+      "mean_c16": "Průměr koeficientu c16",
+      "std_c1": "Směrodatná odchylka koeficientu c1",
+      "std_c2": "Směrodatná odchylka koeficientu c2",
+      "std_c3": "Směrodatná odchylka koeficientu c3",
+      "std_c4": "Směrodatná odchylka koeficientu c4",
+      "std_c5": "Směrodatná odchylka koeficientu c5",
+      "std_c6": "Směrodatná odchylka koeficientu c6",
+      "std_c7": "Směrodatná odchylka koeficientu c7",
+      "std_c8": "Směrodatná odchylka koeficientu c8",
+      "std_c9": "Směrodatná odchylka koeficientu c9",
+      "std_c10": "Směrodatná odchylka koeficientu c10",
+      "std_c11": "Směrodatná odchylka koeficientu c11",
+      "std_c12": "Směrodatná odchylka koeficientu c12",
+      "std_c13": "Směrodatná odchylka koeficientu c13",
+      "std_c14": "Směrodatná odchylka koeficientu c14",
+      "std_c15": "Směrodatná odchylka koeficientu c15",
+      "std_c16": "Směrodatná odchylka koeficientu c16",
+      "meanDelta_c1": "Průměr delty koeficientu c1",
+      "meanDelta_c2": "Průměr delty koeficientu c2",
+      "meanDelta_c3": "Průměr delty koeficientu c3",
+      "meanDelta_c4": "Průměr delty koeficientu c4",
+      "meanDelta_c5": "Průměr delty koeficientu c5",
+      "meanDelta_c6": "Průměr delty koeficientu c6",
+      "meanDelta_c7": "Průměr delty koeficientu c7",
+      "meanDelta_c8": "Průměr delty koeficientu c8",
+      "meanDelta_c9": "Průměr delty koeficientu c9",
+      "meanDelta_c10": "Průměr delty koeficientu c10",
+      "meanDelta_c11": "Průměr delty koeficientu c11",
+      "meanDelta_c12": "Průměr delty koeficientu c12",
+      "meanDelta_c13": "Průměr delty koeficientu c13",
+      "meanDelta_c14": "Průměr delty koeficientu c14",
+      "meanDelta_c15": "Průměr delty koeficientu c15",
+      "meanDelta_c16": "Průměr delty koeficientu c16",
+      "stdDelta_c1": "Směrodatná odchylka delty koeficientu c1",
+      "stdDelta_c2": "Směrodatná odchylka delty koeficientu c2",
+      "stdDelta_c3": "Směrodatná odchylka delty koeficientu c3",
+      "stdDelta_c4": "Směrodatná odchylka delty koeficientu c4",
+      "stdDelta_c5": "Směrodatná odchylka delty koeficientu c5",
+      "stdDelta_c6": "Směrodatná odchylka delty koeficientu c6",
+      "stdDelta_c7": "Směrodatná odchylka delty koeficientu c7",
+      "stdDelta_c8": "Směrodatná odchylka delty koeficientu c8",
+      "stdDelta_c9": "Směrodatná odchylka delty koeficientu c9",
+      "stdDelta_c10": "Směrodatná odchylka delty koeficientu c10",
+      "stdDelta_c11": "Směrodatná odchylka delty koeficientu c11",
+      "stdDelta_c12": "Směrodatná odchylka delty koeficientu c12",
+      "stdDelta_c13": "Směrodatná odchylka delty koeficientu c13",
+      "stdDelta_c14": "Směrodatná odchylka delty koeficientu c14",
+      "stdDelta_c15": "Směrodatná odchylka delty koeficientu c15",
+      "stdDelta_c16": "Směrodatná odchylka delty koeficientu c16",
+      "global_c1_16": "Průměr směrodatných odchylek c1 až c16",
+      "global_delta_c1_16": "Průměr směrodatných odchylek delt c1 až c16"
+    },
+    "columns": [
+      "acoustic.spectral.mfcc.mean_c1",
+      "acoustic.spectral.mfcc.mean_c2",
+      "acoustic.spectral.mfcc.mean_c3",
+      "acoustic.spectral.mfcc.mean_c4",
+      "acoustic.spectral.mfcc.mean_c5",
+      "acoustic.spectral.mfcc.mean_c6",
+      "acoustic.spectral.mfcc.mean_c7",
+      "acoustic.spectral.mfcc.mean_c8",
+      "acoustic.spectral.mfcc.mean_c9",
+      "acoustic.spectral.mfcc.mean_c10",
+      "acoustic.spectral.mfcc.mean_c11",
+      "acoustic.spectral.mfcc.mean_c12",
+      "acoustic.spectral.mfcc.mean_c13",
+      "acoustic.spectral.mfcc.mean_c14",
+      "acoustic.spectral.mfcc.mean_c15",
+      "acoustic.spectral.mfcc.mean_c16",
+      "acoustic.spectral.mfcc.std_c1",
+      "acoustic.spectral.mfcc.std_c2",
+      "acoustic.spectral.mfcc.std_c3",
+      "acoustic.spectral.mfcc.std_c4",
+      "acoustic.spectral.mfcc.std_c5",
+      "acoustic.spectral.mfcc.std_c6",
+      "acoustic.spectral.mfcc.std_c7",
+      "acoustic.spectral.mfcc.std_c8",
+      "acoustic.spectral.mfcc.std_c9",
+      "acoustic.spectral.mfcc.std_c10",
+      "acoustic.spectral.mfcc.std_c11",
+      "acoustic.spectral.mfcc.std_c12",
+      "acoustic.spectral.mfcc.std_c13",
+      "acoustic.spectral.mfcc.std_c14",
+      "acoustic.spectral.mfcc.std_c15",
+      "acoustic.spectral.mfcc.std_c16",
+      "acoustic.spectral.mfcc.meanDelta_c1",
+      "acoustic.spectral.mfcc.meanDelta_c2",
+      "acoustic.spectral.mfcc.meanDelta_c3",
+      "acoustic.spectral.mfcc.meanDelta_c4",
+      "acoustic.spectral.mfcc.meanDelta_c5",
+      "acoustic.spectral.mfcc.meanDelta_c6",
+      "acoustic.spectral.mfcc.meanDelta_c7",
+      "acoustic.spectral.mfcc.meanDelta_c8",
+      "acoustic.spectral.mfcc.meanDelta_c9",
+      "acoustic.spectral.mfcc.meanDelta_c10",
+      "acoustic.spectral.mfcc.meanDelta_c11",
+      "acoustic.spectral.mfcc.meanDelta_c12",
+      "acoustic.spectral.mfcc.meanDelta_c13",
+      "acoustic.spectral.mfcc.meanDelta_c14",
+      "acoustic.spectral.mfcc.meanDelta_c15",
+      "acoustic.spectral.mfcc.meanDelta_c16",
+      "acoustic.spectral.mfcc.stdDelta_c1",
+      "acoustic.spectral.mfcc.stdDelta_c2",
+      "acoustic.spectral.mfcc.stdDelta_c3",
+      "acoustic.spectral.mfcc.stdDelta_c4",
+      "acoustic.spectral.mfcc.stdDelta_c5",
+      "acoustic.spectral.mfcc.stdDelta_c6",
+      "acoustic.spectral.mfcc.stdDelta_c7",
+      "acoustic.spectral.mfcc.stdDelta_c8",
+      "acoustic.spectral.mfcc.stdDelta_c9",
+      "acoustic.spectral.mfcc.stdDelta_c10",
+      "acoustic.spectral.mfcc.stdDelta_c11",
+      "acoustic.spectral.mfcc.stdDelta_c12",
+      "acoustic.spectral.mfcc.stdDelta_c13",
+      "acoustic.spectral.mfcc.stdDelta_c14",
+      "acoustic.spectral.mfcc.stdDelta_c15",
+      "acoustic.spectral.mfcc.stdDelta_c16",
+      "acoustic.spectral.mfcc.global_c1_16",
+      "acoustic.spectral.mfcc.global_delta_c1_16"
+    ]
+  },
+  {
+    "name": "acoustic.timing.pauses",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "segments"
+    ],
+    "description": "",
+    "outputs": {
+      "median": "Medián délky pauz (ms)",
+      "mean": "Průměr délky pauz (ms)",
+      "std": "Směrodatná odchylka délky pauz (ms)"
+    },
+    "columns": [
+      "acoustic.timing.pauses.median",
+      "acoustic.timing.pauses.mean",
+      "acoustic.timing.pauses.std"
+    ]
+  },
+  {
+    "name": "acoustic.timing.segmentation",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "segments"
+    ],
+    "description": "",
+    "outputs": {
+      "dpi": "Medián délky pauz, DPI (ms)",
+      "dbi": "Medián délky nádechů, DBI (ms)",
+      "vsdr": "Podíl znělé řeči na celkové řeči, VSDR (-)",
+      "ste": "Entropie časování řeči ze zastoupení čtyř tříd, STE (bit)",
+      "ssr_change": "Změna počtu řečových segmentů za minutu, poslední třetina nahrávky minus první, ΔSSR (seg/min)"
+    },
+    "columns": [
+      "acoustic.timing.segmentation.dpi",
+      "acoustic.timing.segmentation.dbi",
+      "acoustic.timing.segmentation.vsdr",
+      "acoustic.timing.segmentation.ste",
+      "acoustic.timing.segmentation.ssr_change"
+    ]
+  },
+  {
+    "name": "acoustic.timing.speech_rate",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "transcript"
+    ],
+    "description": "",
+    "outputs": {
+      "speech_rate": "Slabiky za sekundu vztažené k délce promluvy (slab/s)",
+      "articulation_rate": "Slabiky za sekundu vztažené k času řeči (slab/s)",
+      "speech_rate_variability": "Směrodatná odchylka tempa přes okna (slab/s)",
+      "word_count": "Počet rozpoznaných slov (-)"
+    },
+    "columns": [
+      "acoustic.timing.speech_rate.speech_rate",
+      "acoustic.timing.speech_rate.articulation_rate",
+      "acoustic.timing.speech_rate.speech_rate_variability",
+      "acoustic.timing.speech_rate.word_count"
+    ]
+  },
+  {
+    "name": "linguistic.lexical.content_density",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Hustota obsahu, poměr plnovýznamových slov k gramatickým (-)",
+    "outputs": {},
+    "columns": [
+      "linguistic.lexical.content_density"
+    ]
+  },
+  {
+    "name": "linguistic.lexical.content_words",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Podíl plnovýznamových slov na všech slovech (-)",
+    "outputs": {},
+    "columns": [
+      "linguistic.lexical.content_words"
+    ]
+  },
+  {
+    "name": "linguistic.lexical.function_words",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Podíl gramatických slov na všech slovech (-)",
+    "outputs": {},
+    "columns": [
+      "linguistic.lexical.function_words"
+    ]
+  },
+  {
+    "name": "linguistic.lexical.mattr",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Klouzavý poměr různých slov ke všem slovům, šířka okna nlp.mattr_window (-)",
+    "outputs": {},
+    "columns": [
+      "linguistic.lexical.mattr"
+    ]
+  },
+  {
+    "name": "linguistic.lexical.ngrams",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Opakování frází: součet četností osmi nejčastějších 2- až 5-gramů na slovo (-)",
+    "outputs": {},
+    "columns": [
+      "linguistic.lexical.ngrams"
+    ]
+  },
+  {
+    "name": "linguistic.lexical.npmi",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Průměrná bodová vzájemná informace bigramů v klouzavém okně (-)",
+    "outputs": {},
+    "columns": [
+      "linguistic.lexical.npmi"
+    ]
+  },
+  {
+    "name": "linguistic.lexical.rrtr",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Poměr podstatných jmen ke slovesům (-)",
+    "outputs": {},
+    "columns": [
+      "linguistic.lexical.rrtr"
+    ]
+  },
+  {
+    "name": "linguistic.lexical.word_entropy",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Shannonova entropie rozložení slov (bit)",
+    "outputs": {},
+    "columns": [
+      "linguistic.lexical.word_entropy"
+    ]
+  },
+  {
+    "name": "linguistic.syntactic.ccsr",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Souřadné věty na jednu výpověď (-)",
+    "outputs": {},
+    "columns": [
+      "linguistic.syntactic.ccsr"
+    ]
+  },
+  {
+    "name": "linguistic.syntactic.csr",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Souřadné a podřadné věty dohromady na jednu výpověď (-)",
+    "outputs": {},
+    "columns": [
+      "linguistic.syntactic.csr"
+    ]
+  },
+  {
+    "name": "linguistic.syntactic.mlu",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Průměrná délka výpovědi ve slovech (slova/věta)",
+    "outputs": {},
+    "columns": [
+      "linguistic.syntactic.mlu"
+    ]
+  },
+  {
+    "name": "linguistic.syntactic.scsr",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Podřadné věty na jednu výpověď (-)",
+    "outputs": {},
+    "columns": [
+      "linguistic.syntactic.scsr"
+    ]
+  },
+  {
+    "name": "linguistic.syntactic.sdl",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "nlp"
+    ],
+    "description": "Průměrná vzdálenost mezi řídícím a závislým slovem (slova)",
+    "outputs": {},
+    "columns": [
+      "linguistic.syntactic.sdl"
+    ]
+  }
+]

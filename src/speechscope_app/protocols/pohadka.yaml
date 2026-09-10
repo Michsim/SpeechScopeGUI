@@ -1,0 +1,8 @@
+format: 1
+name: Pohádka, akustika
+description: Akustické feature z vyprávění včetně pauz a časování. Segmentace conformerem.
+task: story
+domain: acoustic
+config:
+  segments:
+    model: conformer

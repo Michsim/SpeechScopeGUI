@@ -1,0 +1,41 @@
+[project]
+name = "speechscope-app"
+version = "0.1.0"
+description = "Desktopová aplikace nad knihovnou SpeechScope: dávková extrakce řečových feature pro kliniku i výzkum"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "PySide6>=6.7",
+    "pyyaml>=6",
+    "pandas>=2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-qt>=4.4",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+speechscope-app = "speechscope_app.main:main"
+# Falešná knihovna pro vývoj a testy GUI bez modelů. Chová se jako `speechscope`.
+speechscope-fake = "speechscope_app.fake.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/speechscope_app"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+qt_api = "pyside6"

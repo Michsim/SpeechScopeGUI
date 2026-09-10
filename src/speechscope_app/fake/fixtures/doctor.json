@@ -1,0 +1,130 @@
+{
+  "speechscope": "0.1.0",
+  "python": "3.11.16",
+  "platform": "Windows 10",
+  "models_dir": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models",
+  "models_dir_exists": true,
+  "models_dir_source": "aktuální adresář",
+  "packages": {
+    "faster_whisper": {
+      "installed": true,
+      "used_by": "přepis (extra whisper)"
+    },
+    "ctranslate2": {
+      "installed": true,
+      "used_by": "přepis, akcelerace"
+    },
+    "torch": {
+      "installed": true,
+      "used_by": "segmentace modely, lingvistika"
+    },
+    "pyannote.audio": {
+      "installed": true,
+      "used_by": "segmentace pyannote (extra pyannote)"
+    },
+    "transformers": {
+      "installed": true,
+      "used_by": "segmentace conformer (extra dnn)"
+    },
+    "torchcrf": {
+      "installed": true,
+      "used_by": "segmentace conformer (extra dnn)"
+    },
+    "stanza": {
+      "installed": true,
+      "used_by": "lingvistika (extra nlp)"
+    },
+    "nltk": {
+      "installed": true,
+      "used_by": "lingvistika (extra nlp)"
+    },
+    "parselmouth": {
+      "installed": true,
+      "used_by": "formanty, artikulace"
+    },
+    "pyphen": {
+      "installed": true,
+      "used_by": "tempo řeči"
+    },
+    "sklearn": {
+      "installed": true,
+      "used_by": "artikulace, shlukování"
+    },
+    "onnxruntime": {
+      "installed": true,
+      "used_by": "ONNX (extra onnx)"
+    }
+  },
+  "models": {
+    "whisper": {
+      "name": "Whisper large-v3 (CTranslate2)",
+      "present": true,
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\whisper-large-v3-ct2",
+      "used_by": "provider transcript"
+    },
+    "wavlm": {
+      "name": "WavLM base",
+      "present": true,
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\wavlm-base",
+      "used_by": "segmentace conformer"
+    },
+    "pyannote": {
+      "name": "pyannote/segmentation",
+      "present": true,
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\pyannote_segmentation.bin",
+      "used_by": "segmentace pyannote"
+    },
+    "stanza": {
+      "name": "Stanza (cs, en)",
+      "present": true,
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\stanza",
+      "used_by": "provider nlp, lingvistika"
+    },
+    "phnrec": {
+      "name": "phnrec, rozpoznávač fonémů (čeština)",
+      "present": true,
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\phnrec",
+      "used_by": "provider phonemes, artikulace samohlásek"
+    },
+    "onnx": {
+      "name": "segmentace v ONNX (WavLM, conformer, pyannote)",
+      "present": true,
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\segmentation-onnx",
+      "used_by": "provider segments bez torche, i na grafické kartě přes DirectML"
+    }
+  },
+  "gpu": {
+    "ctranslate2_cuda": 1,
+    "torch_cuda": false,
+    "torch_build": "2.14.0+cpu",
+    "onnxruntime_providers": [
+      "DmlExecutionProvider",
+      "CPUExecutionProvider"
+    ],
+    "onnxruntime_gpu": true
+  },
+  "providers": {
+    "transcript": {
+      "ready": true,
+      "needs": "extra whisper a model whisper"
+    },
+    "segments": {
+      "ready": true,
+      "needs": "extra onnx a `models download --only onnx`, nebo torch: extra dnn s modelem wavlm, extra pyannote s modelem pyannote",
+      "paths": {
+        "onnx": true,
+        "conformer": true,
+        "pyannote": true
+      }
+    },
+    "nlp": {
+      "ready": true,
+      "needs": "extra nlp a model stanza"
+    },
+    "phonemes": {
+      "ready": true,
+      "needs": "Windows a složka phnrec v úložišti modelů"
+    }
+  },
+  "all_ready": true
+}

@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+*.spec
+*.egg-info/
+
+# nahrávky pacientů a mezivýsledky nikdy do gitu
+data/
+work/
+out/
+models/
+*.wav
+*.flac
+*.mp3
+*.m4a
+*.ogg
+!tests/data/*.wav
