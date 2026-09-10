@@ -126,7 +126,7 @@ class EnvironmentPage(QWidget):
         layout.addWidget(
             _label(
                 "Kontrola knihovny SpeechScope, modelů a grafické karty. "
-                "Dávku jde spustit, jen když je připravené to, co protokol potřebuje.",
+                "Zpracování jde spustit, jen když je připravené to, co protokol potřebuje.",
                 "page_subtitle",
             )
         )

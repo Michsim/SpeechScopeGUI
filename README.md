@@ -49,7 +49,7 @@ src/speechscope_app/
         discover.py     # nalezení nahrávek a ručních vstupů vedle nich
     ui/
         main_window.py  # boční menu, skládání běhu z protokolu
-        pages/          # Prostředí, Dávka, Běh, Výsledky
+        pages/          # Prostředí, Data, Běh, Výsledky
         widgets/        # formulář parametrů z deklarace Param
     protocols/          # protokoly přibalené k aplikaci
     fake/               # falešná knihovna a zachycené fixtury

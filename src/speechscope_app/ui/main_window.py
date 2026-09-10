@@ -52,7 +52,7 @@ class MainWindow(QMainWindow):
 
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
-        for label in ("Prostředí", "Dávka", "Běh", "Výsledky"):
+        for label in ("Prostředí", "Data", "Běh", "Výsledky"):
             self.nav.addItem(label)
         self.pages = QStackedWidget()
         for page in (self.env_page, self.batch_page, self.run_page, self.results_page):

@@ -1,4 +1,4 @@
-"""Stránka Dávka: složka, protokol, nalezené nahrávky, spuštění.
+"""Stránka Data: složka, protokol, nalezené nahrávky, spuštění.
 
 Základní režim ukazuje jen složku a protokol. Rozšířený režim přidává
 strom feature a parametry vybrané feature.
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -49,6 +50,19 @@ class BatchPage(QWidget):
         self._overrides: dict[str, dict] = {}
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setSpacing(10)
+
+        title = QLabel("Data")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        subtitle = QLabel(
+            "Vyber složku s nahrávkami a protokol. Do složky s nahrávkami se nic nezapisuje, "
+            "výsledky jdou do Dokumentů."
+        )
+        subtitle.setObjectName("page_subtitle")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
 
         folder_row = QHBoxLayout()
         self.folder = QLineEdit()
@@ -88,6 +102,10 @@ class BatchPage(QWidget):
         adv = QVBoxLayout(self.advanced_box)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["feature", "potřebuje"])
+        tree_header = self.tree.header()
+        tree_header.setStretchLastSection(False)
+        tree_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        tree_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.itemChanged.connect(self._tree_changed)
         self.tree.currentItemChanged.connect(self._show_params)
         adv.addWidget(self.tree, 2)
