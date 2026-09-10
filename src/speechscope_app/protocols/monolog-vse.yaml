@@ -1,0 +1,9 @@
+format: 1
+name: Monolog, akustika i lingvistika
+description: Všechny feature pro monolog. Spouští Whisper i Stanzu, trvá minuty na nahrávku.
+task: monologue
+config:
+  segments:
+    model: conformer
+  transcript:
+    language: cs

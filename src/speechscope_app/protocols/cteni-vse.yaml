@@ -1,0 +1,9 @@
+format: 1
+name: Čtení, akustika i lingvistika
+description: Všechny feature pro čtený text. Spouští Whisper i Stanzu, trvá minuty na nahrávku.
+task: reading
+config:
+  segments:
+    model: conformer
+  transcript:
+    language: cs

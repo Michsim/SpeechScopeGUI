@@ -14,7 +14,11 @@ from speechscope_app.ui.widgets.param_form import ParamForm
 
 
 @pytest.fixture
-def settings(tmp_path: Path) -> AppSettings:
+def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AppSettings:
+    # uživatelské protokoly do tmp, ne do AppData
+    monkeypatch.setattr(
+        "speechscope_app.backend.settings.app_data_dir", lambda: tmp_path / "appdata"
+    )
     s = AppSettings(tmp_path / "settings.ini")
     s.use_fake_library = True
     s.models_dir = tmp_path / "models"
@@ -51,6 +55,36 @@ def test_window_runs_batch_end_to_end(
     assert (run_dirs[0] / "features.csv").is_file()
     assert (run_dirs[0] / "protocol.yaml").is_file()
     assert (run_dirs[0] / "speechscope.log").is_file()
+
+
+def test_save_protocol_from_advanced_mode(qtbot: QtBot, settings: AppSettings) -> None:
+    from PySide6.QtCore import Qt
+
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.protocol.setCurrentIndex(page.protocol.findText("Fonace, základní"))
+    assert page.save_btn.isEnabled()
+
+    # odškrtnout první feature a upravit parametr providera
+    first = page.tree.topLevelItem(0).child(0)
+    first.setCheckState(0, Qt.CheckState.Unchecked)
+    page._overrides["transcript"] = {"language": "en"}
+    proto = page.effective_protocol()
+    assert proto is not None and first.data(0, Qt.ItemDataRole.UserRole) not in proto.features
+    proto.name = "Moje fonace"
+    proto.description = "jen test"
+
+    path = window.save_protocol(proto)
+    assert path.is_file() and path.parent == settings.protocols_dir()
+    assert page.current_protocol().name == "Moje fonace"
+    assert page.protocol.currentText() == "Moje fonace (vlastní)"
+    saved = page.current_protocol()
+    assert saved.features == proto.features and saved.config == {"transcript": {"language": "en"}}
+
+    # stejné jméno podruhé přepíše soubor, nevznikne druhý
+    again = window.save_protocol(proto)
+    assert again == path and len(list(settings.protocols_dir().glob("*.yaml"))) == 1
 
 
 def test_param_form_overrides(qtbot: QtBot) -> None:

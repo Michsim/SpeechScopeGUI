@@ -32,11 +32,13 @@ from ...backend.discover import Recording, find_recordings
 from ...backend.library import Library, LibraryError
 from ...backend.protocol import Protocol
 from .. import theme
+from ..protocol_dialog import SaveProtocolDialog
 from ..widgets.param_form import ParamForm
 
 
 class BatchPage(QWidget):
     run_requested = Signal(object, list)  # Protocol, list[Path]
+    save_requested = Signal(object)  # Protocol upravený v rozšířeném režimu
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -94,6 +96,11 @@ class BatchPage(QWidget):
         self.providers_label = QLabel("")
         self.providers_label.setWordWrap(True)
         adv.addWidget(self.providers_label)
+        self.save_btn = QPushButton("Uložit jako protokol…")
+        self.save_btn.setToolTip("Uloží aktuální výběr feature a parametry jako nový protokol")
+        self.save_btn.setEnabled(False)
+        self.save_btn.clicked.connect(self._save)
+        adv.addWidget(self.save_btn, 0, Qt.AlignmentFlag.AlignRight)
         self.splitter.addWidget(self.advanced_box)
         self.splitter.setSizes([500, 400])
 
@@ -119,11 +126,14 @@ class BatchPage(QWidget):
         self.protocol.blockSignals(True)
         self.protocol.clear()
         for p in protocols:
-            self.protocol.addItem(p.name, p)
+            self.protocol.addItem(p.name if p.builtin else f"{p.name} (vlastní)", p)
         self.protocol.blockSignals(False)
         idx = next((i for i, p in enumerate(protocols) if p.name == current), 0)
         self.protocol.setCurrentIndex(idx)
         self._protocol_changed()
+
+    def protocol_names(self) -> set[str]:
+        return {p.name for p in self._protocols}
 
     def set_advanced(self, advanced: bool) -> None:
         self.advanced_box.setVisible(advanced)
@@ -286,6 +296,7 @@ class BatchPage(QWidget):
         proto = self.current_protocol()
         ok = bool(self._recordings) and proto is not None and self._library is not None
         self.run_btn.setEnabled(ok)
+        self.save_btn.setEnabled(proto is not None and self.tree.topLevelItemCount() > 0)
         if not self._recordings:
             self.status.setText("Vyber složku s nahrávkami.")
         elif proto is None:
@@ -319,3 +330,12 @@ class BatchPage(QWidget):
         if proto is None:
             return
         self.run_requested.emit(proto, [r.path for r in self._recordings])
+
+    def _save(self) -> None:
+        proto = self.effective_protocol()
+        if proto is None:
+            return
+        builtin = {p.name for p in self._protocols if p.builtin}
+        dialog = SaveProtocolDialog(proto, self.protocol_names() - builtin, self)
+        if dialog.exec():
+            self.save_requested.emit(dialog.result_protocol())

@@ -1,0 +1,5 @@
+format: 1
+name: DDK, základní
+description: F0, kvalita hlasu a spektrum z diadochokineze (pa-ta-ka). Bez modelů.
+task: ddk
+domain: acoustic

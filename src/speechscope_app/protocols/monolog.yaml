@@ -1,0 +1,8 @@
+format: 1
+name: Monolog, akustika
+description: Akustické feature z monologu včetně pauz a časování. Segmentace conformerem.
+task: monologue
+domain: acoustic
+config:
+  segments:
+    model: conformer
