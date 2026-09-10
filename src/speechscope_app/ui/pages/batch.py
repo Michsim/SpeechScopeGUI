@@ -31,6 +31,7 @@ from ... import contract
 from ...backend.discover import Recording, find_recordings
 from ...backend.library import Library, LibraryError
 from ...backend.protocol import Protocol
+from .. import theme
 from ..widgets.param_form import ParamForm
 
 
@@ -99,6 +100,7 @@ class BatchPage(QWidget):
         bottom = QHBoxLayout()
         self.status = QLabel("")
         self.run_btn = QPushButton("Spustit")
+        theme.set_role(self.run_btn, "primary")
         self.run_btn.setEnabled(False)
         self.run_btn.clicked.connect(self._run)
         bottom.addWidget(self.status, 1)

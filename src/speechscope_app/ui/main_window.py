@@ -10,14 +10,16 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QLabel,
     QListWidget,
     QMainWindow,
     QMessageBox,
     QStackedWidget,
+    QVBoxLayout,
     QWidget,
 )
 
-from .. import contract
+from .. import __version__, contract
 from ..backend.command import extract_args
 from ..backend.protocol import Protocol, all_protocols
 from ..backend.settings import AppSettings
@@ -49,7 +51,7 @@ class MainWindow(QMainWindow):
         self.results_page = ResultsPage()
 
         self.nav = QListWidget()
-        self.nav.setFixedWidth(160)
+        self.nav.setObjectName("nav")
         for label in ("Prostředí", "Dávka", "Běh", "Výsledky"):
             self.nav.addItem(label)
         self.pages = QStackedWidget()
@@ -57,9 +59,25 @@ class MainWindow(QMainWindow):
             self.pages.addWidget(page)
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
 
+        sidebar = QWidget()
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(200)
+        side = QVBoxLayout(sidebar)
+        side.setContentsMargins(0, 0, 0, 0)
+        side.setSpacing(0)
+        brand = QLabel("SpeechScope")
+        brand.setObjectName("brand")
+        self.brand_sub = QLabel("")
+        self.brand_sub.setObjectName("brand_sub")
+        side.addWidget(brand)
+        side.addWidget(self.brand_sub)
+        side.addWidget(self.nav, 1)
+
         central = QWidget()
         layout = QHBoxLayout(central)
-        layout.addWidget(self.nav)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(sidebar)
         layout.addWidget(self.pages, 1)
         self.setCentralWidget(central)
 
@@ -68,6 +86,7 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction("Konec", self.close)
 
+        self.env_page.settings_requested.connect(self._open_settings)
         self.batch_page.run_requested.connect(self._start_batch)
         self.run_page.finished.connect(self._batch_finished)
 
@@ -87,9 +106,12 @@ class MainWindow(QMainWindow):
         if self.settings.last_input_dir and self.settings.last_input_dir.is_dir():
             self.batch_page.set_folder(self.settings.last_input_dir)
         title = "SpeechScope"
+        sub = f"aplikace {__version__}"
         if self.settings.use_fake_library:
             title += " [falešná knihovna]"
+            sub += " · falešná knihovna"
         self.setWindowTitle(title)
+        self.brand_sub.setText(sub)
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self)

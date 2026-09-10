@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 from . import __version__
 from .backend.settings import APP, ORG, AppSettings
+from .ui import theme
 from .ui.main_window import MainWindow
 
 
@@ -17,6 +18,7 @@ def main() -> int:
     app.setApplicationName(APP)
     app.setApplicationDisplayName("SpeechScope")
     app.setApplicationVersion(__version__)
+    theme.apply(app)
 
     settings = AppSettings()
     if "--fake" in sys.argv:
