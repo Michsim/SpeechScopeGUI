@@ -197,13 +197,30 @@ uv run ruff check src tests
 `start` (total, task, features, providers) → `file` (index, path, status ok|error, msg)
 → `done` (n_ok) → `saved` (out). Všechno ostatní jde na stderr.
 
+Totéž `--progress-json` mají `segment` a `transcribe` (`features` prázdné,
+`providers` jednoprvkové, `saved` = pracovní složka).
+
 Seznam feature a jejich parametry si GUI vytáhne přes `list --json`
-a `list --params NAME --json`, nic neduplikuje.
+a `list --params NAME --json`, nic neduplikuje. `--params` bere i jméno
+provideru (`segments`, `transcript`, …), odpověď má `kind`
+(`feature`/`provider`); `list --providers --json` dá všechny providery
+rovnou s parametry.
+
+Stdout i stderr jsou vždy UTF-8: vstupní bod `cli.run()` volá
+`_utf8_streams()`, které přesměrované proudy přepne z cp1252
+(`sys.stdout.reconfigure`). `PYTHONUTF8=1` tedy není nutné. Entry point
+v pyproject je `speechscope.cli:run`, ne `:app`; `app` zůstává pro testy
+(`CliRunner`).
 
 ## Stav práce (10. 9. 2026)
 Na `main` je všechno: jádro, CLI, providery, všech osm přenesených
 legacy modulů, okna conformeru, doctor, ONNX segmentace. Poslední commit
 182a051 (časování ze segmentace), 163 testů. Nic necommitovaného kromě tohoto souboru.
+
+**Nálezy z GUI (10. 9. 2026), opraveno, necommitováno:** UTF-8 výstup bez
+`PYTHONUTF8`, `list --params <provider>` a `list --providers`; 5 nových
+testů v `test_cli.py`. GUI má dočasně opsané parametry providerů
+v `contract.PROVIDER_PARAMS`, po téhle změně je může smazat.
 
 **Přenesené moduly (117 testů + 9 zlatých naostro):**
 - provider `nlp` (Stanza) a 13 lingvistických feature v
