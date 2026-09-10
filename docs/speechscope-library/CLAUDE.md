@@ -58,7 +58,9 @@ aplikace (Flet) žije v samostatném repu a volá odsud CLI jako subprocess.
   nestačí, zůstane po přerušeném stažení). Stahování i rozbalení jde přes
   `<model>.part` a na místo se přejmenuje až hotové (`_install`). Balík pro
   kliniky: `models pack` → zip bez komprese s `manifest.json` (SHA-256),
-  `models unpack` ho ověřuje; verze formátu `BUNDLE_VERSION`.
+  `models unpack` ho ověřuje; verze formátu `BUNDLE_VERSION`. Pro kliniky
+  `--only whisper,stanza,onnx,phnrec`; phnrec smí do balíku, provider
+  phonemes ho v `models/phnrec` najde sám (`phnrec_dir` prázdný).
 - Výjimka jsou váhy vlastního modelu segmentace, ty jdou v balíčku
   (`src/speechscope/models/`), protože jsou naše a mají 21 MB.
 

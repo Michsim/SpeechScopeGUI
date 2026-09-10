@@ -35,7 +35,12 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
 - `doctor --json` končí kódem 1, když něco chybí; to není chyba.
 - Modely pro kliniky jdou z balíku (`models unpack BALÍK`, dialog
   „Modely ze souboru“): kód 1 = některý model selhal, kód 2 = není to
-  balík. Stahování z Hugging Face je záloha.
+  balík. Stahování z Hugging Face je záloha. Balík pro kliniky se dělá
+  v repu knihovny: `uv run speechscope models pack --only
+  whisper,stanza,onnx,phnrec --out speechscope-modely-v1.zip` (5,25 GB).
+  phnrec v něm být může: provider phonemes ho najde v `models\phnrec`
+  sám, pokud parametr `phonemes.phnrec_dir` zůstane prázdný. WavLM
+  a pyannote klinika nepotřebuje, segmentace jede přes ONNX.
 - `list --params` neumí providery (vrací "neznámá feature"). Proto
   `contract.PROVIDER_PARAMS`.
 - Do složky s nahrávkami se nikdy nezapisuje. Výstupy do
