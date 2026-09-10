@@ -18,6 +18,10 @@ from typing import Any
 from .. import contract
 from . import command
 
+#: Značka v prostředí každého podprocesu knihovny. Když ji GUI najde ve
+#: vlastním prostředí, běží jako podproces sebe sama a musí hned skončit.
+CHILD_ENV = "SPEECHSCOPE_APP_CHILD"
+
 
 class LibraryError(RuntimeError):
     """Knihovna skončila chybou nebo vrátila něco, čemu GUI nerozumí."""
@@ -37,6 +41,7 @@ def subprocess_env() -> dict[str, str]:
     env = dict(os.environ)
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    env[CHILD_ENV] = "1"
     return env
 
 
@@ -71,7 +76,15 @@ def find_default_command() -> list[str] | None:
 
 
 def fake_command() -> list[str]:
-    """Falešná knihovna pro vývoj bez modelů."""
+    """Falešná knihovna pro vývoj bez modelů.
+
+    V zabalené aplikaci je `sys.executable` samotné `SpeechScope.exe`
+    a `-m` by spustilo další GUI, které zase volá knihovnu: proces se
+    množí, dokud stroj nezamrzne (stalo se 10. 9. 2026). Proto exe
+    umí režim `--fake-cli`, který bez okna spustí jen falešné CLI.
+    """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--fake-cli"]
     return [sys.executable, "-m", "speechscope_app.fake.cli"]
 
 

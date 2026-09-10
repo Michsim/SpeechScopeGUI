@@ -39,6 +39,10 @@ class AppSettings:
             self._q = QSettings(ORG, APP)
         else:
             self._q = QSettings(str(path), QSettings.Format.IniFormat)
+        #: Přepínač `--fake` platí jen pro tento běh; do nastavení se neukládá,
+        #: aby po kouřovém testu zabalené aplikace nezůstala falešná knihovna
+        #: zapnutá natrvalo.
+        self.fake_override: bool | None = None
 
     # --- knihovna -------------------------------------------------------------
 
@@ -60,6 +64,8 @@ class AppSettings:
 
     @property
     def use_fake_library(self) -> bool:
+        if self.fake_override is not None:
+            return self.fake_override
         return self._q.value("library/use_fake", False, type=bool)
 
     @use_fake_library.setter

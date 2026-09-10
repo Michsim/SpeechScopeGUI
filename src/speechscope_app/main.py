@@ -1,11 +1,18 @@
 """Vstupní bod aplikace.
 
-Přepínače: `--fake` použije falešnou knihovnu, `--smoke` okno jen otevře
-a hned zavře (kouřový test zabalené aplikace, návratový kód 0).
+Přepínače: `--fake` použije falešnou knihovnu (jen pro tento běh),
+`--smoke` okno jen otevře a hned zavře (kouřový test zabalené aplikace,
+návratový kód 0), `--fake-cli ARGS...` nespustí GUI, ale falešné CLI
+knihovny (zabalené exe nemá jiný Python, kterým by ho spustilo).
+
+Pojistka: když GUI běží jako podproces sebe sama (značka
+`library.CHILD_ENV` v prostředí), skončí hned kódem 2. Bez ní by se
+chybně složený příkaz knihovny množil do nekonečna.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from importlib import resources
 
@@ -14,6 +21,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from . import __version__
+from .backend.library import CHILD_ENV
 from .backend.settings import APP, ORG, AppSettings
 from .ui import theme
 from .ui.main_window import MainWindow
@@ -24,7 +32,23 @@ def app_icon() -> QIcon:
     return QIcon(str(path))
 
 
-def main() -> int:
+EXIT_CHILD_GUARD = 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args and args[0] == "--fake-cli":
+        from .fake.cli import main as fake_main
+
+        return fake_main(args[1:])
+    if os.environ.get(CHILD_ENV):
+        print(
+            "SpeechScope: GUI bylo spuštěno jako podproces knihovny, to je chyba "
+            "v nastavení příkazu knihovny; končím, aby se procesy nemnožily.",
+            file=sys.stderr,
+        )
+        return EXIT_CHILD_GUARD
+
     app = QApplication(sys.argv)
     app.setOrganizationName(ORG)
     app.setApplicationName(APP)
@@ -34,11 +58,11 @@ def main() -> int:
     theme.apply(app)
 
     settings = AppSettings()
-    if "--fake" in sys.argv:
-        settings.use_fake_library = True
+    if "--fake" in args:
+        settings.fake_override = True
     window = MainWindow(settings)
     window.show()
-    if "--smoke" in sys.argv:
+    if "--smoke" in args:
         QTimer.singleShot(500, app.quit)
     return app.exec()
 
