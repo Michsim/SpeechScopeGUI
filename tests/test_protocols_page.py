@@ -36,7 +36,8 @@ def test_copy_edit_export_import_delete(
 
     # přibalený: jen souhrn, bez editoru a bez mazání
     assert page.select("Pohádka, akustika")
-    assert page.current().builtin and page.editor.isHidden() and not page.delete_btn.isEnabled()
+    assert page.current().builtin and page.edit_btn.isHidden()
+    assert not page.delete_btn.isEnabled()
     assert "Segmentace" in page.summary.text() and "conformer" in page.summary.text()
 
     # kopie -> vlastní, editor viditelný
@@ -44,7 +45,7 @@ def test_copy_edit_export_import_delete(
     proto = page.current()
     assert proto is not None and proto.name == "Pohádka, akustika (kopie)" and not proto.builtin
     assert proto.path is not None and proto.path.parent == settings.protocols_dir()
-    assert not page.editor.isHidden() and page.delete_btn.isEnabled()
+    assert not page.edit_btn.isHidden() and page.delete_btn.isEnabled()
     assert "Pohádka, akustika (kopie)" in window.batch_page.protocols.names()
 
     # úprava: přejmenovat, odškrtnout feature, uložit
@@ -93,6 +94,6 @@ def test_basic_mode_shows_summary_only(qtbot: QtBot, settings: AppSettings) -> N
     page = window.protocols_page
     page.copy_current()
     assert not page.current().builtin
-    assert page.editor.isHidden() and page.save_btn.isHidden()
+    assert page.edit_btn.isHidden() and page.save_btn.isHidden()
     assert page.delete_btn.isEnabled() and page.export_btn.isEnabled()
     assert "rozšířeném režimu" in page.note.text()

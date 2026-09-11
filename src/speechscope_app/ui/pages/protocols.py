@@ -40,7 +40,7 @@ from ...backend.protocol import (
     unique_name,
 )
 from .. import theme
-from ..widgets.protocol_editor import ProtocolEditor
+from ..widgets.protocol_editor import ProtocolEditorDialog
 
 ROLE_PROTO = Qt.ItemDataRole.UserRole
 YAML_FILTER = "Protokol SpeechScope (*.yaml)"
@@ -121,10 +121,13 @@ class ProtocolsPage(QWidget):
         self.desc_edit.textChanged.connect(self._mark_dirty)
         form.addRow("Popis:", self.desc_edit)
         detail.addWidget(self.edit_box)
-        self.editor = ProtocolEditor()
+        self.editor_dialog = ProtocolEditorDialog(self)
+        self.editor = self.editor_dialog.editor
         self.editor.changed.connect(self._mark_dirty)
-        detail.addWidget(self.editor, 1)
-        detail.addStretch(0)  # souhrn ke čtení zůstává nahoře, když je editor schovaný
+        self.edit_btn = QPushButton("Upravit feature a parametry…")
+        self.edit_btn.clicked.connect(self.open_editor)
+        detail.addWidget(self.edit_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        detail.addStretch(1)
 
         actions = QHBoxLayout()
         self.note = QLabel("")
@@ -224,8 +227,8 @@ class ProtocolsPage(QWidget):
         self._dirty = False
         editable = proto is not None and not proto.builtin and self._advanced
         self.edit_box.setVisible(editable)
-        self.editor.setVisible(editable)
-        self.summary.setVisible(proto is not None and not editable)
+        self.edit_btn.setVisible(editable)
+        self.summary.setVisible(proto is not None)
         self.copy_btn.setEnabled(proto is not None)
         self.export_btn.setEnabled(proto is not None)
         self.delete_btn.setEnabled(proto is not None and not proto.builtin)
@@ -296,6 +299,16 @@ class ProtocolsPage(QWidget):
     def _mark_dirty(self) -> None:
         self._dirty = True
         self.save_btn.setEnabled(True)
+
+    def open_editor(self) -> None:
+        base = self.current()
+        if base is None or base.builtin:
+            return
+        if self.editor_dialog.open_for(f"{self.name_edit.text().strip() or base.name}"):
+            edited = self._edited()
+            if edited is not None:
+                self.summary.setText(self._summary_html(edited))
+            self._mark_dirty()
 
     # --- akce ------------------------------------------------------------------
 

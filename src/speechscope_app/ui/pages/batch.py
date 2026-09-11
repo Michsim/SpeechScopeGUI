@@ -33,7 +33,7 @@ from ...backend.library import Library, LibraryError
 from ...backend.protocol import Protocol, card_infos
 from .. import theme
 from ..protocol_dialog import SaveProtocolDialog
-from ..widgets.protocol_editor import ProtocolEditor
+from ..widgets.protocol_editor import ProtocolEditorDialog
 from ..widgets.protocol_list import ProtocolCardInfo, ProtocolList
 
 
@@ -93,21 +93,29 @@ class BatchPage(QWidget):
         self.files.verticalHeader().setVisible(False)
         self.splitter.addWidget(self.files)
 
-        self.advanced_box = QGroupBox("Feature a parametry")
-        adv = QVBoxLayout(self.advanced_box)
-        self.editor = ProtocolEditor()
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 1)
+
+        # rozšířený režim: souhrn výběru a tlačítko do okna editoru
+        self.editor_dialog = ProtocolEditorDialog(self)
+        self.editor = self.editor_dialog.editor
         self.editor.changed.connect(self._editor_changed)
-        adv.addWidget(self.editor, 1)
+        self.advanced_box = QGroupBox("Feature a parametry")
+        adv = QHBoxLayout(self.advanced_box)
+        self.editor_summary = QLabel("")
+        self.editor_summary.setWordWrap(True)
+        adv.addWidget(self.editor_summary, 1)
+        self.edit_btn = QPushButton("Upravit…")
+        self.edit_btn.setToolTip("Výběr feature a parametry jen pro tento běh")
+        self.edit_btn.setEnabled(False)
+        self.edit_btn.clicked.connect(self.open_editor)
+        adv.addWidget(self.edit_btn)
         self.save_btn = QPushButton("Uložit jako protokol…")
         self.save_btn.setToolTip("Uloží aktuální výběr feature a parametry jako nový protokol")
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self._save)
-        adv.addWidget(self.save_btn, 0, Qt.AlignmentFlag.AlignRight)
-        self.splitter.addWidget(self.advanced_box)
-        self.splitter.setStretchFactor(0, 2)
-        self.splitter.setStretchFactor(1, 1)
-        self.splitter.setStretchFactor(2, 3)
-        self.splitter.setSizes([200, 140, 400])
+        adv.addWidget(self.save_btn)
+        layout.addWidget(self.advanced_box)
 
         bottom = QHBoxLayout()
         self.status = QLabel("")
@@ -212,6 +220,21 @@ class BatchPage(QWidget):
             )
         self._update_run_state()
 
+    def open_editor(self) -> None:
+        proto = self.current_protocol()
+        if proto is None:
+            return
+        self.editor_dialog.open_for(f"{proto.name} · úprava jen pro tento běh")
+        self._editor_changed()
+
+    def _update_editor_summary(self) -> None:
+        """Krátký souhrn výběru do rámečku na Datech (celý je v okně editoru)."""
+        if not self.editor.has_catalog():
+            self.editor_summary.setText("Seznam feature není k dispozici.")
+            return
+        text = self.editor.picker.summary.text()
+        self.editor_summary.setText(text)
+
     # --- spuštění -------------------------------------------------------------
 
     def _update_run_state(self) -> None:
@@ -219,6 +242,8 @@ class BatchPage(QWidget):
         ok = bool(self._recordings) and proto is not None and self._library is not None
         self.run_btn.setEnabled(ok)
         self.save_btn.setEnabled(proto is not None and self.editor.has_catalog())
+        self.edit_btn.setEnabled(proto is not None and self.editor.has_catalog())
+        self._update_editor_summary()
         if not self._recordings:
             self.status.setText("Vyber složku s nahrávkami.")
         elif proto is None:

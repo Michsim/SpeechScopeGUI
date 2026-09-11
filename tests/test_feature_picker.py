@@ -1,12 +1,11 @@
-"""Tabulka výběru feature."""
+"""Výběr feature: skupiny vlevo, karty uprostřed."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from pytestqt.qtbot import QtBot
 
 from speechscope_app.backend.library import FeatureInfo
-from speechscope_app.ui.widgets.feature_picker import COL_NAME, COL_REQUIRES, FeaturePicker
+from speechscope_app.ui.widgets.feature_picker import ROLE_KEY, ROLE_KIND, FeaturePicker
 
 
 def _feature(name: str, requires: list[str]) -> FeatureInfo:
@@ -15,7 +14,7 @@ def _feature(name: str, requires: list[str]) -> FeatureInfo:
         version="1",
         tasks=["story"],
         requires=requires,
-        description="",
+        description=f"popis {name.rsplit('.', 1)[-1]}",
         outputs={"x": "popis x"},
         columns=[f"{name}.x"],
     )
@@ -29,33 +28,53 @@ FEATURES = [
 ]
 
 
-def test_groups_and_selection(qtbot: QtBot) -> None:
+def _group_items(picker: FeaturePicker) -> dict[str, str]:
+    out = {}
+    for row in range(picker.groups.count()):
+        item = picker.groups.item(row)
+        if item.data(ROLE_KIND) == "group":
+            out[item.data(ROLE_KEY)] = item.text()
+    return out
+
+
+def test_groups_and_cards(qtbot: QtBot) -> None:
     picker = FeaturePicker()
     qtbot.addWidget(picker)
     picker.set_features(FEATURES, {"acoustic.pitch.f0", "acoustic.timing.pauses"})
     assert picker.count() == 4
-    assert picker.table.rowCount() == 7  # 3 skupiny + 4 feature
     assert picker.selected() == ["acoustic.pitch.f0", "acoustic.timing.pauses"]
+    groups = _group_items(picker)
+    assert set(groups) == {"acoustic.pitch", "acoustic.timing", "linguistic.lexical"}
+    assert "1/2" in groups["acoustic.timing"] and "0/1" in groups["linguistic.lexical"]
+    # první skupina je zobrazená, karty jen pro ni
+    assert picker.current_group() == "acoustic.pitch"
+    assert list(picker._cards) == ["acoustic.pitch.f0"]
 
-    timing = picker.table.item(picker._group_rows["acoustic.timing"], COL_NAME)
-    assert timing.text() == "Akustika · časování"
-    assert timing.checkState() == Qt.CheckState.PartiallyChecked
-    assert picker.table.item(picker._group_rows["acoustic.timing"], COL_REQUIRES).text() == "1 z 2"
+    picker.show_group_of("acoustic.timing.pauses")
+    assert picker.current_group() == "acoustic.timing"
+    assert set(picker._cards) == {"acoustic.timing.pauses", "acoustic.timing.speech_rate"}
+    assert picker.group_title.text() == "Akustika · časování"
+    assert picker.group_count.text() == "1 z 2 vybráno"
 
     changes: list[int] = []
     picker.selection_changed.connect(lambda: changes.append(1))
-    timing.setCheckState(Qt.CheckState.Checked)  # skupina vybere všechny členy
-    assert "acoustic.timing.speech_rate" in picker.selected()
-    assert timing.checkState() == Qt.CheckState.Checked
-    picker.set_checked("acoustic.timing.pauses", False)
-    assert timing.checkState() == Qt.CheckState.PartiallyChecked
-    assert changes
+    picker._cards["acoustic.timing.speech_rate"].check.setChecked(True)
+    assert "acoustic.timing.speech_rate" in picker.selected() and changes
+    assert picker.group_check.isChecked()
+    picker.group_check.click()  # zruší všechny zobrazené
+    assert not any(n.startswith("acoustic.timing") for n in picker.selected())
+
+    current: list[str] = []
+    picker.current_changed.connect(current.append)
+    picker._cards["acoustic.timing.pauses"].clicked.emit("acoustic.timing.pauses")
+    assert current[-1] == "acoustic.timing.pauses"
 
 
-def test_quick_picks_and_filter(qtbot: QtBot) -> None:
+def test_quick_picks_search_and_providers(qtbot: QtBot) -> None:
     picker = FeaturePicker()
     qtbot.addWidget(picker)
     picker.set_features(FEATURES, set())
+    picker.set_providers(["segments", "transcript"])
     picker.quick_pick("all")
     assert len(picker.selected()) == 4
     picker.quick_pick("nomodels")
@@ -66,36 +85,37 @@ def test_quick_picks_and_filter(qtbot: QtBot) -> None:
     assert picker.selected() == []
 
     picker.search.setText("mattr")
-    hidden = [r for r in range(picker.table.rowCount()) if picker.table.isRowHidden(r)]
-    assert len(hidden) == 5  # zůstala skupina lexikum a její jediná feature
+    assert list(picker._cards) == ["linguistic.lexical.mattr"]
+    assert "Hledání" in picker.group_title.text()
+    picker.search.setText("popis")  # hledá i v popisu
+    assert len(picker._cards) == 4
     picker.search.setText("")
-    assert not any(picker.table.isRowHidden(r) for r in range(picker.table.rowCount()))
+    assert picker.current_group() == "acoustic.pitch"
 
-
-def test_summary_and_current(qtbot: QtBot) -> None:
-    picker = FeaturePicker()
-    qtbot.addWidget(picker)
-    picker.set_features(FEATURES, {"acoustic.timing.pauses"})
-    picker.set_summary(["segments"], 1, "desítky sekund na nahrávku")
-    assert "Segmentace" in picker.summary.text() and "1 feature, 1 sloupců" in picker.summary.text()
     current: list[str] = []
     picker.current_changed.connect(current.append)
-    picker.table.setCurrentCell(picker._rows["acoustic.pitch.f0"], COL_NAME)
-    assert current[-1] == "acoustic.pitch.f0"
+    picker.show_group_of("transcript")
+    assert picker.current_provider() == "transcript" and current[-1] == "transcript"
+    assert not picker._cards and "speech_rate" in picker._extras[0].text()
     picker._link_activated("provider:segments")
     assert current[-1] == "segments"
-    picker.set_warning("Není připraveno: x")
-    assert not picker.warning.isHidden() or picker.warning.text()
 
 
-def test_overridden_marks(qtbot: QtBot) -> None:
+def test_summary_and_overridden(qtbot: QtBot) -> None:
     picker = FeaturePicker()
     qtbot.addWidget(picker)
     picker.set_features(FEATURES, {"acoustic.timing.pauses"})
-    picker.set_summary(["segments"], 1, "")
+    picker.set_providers(["segments"])
+    picker.set_summary(["segments"], 1, "desítky sekund na nahrávku")
+    assert "Segmentace" in picker.summary.text() and "1 feature, 1 sloupců" in picker.summary.text()
     picker.set_overridden({"acoustic.timing.pauses", "segments"})
-    item = picker.table.item(picker._rows["acoustic.timing.pauses"], COL_NAME)
-    assert item.font().bold() and "změněné" in item.toolTip()
     assert "(upraveno)" in picker.summary.text()
+    groups = _group_items(picker)
+    assert "●" in groups["acoustic.timing"] and "●" not in groups["acoustic.pitch"]
+    picker.show_group_of("acoustic.timing.pauses")
+    assert picker._cards["acoustic.timing.pauses"].modified.text()
     picker.set_overridden(set())
-    assert not item.font().bold() and "(upraveno)" not in picker.summary.text()
+    assert "(upraveno)" not in picker.summary.text()
+    assert not picker._cards["acoustic.timing.pauses"].modified.text()
+    picker.set_warning("Není připraveno: x")
+    assert picker.warning.text()

@@ -12,7 +12,10 @@ from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -24,7 +27,7 @@ from PySide6.QtWidgets import (
 
 from ... import contract
 from ...backend.library import FeatureInfo, Library, LibraryError
-from ...backend.protocol import Protocol, summarize
+from ...backend.protocol import Protocol, provider_order, summarize
 from .feature_picker import FeaturePicker
 from .param_form import ParamForm
 
@@ -38,7 +41,7 @@ class ParamsPanel(QWidget):
         self._form: ParamForm | None = None
         self.setMinimumWidth(300)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(12, 0, 0, 0)
         layout.setSpacing(4)
         head = QHBoxLayout()
         self.title = QLabel("Parametry")
@@ -129,7 +132,9 @@ class ProtocolEditor(QWidget):
         self.splitter.addWidget(self.picker)
         self.params = ParamsPanel()
         self.splitter.addWidget(self.params)
-        self.splitter.setSizes([560, 320])
+        self.splitter.setStretchFactor(0, 3)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([760, 340])
 
     # --- nastavení zvenku -----------------------------------------------------
 
@@ -137,6 +142,13 @@ class ProtocolEditor(QWidget):
         self._library = library
         self._param_forms.clear()
         self._rebuild()
+        providers: list[str] = []
+        if library is not None:
+            try:
+                providers = [p.name for p in library.providers()]
+            except LibraryError:
+                providers = []
+        self.picker.set_providers(sorted(providers, key=provider_order))
 
     def set_doctor(self, report: dict[str, Any] | None) -> None:
         """Stav providerů z `doctor --json`, kvůli varování o chybějících modelech."""
@@ -282,3 +294,45 @@ class ProtocolEditor(QWidget):
         self._overrides[name] = form.overrides()
         self.picker.set_overridden(self._overridden_names())
         self.changed.emit()
+
+
+class ProtocolEditorDialog(QDialog):
+    """Okno s editorem přes většinu obrazovky; Použít nebo Zrušit.
+
+    Editor v něm žije trvale (drží načtené parametry), okno se jen ukazuje.
+    Při Zrušit se editor vrátí na stav před otevřením.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Feature a parametry")
+        self.setModal(True)
+        self.editor = ProtocolEditor()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+        self.heading = QLabel("")
+        self.heading.setObjectName("headline")
+        layout.addWidget(self.heading)
+        layout.addWidget(self.editor, 1)
+        self.buttons = QDialogButtonBox()
+        self.apply_btn = self.buttons.addButton("Použít", QDialogButtonBox.ButtonRole.AcceptRole)
+        self.buttons.addButton("Zrušit", QDialogButtonBox.ButtonRole.RejectRole)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:
+            size = screen.availableSize()
+            self.resize(int(size.width() * 0.85), int(size.height() * 0.85))
+        else:
+            self.resize(1200, 760)
+
+    def open_for(self, title: str) -> bool:
+        """Ukáže okno; vrací True po Použít. Po Zrušit vrátí editor zpět."""
+        snapshot = self.editor.result()
+        self.heading.setText(title)
+        if self.exec() == QDialog.DialogCode.Accepted:
+            return True
+        if snapshot is not None:
+            self.editor.set_protocol(snapshot)
+        return False

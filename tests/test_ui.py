@@ -44,7 +44,9 @@ def test_window_runs_batch_end_to_end(
     assert window.batch_page.select_protocol("Fonace, základní")
     assert window.batch_page.protocols.task_buttons["phonation"].isChecked()
     assert window.batch_page.editor.has_catalog()
-    assert window.batch_page.editor.picker.warning.isHidden()  # doctor: všechno připravené
+    assert window.batch_page.edit_btn.isEnabled()
+    assert not window.batch_page.editor.picker.warning.text()  # doctor: všechno připravené
+    assert "Bez modelů" in window.batch_page.editor_summary.text()
 
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
         window.batch_page.run_btn.click()
@@ -195,3 +197,32 @@ def test_models_install_dialog_unpacks_bundle(
     empty = ModelsInstallDialog(library, settings.models_dir)
     qtbot.addWidget(empty)
     assert not empty.start_btn.isEnabled()
+
+
+def test_editor_dialog_cancel_restores(qtbot: QtBot, settings: AppSettings, monkeypatch) -> None:
+    from PySide6.QtWidgets import QDialog
+
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    assert page.select_protocol("Pohádka, akustika")
+    before = page.editor.selected()
+    assert page.edit_btn.isEnabled()
+
+    def fake_exec(self):  # uživatel v okně odškrtne feature a dá Zrušit
+        page.editor.picker.set_checked(before[0], False)
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(type(page.editor_dialog), "exec", fake_exec)
+    page.open_editor()
+    assert page.editor.selected() == before
+    assert not page.protocols._cards["Pohádka, akustika"].modified.isVisible()
+
+    def fake_exec_ok(self):
+        page.editor.picker.set_checked(before[0], False)
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(type(page.editor_dialog), "exec", fake_exec_ok)
+    page.open_editor()
+    assert before[0] not in page.editor.selected()
+    assert before[0] not in page.effective_protocol().features

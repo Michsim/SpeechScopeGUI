@@ -5,7 +5,11 @@ commity od 6a762f7 po stránku Protokoly). Otevřené otázky dole jsou
 rozhodnuté: tabulka, samostatná stránka Protokoly, smlouva verze 2.
 Odchylky od návrhu: úlohy na Datech jsou přepínač nad kartami místo
 seskupených karet (šetří výšku); editor protokolu je společný widget
-`ProtocolEditor` pro Data i Protokoly.
+`ProtocolEditor` pro Data i Protokoly. Tabulka feature se skupinovými
+řádky byla nakonec nahrazena (odpoledne 11. 9.): editor je vlastní okno
+(`ProtocolEditorDialog`) se třemi sloupci, skupiny a providery vlevo,
+karty feature s popisem uprostřed, parametry vpravo; na Datech
+a Protokolech zůstal jen souhrn a tlačítko Upravit.
 
 Původní text návrhu k 11. 9. 2026 ráno: Tři přání z 10. 9.: (a) jiný výběr feature v rozšířeném
 režimu, (b) viditelný průběh výpočtu, (c) přehlednější protokoly. Návrh je
