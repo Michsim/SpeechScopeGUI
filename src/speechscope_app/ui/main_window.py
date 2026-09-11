@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt
+from importlib import resources
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -73,12 +75,23 @@ class MainWindow(QMainWindow):
         side = QVBoxLayout(sidebar)
         side.setContentsMargins(0, 0, 0, 0)
         side.setSpacing(0)
-        brand = QLabel("SpeechScope")
+        brand_panel = QWidget()
+        brand_panel.setObjectName("brand_panel")
+        brand_layout = QVBoxLayout(brand_panel)
+        brand_layout.setContentsMargins(14, 14, 14, 10)
+        brand_layout.setSpacing(4)
+        brand = QLabel()
         brand.setObjectName("brand")
+        wordmark = QPixmap(str(resources.files("speechscope_app") / "assets" / "wordmark.png"))
+        if wordmark.isNull():
+            brand.setText("SpeechScope")
+        else:
+            brand.setPixmap(wordmark.scaledToWidth(172, Qt.TransformationMode.SmoothTransformation))
+        brand_layout.addWidget(brand)
         self.brand_sub = QLabel("")
         self.brand_sub.setObjectName("brand_sub")
-        side.addWidget(brand)
-        side.addWidget(self.brand_sub)
+        brand_layout.addWidget(self.brand_sub)
+        side.addWidget(brand_panel)
         side.addWidget(self.nav, 1)
 
         central = QWidget()

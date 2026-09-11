@@ -45,8 +45,9 @@ QMenuBar::item:selected {{ background: {ACCENT_SOFT}; border-radius: 4px; }}
 
 /* boční menu */
 QWidget#sidebar {{ background: {SIDEBAR}; }}
-QLabel#brand {{ color: white; font-size: 15pt; font-weight: 600; padding: 18px 16px 2px 16px; }}
-QLabel#brand_sub {{ color: {SIDEBAR_TEXT}; font-size: 8.5pt; padding: 0 16px 14px 16px; }}
+QWidget#brand_panel {{ background: {CARD}; border-bottom: 1px solid {BORDER}; }}
+QLabel#brand {{ color: {SIDEBAR}; font-size: 15pt; font-weight: 600; background: transparent; }}
+QLabel#brand_sub {{ color: {MUTED}; font-size: 8.5pt; background: transparent; }}
 QListWidget#nav {{
     background: transparent; border: none; outline: none; padding: 0 8px;
 }}

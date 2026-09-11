@@ -64,8 +64,10 @@ problém nemá.
   knihovnu, a procesy se množí, dokud stroj nezamrzne. GUI má proti tomu
   pojistku (`SPEECHSCOPE_APP_CHILD` v prostředí podprocesu → kód 2) a
   skript kouřový test hlídá časovým limitem.
-- Ikona: `uv run python packaging\make_icon.py` přegeneruje
-  `src\speechscope_app\assets\speechscope.ico`.
+- Ikona a wordmark: grafika je ve složce `icon\` (PNG 16 až 512 px,
+  `mark.png`, `wordmark.png`). `uv run --with pillow python
+  packaging\make_icon.py` z ní složí `speechscope.ico` a zkopíruje PNG
+  do `src\speechscope_app\assets\`.
 - Plná offline varianta s modely uvnitř (přes 5 GB) jde udělat stejným
   skriptem s jedním krokem navíc (zkopírovat složku modelů do `dist`),
   pokud kliniky nemají internet.
