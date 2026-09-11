@@ -110,6 +110,7 @@ class EnvironmentPage(QWidget):
     download_requested = Signal()
     install_requested = Signal()  # modely ze souboru (balík z `models pack`)
     report_changed = Signal(object)  # výsledek doctor --json nebo None
+    diagnostics_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -169,6 +170,15 @@ class EnvironmentPage(QWidget):
         self.install_btn.clicked.connect(self.install_requested)
         self.install_btn.hide()
         row.addWidget(self.install_btn, 0, Qt.AlignmentFlag.AlignTop)
+        self.diagnostics_btn = QPushButton(tr("Diagnostika…"))
+        self.diagnostics_btn.setToolTip(
+            tr(
+                "Zabalí do zipu stav knihovny a modelů, nastavení a logy posledních běhů, "
+                "aby šlo poslat, co se stalo. Bez nahrávek a bez výsledků."
+            )
+        )
+        self.diagnostics_btn.clicked.connect(self.diagnostics_requested)
+        row.addWidget(self.diagnostics_btn, 0, Qt.AlignmentFlag.AlignTop)
         self.check_btn = QPushButton(tr("Zkontrolovat"))
         theme.set_role(self.check_btn, "primary")
         self.check_btn.clicked.connect(self.refresh)

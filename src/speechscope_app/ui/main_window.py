@@ -9,6 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__, contract
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
+from ..backend.diagnostics import build_bundle, default_name
 from ..backend.history import write_run_file
 from ..backend.manifest import write_normalized
 from ..backend.protocol import Protocol, all_protocols, slugify
@@ -128,6 +130,7 @@ class MainWindow(QMainWindow):
         self.env_page.settings_requested.connect(self._open_settings)
         self.env_page.download_requested.connect(self.download_models)
         self.env_page.install_requested.connect(self.install_models)
+        self.env_page.diagnostics_requested.connect(self.save_diagnostics)
         self.env_page.report_changed.connect(self.batch_page.set_doctor)
         self.env_page.report_changed.connect(self.protocols_page.set_doctor)
         self.batch_page.set_stats_lookup(self.settings.seconds_per_file)
@@ -210,6 +213,40 @@ class MainWindow(QMainWindow):
         if dialog.installed:
             self.library.clear_cache()
             self.env_page.refresh()
+
+    # --- diagnostika -----------------------------------------------------------
+
+    def save_diagnostics(self, target: Path | None = None) -> Path | None:
+        """Zip pro podporu: bez dialogu, když je `target` daný (testy)."""
+        if target is None:
+            chosen, _ = QFileDialog.getSaveFileName(
+                self,
+                tr("Uložit diagnostický balíček"),
+                str(self.settings.work_root / default_name()),
+                tr("Zip (*.zip)"),
+            )
+            if not chosen:
+                return None
+            target = Path(chosen)
+        try:
+            members = build_bundle(
+                target,
+                settings=self.settings,
+                library=self.library,
+                report=self.env_page.report,
+            )
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                tr("SpeechScope"),
+                tr("Balíček se nepodařilo uložit: {error}").format(error=exc),
+            )
+            return None
+        self.statusBar().showMessage(
+            tr("Diagnostika uložena: {path} ({n} souborů)").format(path=target, n=len(members)),
+            10000,
+        )
+        return target
 
     # --- protokoly ------------------------------------------------------------
 

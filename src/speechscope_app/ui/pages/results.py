@@ -272,7 +272,7 @@ class ResultsPage(QWidget):
             + tr(
                 "{path}: {rows} řádků, {cols} sloupců, {notes} s poznámkou, {errors} s chybou."
             ).format(
-                path=f"{self._path.parent.name}\{self._path.name}" if self._path else "",
+                path=f"{self._path.parent.name}/{self._path.name}" if self._path else "",
                 rows=len(self._frame),
                 cols=len(self._frame.columns),
                 notes=n_notes,
