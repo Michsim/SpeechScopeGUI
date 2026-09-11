@@ -61,7 +61,7 @@ QListWidget#nav::item:selected {{ background: {ACCENT}; color: white; }}
 QLabel#page_title {{ font-size: 17pt; font-weight: 600; }}
 QLabel#page_subtitle {{ color: {MUTED}; }}
 QLabel#section {{ font-size: 10.5pt; font-weight: 600; color: {TEXT}; margin-top: 6px; }}
-QLabel#step_no {{
+QLabel#step_no, QFrame#card QLabel#step_no {{
     background: {ACCENT}; color: white; border-radius: 12px; min-width: 24px; max-width: 24px;
     min-height: 24px; max-height: 24px; font-weight: 700; qproperty-alignment: AlignCenter;
 }}

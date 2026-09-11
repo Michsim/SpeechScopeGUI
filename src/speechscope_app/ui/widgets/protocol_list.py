@@ -10,10 +10,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -62,20 +63,21 @@ class ProtocolCard(QFrame):
         self.modified.setVisible(False)
         head.addWidget(self.modified)
         head.addStretch(1)
-        for provider in info.providers:
-            head.addWidget(_pill(contract.PROVIDER_SHORT.get(provider, provider), "neutral"))
-        if not info.providers:
-            head.addWidget(_pill("bez modelů", "ok"))
+        hint = QLabel(info.hint)
+        hint.setObjectName("muted")
+        head.addWidget(hint)
         layout.addLayout(head)
-        foot = QHBoxLayout()
         desc = QLabel(proto.description)
         desc.setObjectName("muted")
         desc.setWordWrap(True)
-        foot.addWidget(desc, 1)
-        hint = QLabel(info.hint)
-        hint.setObjectName("muted")
-        hint.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-        foot.addWidget(hint)
+        layout.addWidget(desc)
+        foot = QHBoxLayout()
+        foot.setSpacing(6)
+        for provider in info.providers:
+            foot.addWidget(_pill(contract.PROVIDER_SHORT.get(provider, provider), "neutral"))
+        if not info.providers:
+            foot.addWidget(_pill("bez modelů", "ok"))
+        foot.addStretch(1)
         layout.addLayout(foot)
 
 
@@ -92,30 +94,53 @@ class ProtocolList(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-        # Lišta úloh je vlastní widget, aby si ji stránka mohla dát jinam.
+        # Lišta úloh je vlastní widget, aby si ji stránka mohla dát jinam;
+        # tlačítka v mřížce po třech, ať se vejdou i do užšího sloupce.
         self.task_bar = QWidget()
-        self.tasks_row = QHBoxLayout(self.task_bar)
-        self.tasks_row.setContentsMargins(0, 0, 0, 0)
-        self.tasks_row.setSpacing(6)
+        self.tasks_grid = QGridLayout(self.task_bar)
+        self.tasks_grid.setContentsMargins(0, 0, 0, 0)
+        self.tasks_grid.setSpacing(6)
         self.task_group = QButtonGroup(self)
         self.task_group.setExclusive(True)
         self.task_buttons: dict[str, QPushButton] = {}
-        for task in contract.TASKS:
+        for i, task in enumerate(contract.TASKS):
             btn = QPushButton(contract.TASK_SHORT.get(task, task))
             btn.setToolTip(contract.TASK_LABELS[task])
             btn.setCheckable(True)
             btn.clicked.connect(lambda _=False, t=task: self._task_clicked(t))
             self.task_group.addButton(btn)
-            self.tasks_row.addWidget(btn)
+            self.tasks_grid.addWidget(btn, i // 3, i % 3)
             self.task_buttons[task] = btn
-        self.tasks_row.addStretch(1)
         layout.addWidget(self.task_bar)
 
         self.list = QListWidget()
         self.list.setSpacing(3)
         self.list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list.currentItemChanged.connect(self._item_changed)
+        self.list.viewport().installEventFilter(self)
         layout.addWidget(self.list, 1)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if obj is self.list.viewport() and event.type() == QEvent.Type.Resize:
+            self._fit_cards()
+        return super().eventFilter(obj, event)
+
+    def _fit_cards(self) -> None:
+        """Karty na šířku seznamu; výška podle zalomeného popisu."""
+        width = self.list.viewport().width() - 2 * self.list.spacing() - 4
+        if width <= 0:
+            return
+        for row in range(self.list.count()):
+            item = self.list.item(row)
+            card = self.list.itemWidget(item)
+            if card is None:
+                continue
+            card.setFixedWidth(width)
+            layout = card.layout()
+            height = layout.heightForWidth(width) if layout.hasHeightForWidth() else 0
+            height = max(height, card.sizeHint().height())
+            item.setSizeHint(card.sizeHint().expandedTo(card.size()).__class__(width, height))
 
     # --- naplnění ---------------------------------------------------------------
 
@@ -201,6 +226,7 @@ class ProtocolList(QWidget):
             first = first or item
             if proto.name == select:
                 chosen = item
+        self._fit_cards()
         self.list.blockSignals(False)
         target = chosen or first
         self.list.setCurrentItem(target)  # vydá currentItemChanged, tedy i current_changed

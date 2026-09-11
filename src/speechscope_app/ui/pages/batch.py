@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -72,51 +73,55 @@ class BatchPage(QWidget):
         title.setObjectName("page_title")
         layout.addWidget(title)
         subtitle = QLabel(
-            "Tři kroky: složka s nahrávkami, úloha a jazyk, protokol. Do složky s nahrávkami "
-            "se nic nezapisuje, výsledky jdou do Dokumentů."
+            "Vlevo co se analyzuje (nahrávky, úloha, jazyk), vpravo jak (protokol). "
+            "Do složky s nahrávkami se nic nezapisuje, výsledky jdou do Dokumentů."
         )
         subtitle.setObjectName("page_subtitle")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
 
-        # 1 · nahrávky
-        step1, self.step1_hint = _step(1, "Nahrávky", "Vyber složku s nahrávkami.")
-        layout.addLayout(step1)
+        columns = QHBoxLayout()
+        columns.setSpacing(16)
+        layout.addLayout(columns, 1)
+
+        # --- levý sloupec: vstup --------------------------------------------------
+        left = QFrame()
+        left.setObjectName("card")
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(16, 14, 16, 14)
+        left_layout.setSpacing(8)
+        columns.addWidget(left, 2)
+
+        step1, self.step1_hint = _step(1, "Nahrávky", "Vyber složku.")
+        left_layout.addLayout(step1)
         folder_row = QHBoxLayout()
-        folder_row.setContentsMargins(34, 0, 0, 0)
         self.folder = QLineEdit()
         self.folder.setPlaceholderText("Složka s nahrávkami")
         self.folder.editingFinished.connect(self.rescan)
         browse = QPushButton("Vybrat…")
         browse.clicked.connect(self._browse)
+        folder_row.addWidget(self.folder, 1)
+        folder_row.addWidget(browse)
+        left_layout.addLayout(folder_row)
         self.recursive = QCheckBox("včetně podsložek")
         self.recursive.setChecked(True)
         self.recursive.toggled.connect(self.rescan)
-        folder_row.addWidget(self.folder, 1)
-        folder_row.addWidget(browse)
-        folder_row.addWidget(self.recursive)
-        layout.addLayout(folder_row)
+        left_layout.addWidget(self.recursive)
         self.files = QTableWidget()
         self.files.setColumnCount(3)
-        self.files.setHorizontalHeaderLabels(["nahrávka", "ruční labely", "ruční přepis"])
+        self.files.setHorizontalHeaderLabels(["nahrávka", "labely", "přepis"])
         self.files.horizontalHeader().setStretchLastSection(True)
         self.files.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.files.verticalHeader().setVisible(False)
         self.files.verticalHeader().setDefaultSectionSize(24)
-        self.files.setMaximumHeight(150)
-        files_row = QHBoxLayout()
-        files_row.setContentsMargins(34, 0, 0, 0)
-        files_row.addWidget(self.files)
-        layout.addLayout(files_row)
+        left_layout.addWidget(self.files, 1)
 
-        # 2 · úloha a jazyk
-        step2, self.step2_hint = _step(2, "Úloha a jazyk", "Co pacient nahrával a v jakém jazyce.")
-        layout.addLayout(step2)
+        step2, self.step2_hint = _step(2, "Úloha a jazyk", "")
+        left_layout.addLayout(step2)
         self.protocols = ProtocolList()
         self.protocols.current_changed.connect(self._protocol_changed)
-        task_row = QHBoxLayout()
-        task_row.setContentsMargins(34, 0, 0, 0)
-        task_row.addWidget(self.protocols.task_bar, 1)
+        left_layout.addWidget(self.protocols.task_bar)
+        lang_row = QHBoxLayout()
         self.language = QComboBox()
         self.language.setToolTip(
             "Jazyk přepisu (Whisper) a jazykového rozboru (Stanza) pro tento běh. "
@@ -124,38 +129,45 @@ class BatchPage(QWidget):
         )
         self.language.currentIndexChanged.connect(self._language_changed)
         self.set_languages(list(contract.DEFAULT_LANGUAGES))
-        task_row.addWidget(QLabel("Jazyk:"))
-        task_row.addWidget(self.language)
-        layout.addLayout(task_row)
+        lang_row.addWidget(QLabel("Jazyk nahrávek:"))
+        lang_row.addWidget(self.language, 1)
+        left_layout.addLayout(lang_row)
 
-        # 3 · protokol
+        # --- pravý sloupec: protokol --------------------------------------------
+        right = QFrame()
+        right.setObjectName("card")
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(16, 14, 16, 14)
+        right_layout.setSpacing(8)
+        columns.addWidget(right, 3)
+
         step3, self.step3_hint = _step(3, "Protokol", "Co se má z nahrávek spočítat.")
-        layout.addLayout(step3)
-        proto_row = QHBoxLayout()
-        proto_row.setContentsMargins(34, 0, 0, 0)
-        proto_row.addWidget(self.protocols)
-        layout.addLayout(proto_row, 1)
+        right_layout.addLayout(step3)
+        right_layout.addWidget(self.protocols, 1)
 
         # rozšířený režim: souhrn výběru a tlačítko do okna editoru
         self.editor_dialog = ProtocolEditorDialog(self)
         self.editor = self.editor_dialog.editor
         self.editor.changed.connect(self._editor_changed)
         self.advanced_box = QGroupBox("Feature a parametry")
-        adv = QHBoxLayout(self.advanced_box)
+        adv = QVBoxLayout(self.advanced_box)
         self.editor_summary = QLabel("")
         self.editor_summary.setWordWrap(True)
-        adv.addWidget(self.editor_summary, 1)
+        adv.addWidget(self.editor_summary)
+        adv_buttons = QHBoxLayout()
+        adv_buttons.addStretch(1)
         self.edit_btn = QPushButton("Upravit…")
         self.edit_btn.setToolTip("Výběr feature a parametry jen pro tento běh")
         self.edit_btn.setEnabled(False)
         self.edit_btn.clicked.connect(self.open_editor)
-        adv.addWidget(self.edit_btn)
+        adv_buttons.addWidget(self.edit_btn)
         self.save_btn = QPushButton("Uložit jako protokol…")
         self.save_btn.setToolTip("Uloží aktuální výběr feature a parametry jako nový protokol")
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self._save)
-        adv.addWidget(self.save_btn)
-        layout.addWidget(self.advanced_box)
+        adv_buttons.addWidget(self.save_btn)
+        adv.addLayout(adv_buttons)
+        right_layout.addWidget(self.advanced_box)
 
         bottom = QHBoxLayout()
         self.status = QLabel("")
@@ -274,9 +286,7 @@ class BatchPage(QWidget):
         )
         n = len(self._recordings)
         self.step1_hint.setText(
-            "Vyber složku s nahrávkami."
-            if not text
-            else f"{n} nahrávek" + (", žádná nenalezena" if n == 0 else "")
+            "Vyber složku." if not text else (f"{n} nahrávek" if n else "žádná nenalezena")
         )
         self.files.setRowCount(len(self._recordings))
         for r, rec in enumerate(self._recordings):
@@ -333,7 +343,7 @@ class BatchPage(QWidget):
             f"{contract.TASK_LABELS.get(proto.task, proto.task)} · "
             f"{contract.language_label(self.language_code())}"
             if proto is not None
-            else "Co pacient nahrával a v jakém jazyce."
+            else ""
         )
         self.step3_hint.setText(proto.name if proto is not None else "Co se má spočítat.")
         if not self._recordings:
