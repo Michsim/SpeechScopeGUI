@@ -108,6 +108,7 @@ class EnvironmentPage(QWidget):
     settings_requested = Signal()
     download_requested = Signal()
     install_requested = Signal()  # modely ze souboru (balík z `models pack`)
+    report_changed = Signal(object)  # výsledek doctor --json nebo None
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -258,6 +259,7 @@ class EnvironmentPage(QWidget):
             self._set_status("missing", "Knihovnu se nepodařilo spustit.", str(exc))
             self.download_btn.hide()
             self._clear_cards()
+            self.report_changed.emit(None)
             return
         finally:
             QApplication.restoreOverrideCursor()
@@ -265,6 +267,7 @@ class EnvironmentPage(QWidget):
             self.check_btn.setEnabled(True)
         self.report = report
         self._show(version, report)
+        self.report_changed.emit(report)
 
     # --- vykreslení -----------------------------------------------------------
 

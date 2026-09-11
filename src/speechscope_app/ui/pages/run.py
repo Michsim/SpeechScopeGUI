@@ -39,13 +39,7 @@ from .. import theme
 
 TICK_MS = 1000
 
-# Krátké popisky providerů do záhlaví tabulky.
-PROVIDER_SHORT: dict[str, str] = {
-    "segments": "segmentace",
-    "transcript": "přepis",
-    "nlp": "jaz. rozbor",
-    "phonemes": "fonémy",
-}
+PROVIDER_SHORT = contract.PROVIDER_SHORT
 
 STAGE_COLORS: dict[str, str] = {
     "done": theme.OK,

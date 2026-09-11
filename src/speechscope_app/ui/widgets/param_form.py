@@ -122,6 +122,12 @@ class ParamForm(QWidget):
             if name in self._widgets:
                 self.set_value(name, value)
 
+    def reset(self) -> None:
+        """Vrátí všechno na výchozí hodnoty z knihovny."""
+        for name, p in self._params.items():
+            self.set_value(name, p.default if p.default is not None else "")
+        self.changed.emit()
+
     def overrides(self) -> dict[str, Any]:
         """Jen hodnoty odlišné od výchozích."""
         out: dict[str, Any] = {}

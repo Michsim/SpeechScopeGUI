@@ -41,6 +41,19 @@ DOMAIN_LABELS: dict[str, str] = {
     "linguistic": "Lingvistika",
 }
 
+# Skupina = doména a druhá část jména feature (`acoustic.timing.pauses`).
+# Neznámá skupina se v UI ukáže surově, nikdy nespadne.
+GROUP_LABELS: dict[str, str] = {
+    "acoustic.articulation": "Akustika · artikulace",
+    "acoustic.intensity": "Akustika · intenzita",
+    "acoustic.pitch": "Akustika · výška",
+    "acoustic.quality": "Akustika · kvalita hlasu",
+    "acoustic.spectral": "Akustika · spektrum",
+    "acoustic.timing": "Akustika · časování",
+    "linguistic.lexical": "Lingvistika · lexikum",
+    "linguistic.syntactic": "Lingvistika · syntax",
+}
+
 # Stejné jako `speechscope.signal.AUDIO_SUFFIXES`.
 AUDIO_SUFFIXES: tuple[str, ...] = (".wav", ".flac", ".ogg", ".mp3", ".m4a")
 
@@ -52,12 +65,31 @@ TRANSCRIPT_SUFFIX = ".txt"
 # ho `models unpack`; kód 1 = některý model selhal, kód 2 = není to balík.
 MODELS_BUNDLE_FILTER = "Balík modelů SpeechScope (*.zip)"
 
+# Pořadí = pořadí, v jakém providery v běhu přicházejí na řadu.
 PROVIDER_LABELS: dict[str, str] = {
     "segments": "Segmentace řeči",
+    "phonemes": "Fonémy (phnrec)",
     "transcript": "Přepis (Whisper)",
     "nlp": "Jazykový rozbor (Stanza)",
-    "phonemes": "Fonémy (phnrec)",
 }
+
+# Krátké popisky do tabulek.
+PROVIDER_SHORT: dict[str, str] = {
+    "segments": "segmentace",
+    "transcript": "přepis",
+    "nlp": "jaz. rozbor",
+    "phonemes": "fonémy",
+}
+
+# Orientační cena běhu podle nejdražšího provideru, dokud není změřená.
+# Pořadí od nejdražšího.
+PROVIDER_COST: tuple[tuple[str, str], ...] = (
+    ("transcript", "minuty na nahrávku"),
+    ("nlp", "minuty na nahrávku"),
+    ("segments", "desítky sekund na nahrávku"),
+    ("phonemes", "sekundy na nahrávku"),
+)
+NO_MODELS_COST = "sekundy na nahrávku"
 
 # --- události --progress-json -------------------------------------------------
 

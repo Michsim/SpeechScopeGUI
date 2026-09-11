@@ -5,7 +5,14 @@ from pathlib import Path
 import pytest
 import yaml
 
-from speechscope_app.backend.protocol import Protocol, all_protocols, builtin_protocols
+from speechscope_app.backend.library import FeatureInfo, FeatureParams
+from speechscope_app.backend.protocol import (
+    Protocol,
+    all_protocols,
+    builtin_protocols,
+    slugify,
+    summarize,
+)
 
 
 def test_roundtrip(tmp_path: Path) -> None:
@@ -58,3 +65,50 @@ def test_broken_user_protocol_is_skipped(tmp_path: Path) -> None:
     (tmp_path / "junk.yaml").write_text(":::", encoding="utf-8")
     names = [p.name for p in all_protocols(tmp_path) if not p.builtin]
     assert names == ["A"]
+
+
+def _feature(name: str, requires: list[str], n: int = 2) -> FeatureInfo:
+    return FeatureInfo(
+        name=name,
+        version="1",
+        tasks=["story"],
+        requires=requires,
+        description="",
+        outputs={f"o{i}": "" for i in range(n)},
+        columns=[f"{name}.o{i}" for i in range(n)],
+    )
+
+
+CATALOG = [
+    _feature("acoustic.pitch.f0", [], 3),
+    _feature("acoustic.timing.pauses", ["segments"]),
+    _feature("linguistic.lexical.mattr", ["nlp"], 1),
+]
+PROVIDERS = [
+    FeatureParams("nlp", "provider", False, False, {}, [], requires=["transcript"]),
+    FeatureParams("transcript", "provider", False, False, {}, [], requires=[]),
+]
+
+
+def test_protocol_select_uses_domain_and_patterns() -> None:
+    names = [f.name for f in CATALOG]
+    assert Protocol(name="a", task="story", domain="acoustic").select(names) == names[:2]
+    assert Protocol(name="a", task="story", features=["*.mattr", "acoustic.pitch.*"]).select(
+        names
+    ) == ["linguistic.lexical.mattr", "acoustic.pitch.f0"]
+    assert Protocol(name="a", task="story").select(names) == names
+
+
+def test_summarize_counts_columns_and_provider_dependencies() -> None:
+    s = summarize(["acoustic.pitch.f0"], CATALOG)
+    assert s.providers == [] and s.columns == 3 and s.cost_hint() == "sekundy na nahrávku"
+    s = summarize(["acoustic.pitch.f0", "acoustic.timing.pauses"], CATALOG)
+    assert s.providers == ["segments"] and s.columns == 5
+    assert s.cost_hint() == "desítky sekund na nahrávku"
+    s = summarize(["linguistic.lexical.mattr"], CATALOG, PROVIDERS)
+    assert s.providers == ["transcript", "nlp"] and s.cost_hint() == "minuty na nahrávku"
+
+
+def test_slug() -> None:
+    assert slugify("Pohádka, akustika i lingvistika") == "pohadka-akustika-i-lingvistika"
+    assert slugify("   ") == "davka"

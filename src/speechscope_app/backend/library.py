@@ -151,6 +151,7 @@ class FeatureParams:
     vad_required: bool
     vad_default: dict[str, bool]
     params: list[ParamInfo]
+    requires: list[str] = field(default_factory=list)  # providery, na kterých závisí
 
     @classmethod
     def from_json(cls, item: dict[str, Any]) -> FeatureParams:
@@ -162,6 +163,7 @@ class FeatureParams:
             vad_required=bool(vad.get("required", False)),
             vad_default=dict(vad.get("default", {})),
             params=[ParamInfo.from_json(k, v) for k, v in item.get("params", {}).items()],
+            requires=list(item.get("requires", [])),
         )
 
 

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import re
-import unicodedata
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -37,12 +35,6 @@ PAGE_ENV, PAGE_BATCH, PAGE_RUN, PAGE_RESULTS = range(4)
 def _has_models(models_dir: Path) -> bool:
     """Laciný test bez volání knihovny: složka existuje a není prázdná."""
     return models_dir.is_dir() and any(models_dir.iterdir())
-
-
-def _slug(text: str) -> str:
-    """Jméno protokolu jako část názvu složky: bez diakritiky a mezer."""
-    plain = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]+", "-", plain.lower()).strip("-") or "davka"
 
 
 class MainWindow(QMainWindow):
@@ -99,6 +91,8 @@ class MainWindow(QMainWindow):
         self.env_page.settings_requested.connect(self._open_settings)
         self.env_page.download_requested.connect(self.download_models)
         self.env_page.install_requested.connect(self.install_models)
+        self.env_page.report_changed.connect(self.batch_page.set_doctor)
+        self.batch_page.set_stats_lookup(self.settings.seconds_per_file)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
@@ -175,7 +169,7 @@ class MainWindow(QMainWindow):
     def save_protocol(self, proto: Protocol) -> Path:
         """Uloží protokol mezi uživatelské a znovu načte nabídku."""
         folder = self.settings.protocols_dir()
-        path = folder / f"{_slug(proto.name)}.yaml"
+        path = folder / f"{proto.slug()}.yaml"
         existing = {p.name: p for p in all_protocols(folder) if not p.builtin}
         if proto.name in existing and existing[proto.name].path is not None:
             path = existing[proto.name].path  # přepis stejného jména, ne druhý soubor
@@ -196,7 +190,7 @@ class MainWindow(QMainWindow):
             return
 
         stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        slug = _slug(proto.name)
+        slug = proto.slug()
         run_dir = self.settings.work_root / f"{stamp}_{slug}"
         run_dir.mkdir(parents=True, exist_ok=True)
         work_dir = self.settings.work_root / "work"
@@ -233,6 +227,7 @@ class MainWindow(QMainWindow):
         per_file = self.run_page.seconds_per_file()
         if per_file is not None and not cancelled and code == 0:
             self.settings.set_seconds_per_file(self._running_slug, per_file)
+            self.batch_page.refresh_summary()
         if cancelled or code != 0 or not state.out:
             return
         out = Path(state.out)
