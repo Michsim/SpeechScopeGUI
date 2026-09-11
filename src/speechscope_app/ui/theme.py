@@ -109,6 +109,11 @@ QPushButton[role="primary"] {{
 }}
 QPushButton[role="primary"]:hover {{ background: {ACCENT_HOVER}; color: white; }}
 QPushButton[role="primary"]:disabled {{ background: #93c5fd; color: white; }}
+QPushButton[role="danger"] {{
+    background: {MISSING}; color: white; border: none; font-weight: 600; padding: 7px 18px;
+}}
+QPushButton[role="danger"]:hover {{ background: #b91c1c; color: white; }}
+QPushButton[role="danger"]:disabled {{ background: #fca5a5; color: white; }}
 
 /* tabulky a stromy */
 QTableView, QTreeView, QTableWidget, QTreeWidget, QPlainTextEdit, QListWidget {{

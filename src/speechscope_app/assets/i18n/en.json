@@ -266,6 +266,7 @@
   "Všechny stažitelné modely už jsou na místě.": "All downloadable models are already in place.",
   "Zabalí do zipu stav knihovny a modelů, nastavení a logy posledních běhů, aby šlo poslat, co se stalo. Bez nahrávek a bez výsledků.": "Packs the library and model status, settings and logs of the latest runs into a zip so you can send what happened. No recordings and no results.",
   "Zadej jméno.": "Enter a name.",
+  "Zastaví výpočet po potvrzení; hotové nahrávky zůstanou.": "Stops the computation after confirmation; finished recordings are kept.",
   "Zatím žádný výstup.": "No output yet.",
   "Zavřít": "Close",
   "Začít analýzu": "Start analysis",
@@ -424,5 +425,6 @@
   "žádná": "none",
   "žádná nenalezena": "none found",
   "žádné, výchozí z knihovny": "none, library defaults",
+  "■ Stop": "■ Stop",
   "● změněné parametry": "● modified parameters"
 }
