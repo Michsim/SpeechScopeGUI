@@ -74,9 +74,20 @@ def estimate_per_file(durations: list[float]) -> float | None:
     return statistics.median(sample)
 
 
+def estimate_rate(pairs: list[tuple[float, float]]) -> float | None:
+    """Sekundy výpočtu na sekundu zvuku: medián poměrů (doba, délka zvuku),
+    od tří hotových bez první nahrávky (načtení modelů)."""
+    ratios = [spent / audio for spent, audio in pairs if audio > 0]
+    if not ratios:
+        return None
+    sample = ratios[1:] if len(ratios) >= 3 else ratios
+    return statistics.median(sample)
+
+
 class RunPage(QWidget):
     finished = Signal(object, int, bool)  # BatchState, návratový kód, zrušeno
     progress_changed = Signal(str)  # krátký text do nabídky, "" když nic neběží
+    file_done = Signal(int, int)  # hotových, celkem; po každé nahrávce živého běhu
     queue_remove = Signal(int)  # vyhodit položku fronty
     queue_clear = Signal()
 
@@ -95,7 +106,10 @@ class RunPage(QWidget):
         self._file_started_at: float | None = None
         self._stage_started_at: float | None = None
         self._durations: list[float] = []
+        self._file_seconds: dict[int, float] = {}  # index nahrávky -> doba výpočtu
+        self._audio: list[float | None] = []  # délky zvuku podle indexu nahrávky
         self._expected: float | None = None
+        self._expected_total: float | None = None
         self._providers: list[str] = []
         self._paths: list[Path] = []
         self._events_file: Path | None = None
@@ -202,12 +216,19 @@ class RunPage(QWidget):
         log_file: Path | None = None,
         inputs: list[Path] | None = None,
         expected_seconds: float | None = None,
+        audio_seconds: list[float | None] | None = None,
+        expected_total: float | None = None,
     ) -> None:
         """Spustí knihovnu. `inputs` předplní tabulku, `expected_seconds` je
-        doba na nahrávku z minulého běhu téhož protokolu pro první odhad."""
+        doba na nahrávku z minulého běhu téhož protokolu pro první odhad,
+        `audio_seconds` délky nahrávek (None = neznámá) a `expected_total`
+        odhad celé dávky podle minut zvuku, když ho hlavní okno spočítalo."""
         self._viewing = None
         self._paths = list(inputs or [])
         self._expected = expected_seconds
+        self._expected_total = expected_total
+        self._audio = list(audio_seconds or [])
+        self._file_seconds = {}
         self._events_file = log_file.with_name("events.jsonl") if log_file else None
         self._live_dir = log_file.parent if log_file else None
         if self._events_file is not None:
@@ -222,11 +243,12 @@ class RunPage(QWidget):
         self.headline.setText(title)
         self.summary.setText(tr("{n} nahrávek").format(n=len(self._paths)) if self._paths else "")
         self.bar.setRange(0, 0)
+        first_guess = expected_total or (
+            expected_seconds * len(self._paths) if expected_seconds and self._paths else None
+        )
         self.timing.setText(
-            tr("podle minulého běhu asi {time}").format(
-                time=format_seconds(expected_seconds * len(self._paths))
-            )
-            if expected_seconds and self._paths
+            tr("podle minulého běhu asi {time}").format(time=format_seconds(first_guess))
+            if first_guess
             else ""
         )
         self.current.setText(tr("Spouštím knihovnu…"))
@@ -377,6 +399,7 @@ class RunPage(QWidget):
                 self._ensure_row(event.index, event.path)
                 if self._file_started_at is not None:
                     self._durations.append(now - self._file_started_at)
+                    self._file_seconds[event.index] = now - self._file_started_at
                     self._file_started_at = None
                 self._set_cell(
                     event.index,
@@ -388,7 +411,7 @@ class RunPage(QWidget):
                 self.bar.setValue(state.processed)
                 if self._viewing is None:
                     self.progress_changed.emit(f"{state.processed}/{state.total}")
-                    self.refresh_history()  # počet hotových nahrávek v historii
+                    self.file_done.emit(state.processed, state.total)
                 self._update_timing()
                 self._update_current()
             case contract.DoneEvent():
@@ -438,14 +461,24 @@ class RunPage(QWidget):
             per_file = self._expected
             source = tr("podle minulého běhu")
         remaining_files = state.total - state.processed
-        if per_file is None or remaining_files <= 0:
+        if remaining_files <= 0:
             self.timing.setText(
                 tr("{n} z {total} hotovo").format(n=state.processed, total=state.total)
             )
             return
-        remaining = per_file * remaining_files
+        remaining = self._remaining_by_audio(per_file)
+        if remaining is None:
+            if per_file is None:
+                self.timing.setText(
+                    tr("{n} z {total} hotovo").format(n=state.processed, total=state.total)
+                )
+                return
+            remaining = per_file * remaining_files
+        else:
+            source = tr("podle minut zvuku")
         if self._file_started_at is not None:
-            remaining -= min(per_file, time.monotonic() - self._file_started_at)
+            current_guess = per_file if per_file is not None else remaining
+            remaining -= min(current_guess, time.monotonic() - self._file_started_at)
         self.timing.setText(
             tr(
                 "{n} z {total} hotovo · zbývá asi {remaining} ({source}, {per_file} na nahrávku)"
@@ -478,6 +511,43 @@ class RunPage(QWidget):
         if row >= 0:
             self.queue_remove.emit(row)
 
+    def rate(self) -> float | None:
+        """Sekundy výpočtu na sekundu zvuku z tohoto běhu; None bez známých délek."""
+        pairs = [
+            (spent, self._audio[i])
+            for i, spent in sorted(self._file_seconds.items())
+            if i < len(self._audio) and self._audio[i]
+        ]
+        return estimate_rate(pairs)  # type: ignore[arg-type]
+
+    def _remaining_by_audio(self, per_file: float | None) -> float | None:
+        """Zbývající čas z délek nezpracovaných nahrávek; None, když délky
+        nebo tempo nejsou známé (a nejde je doplnit dobou na nahrávku)."""
+        total = self.runner.state.total
+        if not self._audio or total <= 0:
+            return None
+        rate = self.rate()
+        if rate is None:
+            stat = self._expected_total
+            if stat is None or not self._audio:
+                return None
+            known = [a for a in self._audio if a]
+            if not known:
+                return None
+            rate = stat / sum(known)  # odhad tempa z minulého běhu
+        remaining = 0.0
+        for i in range(total):
+            if i in self._file_seconds:
+                continue
+            audio = self._audio[i] if i < len(self._audio) else None
+            if audio:
+                remaining += rate * audio
+            elif per_file is not None:
+                remaining += per_file
+            else:
+                return None
+        return remaining
+
     def elapsed_seconds(self) -> float:
         end = self._finished_at if self._finished_at is not None else time.monotonic()
         return round(end - self._started_at, 1)
@@ -485,6 +555,10 @@ class RunPage(QWidget):
     def seconds_per_file(self) -> float | None:
         """Střední doba na nahrávku z tohoto běhu; pro statistiku protokolu."""
         return estimate_per_file(self._durations)
+
+    def seconds_per_audio_minute(self) -> float | None:
+        rate = self.rate()
+        return rate * 60 if rate else None
 
     # --- log a konec ----------------------------------------------------------------
 

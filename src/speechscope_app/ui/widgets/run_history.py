@@ -116,7 +116,10 @@ class RunHistory(QWidget):
             else self._title
         )
         if select_row is not None:
+            # výběr zůstává, kde byl; stránka už ten běh ukazuje, znovu ho nenačítat
+            self.runs.blockSignals(True)
             self.runs.selectRow(select_row)
+            self.runs.blockSignals(False)
 
     def select_dir(self, run_dir: Path) -> bool:
         for row, info in enumerate(self._runs):

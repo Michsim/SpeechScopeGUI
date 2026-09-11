@@ -7,8 +7,13 @@ poznají podle toho, co v nich leží.
 
 Hlavní okno zapíše `run.json` se stavem „běží“ hned při spuštění, protože
 knihovna zapisuje `features.csv` průběžně a bez záznamu by rozpracovaná
-dávka vypadala jako hotová. Běh, který zůstal ve stavu „běží“ po pádu
-aplikace, se při dalším startu označí jako přerušený (`mark_orphans`).
+dávka vypadala jako hotová. Po každé nahrávce do něj doplní `processed`.
+Běh, který zůstal ve stavu „běží“ po pádu aplikace, se při dalším startu
+označí jako přerušený (`mark_orphans`).
+
+Tabulka běžícího běhu se tu nikdy neotvírá: knihovna ji píše přes `.part`
+a přejmenování, a Windows přejmenování odmítnou, dokud má soubor někdo
+otevřený. Počet řádků se počítá až u skončených běhů.
 """
 
 from __future__ import annotations
@@ -94,8 +99,6 @@ def read_run(run_dir: Path) -> RunInfo | None:
             protocol_name = Protocol.load(proto_path).display_name
         except Exception:  # rozbitý soubor nesmí shodit seznam  # noqa: BLE001
             pass
-    csv_path = run_dir / "features.csv"
-    rows = _count_rows(csv_path) if csv_path.is_file() else None
     data: dict[str, Any] = {}
     run_file = run_dir / RUN_FILE
     if run_file.is_file():
@@ -103,10 +106,13 @@ def read_run(run_dir: Path) -> RunInfo | None:
             data = json.loads(run_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             data = {}
+    csv_path = run_dir / "features.csv"
+    running = data.get("status") == "running"
+    rows = _count_rows(csv_path) if csv_path.is_file() and not running else None
     status = str(data.get("status") or ("ok" if rows is not None else "unknown"))
     processed = data.get("processed")
-    if status in ("running", "interrupted") and processed is None:
-        processed = rows  # záznam ze startu počet nezná, tabulka roste po nahrávce
+    if status == "interrupted" and processed is None:
+        processed = rows  # záznam bez počtu, tabulka ale říká, kam běh došel
     return RunInfo(
         dir=run_dir,
         started=started,

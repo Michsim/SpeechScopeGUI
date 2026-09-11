@@ -62,13 +62,15 @@ def test_running_run_counts_rows_and_orphans_get_interrupted(tmp_path: Path) -> 
         tmp_path,
         "2026-09-11_12-00-00_fonace-zakladni",
         csv_rows=2,
-        run={"status": "running", "total": 5, "protocol": "Fonace, základní"},
+        run={"status": "running", "total": 5, "protocol": "Fonace, základní", "processed": 2},
     )
     info = read_run(d)
     assert info is not None and info.status == "running" and info.status_label == "běží"
-    assert info.processed == 2 and info.total == 5  # z tabulky, záznam počet nezná
+    assert info.processed == 2 and info.total == 5
+    assert info.rows is None  # tabulka běžícího běhu se neotvírá (zámek pro knihovnu)
 
     assert mark_orphans(tmp_path) == [d]
     info = read_run(d)
     assert info is not None and info.status == "interrupted" and info.processed == 2
+    assert info.rows == 2  # po konci už se tabulka počítá
     assert mark_orphans(tmp_path) == []  # podruhé už není co značit
