@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -33,7 +34,7 @@ from ... import contract
 from ...backend.discover import Recording, find_recordings
 from ...backend.library import Library, LibraryError
 from ...backend.manifest import Manifest, find_manifest, read_manifest
-from ...backend.protocol import Protocol, card_infos
+from ...backend.protocol import Protocol, card_infos, summarize
 from ...i18n import tr
 from .. import theme
 from ..prepare_dialog import SegmentDialog, TranscribeDialog
@@ -70,6 +71,7 @@ class BatchPage(QWidget):
         self._protocols: list[Protocol] = []
         self._recordings: list[Recording] = []
         self._manifest: Manifest | None = None
+        self._doctor: dict[str, Any] | None = None
         self._manifest_auto = True  # manifest nalezený ve složce, ne vybraný ručně
         self._seconds_per_file: Callable[[str], float | None] = lambda _slug: None
 
@@ -240,6 +242,7 @@ class BatchPage(QWidget):
         self._update_run_state()
 
     def set_doctor(self, report: dict[str, Any] | None) -> None:
+        self._doctor = report
         self.editor.set_doctor(report)
         stanza = ((report or {}).get("models") or {}).get("stanza") or {}
         languages = [str(code) for code in stanza.get("languages") or []]
@@ -518,10 +521,49 @@ class BatchPage(QWidget):
                 proto.config.setdefault(provider, {})["language"] = language
         return proto
 
+    def missing_providers(self, proto: Protocol) -> list[str]:
+        """Providery, které protokol spustí a doctor hlásí jako nepřipravené.
+
+        Bez zprávy doctor se zavolá knihovna přímo (pár sekund), aby klinik
+        nespustil hodinový běh s prázdnými sloupci.
+        """
+        if self._library is None:
+            return []
+        if self._doctor is None:
+            try:
+                self._doctor = self._library.doctor()
+            except LibraryError:
+                return []
+        try:
+            catalog = self._library.features(proto.task)
+            providers = self._library.providers()
+        except LibraryError:
+            return []
+        summary = summarize(proto.select([f.name for f in catalog]), catalog, providers)
+        state = self._doctor.get("providers", {})
+        return [p for p in summary.providers if p in state and not state[p].get("ready")]
+
     def _run(self) -> None:
         proto = self.effective_protocol()
         if proto is None:
             return
+        missing = self.missing_providers(proto)
+        if missing:
+            names = ", ".join(contract.PROVIDER_LABELS.get(p, p) for p in missing)
+            answer = QMessageBox.question(
+                self,
+                tr("Něco chybí"),
+                tr(
+                    "Není připraveno: {names}.\n"
+                    "Feature, které to potřebují, zůstanou ve výsledcích prázdné. "
+                    "Modely a součásti se řeší na stránce Prostředí.\n\n"
+                    "Spustit přesto?"
+                ).format(names=names),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         self.run_requested.emit(proto, [r.path for r in self._recordings])
 
     def _prepare(self, kind: str) -> None:

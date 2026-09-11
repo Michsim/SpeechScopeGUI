@@ -359,3 +359,35 @@ def test_manifest_metadata_reach_results(
 
     page.clear_manifest()
     assert page.manifest() is None and page.files.columnCount() == 3
+
+
+def test_run_asks_when_provider_not_ready(
+    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    monkeypatch.setenv("SPEECHSCOPE_FAKE_DOCTOR", "missing")  # transcript a nlp nepřipravené
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    assert page.select_protocol("Pohádka, lingvistika")
+    assert page._doctor is None  # start na Datech, doctor ještě neběžel
+    asked: list[str] = []
+
+    def say_no(parent, title, text, *args, **kwargs):
+        asked.append(text)
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(say_no))
+    page.run_btn.click()
+    assert len(asked) == 1 and "Přepis (Whisper)" in asked[0] and "Stanza" in asked[0]
+    assert not window.run_page.runner.running
+    assert page._doctor is not None  # doctor se doptal sám
+
+    # akustický protokol bez modelů se nikoho neptá
+    assert page.select_protocol("Fonace, základní")
+    assert page.missing_providers(page.effective_protocol()) == []
+    with qtbot.waitSignal(window.run_page.finished, timeout=15000):
+        page.run_btn.click()
+    assert len(asked) == 1
