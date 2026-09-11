@@ -98,3 +98,32 @@ def test_run_page_shows_running_stage_from_events(qtbot: QtBot) -> None:
     feed(contract.StartEvent(total=1, task=None, features=[], providers=[], protocol=1))
     assert page.files.columnCount() == 3
     assert "jen dokončené" in page.current.text()
+
+
+def test_cancel_button_asks_first(
+    qtbot: QtBot, fake_library: Library, recordings: Path, tmp_path: Path, monkeypatch
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    monkeypatch.setenv("SPEECHSCOPE_FAKE_DELAY", "0.5")
+    page = RunPage()
+    qtbot.addWidget(page)
+    inputs = sorted(p for p in recordings.rglob("*") if p.suffix in (".wav", ".flac"))
+    req = ExtractRequest(inputs=inputs, task="phonation", out=tmp_path / "o.csv")
+    answers = [QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes]
+    asked: list[str] = []
+
+    def fake_question(parent, title, text, *args, **kwargs):
+        asked.append(text)
+        return answers.pop(0)
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(fake_question))
+    with qtbot.waitSignal(page.finished, timeout=20000) as blocker:
+        page.start(fake_library.argv(extract_args(req, models_dir=tmp_path)), title="x")
+        qtbot.waitUntil(lambda: page.runner.state.total > 0, timeout=10000)
+        page.cancel_btn.click()  # Ne: běží dál
+        assert page.runner.running
+        page.cancel_btn.click()  # Ano: konec
+    _state, _code, cancelled = blocker.args
+    assert cancelled and len(asked) == 2 and "Opravdu zrušit" in asked[0]
+    assert not page.cancel_btn.isEnabled()

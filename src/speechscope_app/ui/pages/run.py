@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -141,7 +142,7 @@ class RunPage(QWidget):
         self.elapsed.setObjectName("muted")
         self.cancel_btn = QPushButton("Zrušit")
         self.cancel_btn.setEnabled(False)
-        self.cancel_btn.clicked.connect(self.runner.cancel)
+        self.cancel_btn.clicked.connect(self.confirm_cancel)
         bottom.addWidget(self.elapsed, 1)
         bottom.addWidget(self.cancel_btn)
         layout.addLayout(bottom)
@@ -398,6 +399,23 @@ class RunPage(QWidget):
     def _on_contract_error(self, msg: str) -> None:
         self.log.appendPlainText(f"!! {msg}")
         self.log_toggle.setChecked(True)
+
+    def confirm_cancel(self) -> None:
+        """Zrušit až po potvrzení; výpočet mezitím běží dál."""
+        if not self.runner.running:
+            return
+        state = self.runner.state
+        done = f"{state.processed} z {state.total}" if state.total else "0"
+        answer = QMessageBox.question(
+            self,
+            "Zrušit výpočet",
+            f"Opravdu zrušit výpočet? Hotovo je {done} nahrávek.\n"
+            "Hotové řádky zůstanou ve výsledcích, mezivýsledky ve složce work.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes and self.runner.running:
+            self.runner.cancel()
 
     def _on_finished(self, code: int, cancelled: bool) -> None:
         self._tick.stop()
