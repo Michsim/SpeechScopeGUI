@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -123,7 +124,9 @@ class BatchPage(QWidget):
         self.files = QTableWidget()
         self.files.setColumnCount(3)
         self.files.setHorizontalHeaderLabels([tr("nahrávka")])
-        self.files.horizontalHeader().setStretchLastSection(True)
+        # Název vyplní zbylé místo, ostatní sloupce podle obsahu; šířka pak
+        # neposkakuje při přeskenování (podsložky, jiná složka, metadata).
+        self.files.horizontalHeader().setStretchLastSection(False)
         self.files.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.files.verticalHeader().setVisible(False)
         self.files.verticalHeader().setDefaultSectionSize(24)
@@ -416,8 +419,10 @@ class BatchPage(QWidget):
                 if c >= meta_from and meta is None:
                     item.setForeground(QColor(theme.MUTED))
                 self.files.setItem(r, c, item)
-        self.files.resizeColumnsToContents()
-        self.files.horizontalHeader().setStretchLastSection(True)
+        header = self.files.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for c in range(1, len(headers)):
+            header.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
         self.manifest_clear_btn.setVisible(manifest is not None)
         if manifest is None:
             self.manifest_label.setText(
