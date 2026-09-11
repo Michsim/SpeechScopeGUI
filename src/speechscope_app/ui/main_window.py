@@ -86,7 +86,13 @@ class MainWindow(QMainWindow):
         if wordmark.isNull():
             brand.setText("SpeechScope")
         else:
-            brand.setPixmap(wordmark.scaledToWidth(172, Qt.TransformationMode.SmoothTransformation))
+            # škálovat na fyzické pixely, jinak je logo na HiDPI rozmazané
+            dpr = self.devicePixelRatioF()
+            scaled = wordmark.scaledToWidth(
+                round(172 * dpr), Qt.TransformationMode.SmoothTransformation
+            )
+            scaled.setDevicePixelRatio(dpr)
+            brand.setPixmap(scaled)
         brand_layout.addWidget(brand)
         self.brand_sub = QLabel("")
         self.brand_sub.setObjectName("brand_sub")
