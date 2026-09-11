@@ -614,6 +614,27 @@ def test_welcome_first_setup_block(
     assert not welcome.setup.isVisibleTo(welcome) and welcome.status.isVisibleTo(welcome)
     assert not welcome.recommends_environment()
 
+    # doctor: providery připravené, i když některý model chybí (balík kliniky) → blok pryč
+    welcome.set_report(
+        {
+            "all_ready": False,
+            "providers": {"transcript": {"ready": True}, "segments": {"ready": True}},
+            "models": {"wavlm": {"present": False}},
+        }
+    )
+    assert not welcome.setup.isVisibleTo(welcome)
+    # provider bez modelu → blok zpět; Hotovo ho schová do dalšího startu
+    welcome.set_report(
+        {"all_ready": False, "providers": {"transcript": {"ready": False}}, "models": {}}
+    )
+    assert (
+        welcome.setup.isVisibleTo(welcome) and "nejsou nainstalované" in welcome.setup_note.text()
+    )
+    welcome.done_btn.click()
+    assert not welcome.setup.isVisibleTo(welcome) and welcome.status.isVisibleTo(welcome)
+    welcome.set_state(library_ok=True, models_ok=False)
+    assert not welcome.setup.isVisibleTo(welcome)  # zůstává schovaný
+
 
 def test_default_models_dir_next_to_installed_app(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

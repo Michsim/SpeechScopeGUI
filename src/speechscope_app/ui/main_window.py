@@ -325,7 +325,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
         if dialog.downloaded:
             self.library.clear_cache()
-            self.env_page.refresh()
+        self.env_page.refresh()  # i po neúspěchu: uvítání a Prostředí mají ukázat pravdu
 
     def install_models(self, archive: Path | None = None) -> None:
         if self.library is None:
@@ -335,7 +335,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
         if dialog.installed:
             self.library.clear_cache()
-            self.env_page.refresh()
+        self.env_page.refresh()  # i po neúspěchu: uvítání a Prostředí mají ukázat pravdu
 
     # --- diagnostika -----------------------------------------------------------
 

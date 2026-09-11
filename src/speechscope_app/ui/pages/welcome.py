@@ -189,6 +189,10 @@ class WelcomePage(QWidget):
         self.setup_note.setWordWrap(True)
         setup_layout.addWidget(self.setup_note)
         setup_buttons = QHBoxLayout()
+        self.done_btn = QPushButton(tr("Hotovo"))
+        self.done_btn.setToolTip(tr("Schová tento blok; složky i modely jdou změnit v Prostředí."))
+        self.done_btn.clicked.connect(self.dismiss_setup)
+        setup_buttons.addWidget(self.done_btn)
         setup_buttons.addStretch(1)
         self.install_btn = QPushButton(tr("Modely ze souboru…"))
         theme.set_role(self.install_btn, "primary")
@@ -209,6 +213,8 @@ class WelcomePage(QWidget):
 
         self._recommend_env = False
         self._library_ok = False
+        self._models_present = False
+        self._dismissed = False  # Hotovo: blok se v tomto běhu už neukáže
         self.set_state(library_ok=False, models_ok=False)
 
     # --- stav ------------------------------------------------------------------------
@@ -233,6 +239,7 @@ class WelcomePage(QWidget):
     def set_state(self, *, library_ok: bool, models_ok: bool) -> None:
         """Laciný stav před kontrolou: je nastavená knihovna a je co v modelech."""
         self._library_ok = library_ok
+        self._models_present = models_ok
         if not library_ok:
             self._recommend(True)
             self._set_status("warn", tr("Knihovna SpeechScope není nastavená."))
@@ -257,26 +264,36 @@ class WelcomePage(QWidget):
         else:
             self._recommend(True)
             self._set_status("warn", tr("V prostředí něco chybí, podívejte se na Prostředí."))
-            models = report.get("models") or {}
-            missing = any(not m.get("present") for m in models.values()) if models else True
-            self._show_setup(missing)
+            providers = report.get("providers") or {}
+            # blok má smysl, dokud není připravený některý provider; balík pro
+            # kliniku nemá wavlm ani pyannote a přesto je všechno připravené
+            self._models_present = all(p.get("ready") for p in providers.values())
+            self._show_setup(not self._models_present)
 
     def recommends_environment(self) -> bool:
         return self._recommend_env
 
+    def dismiss_setup(self) -> None:
+        """Hotovo: blok pryč do dalšího startu; stav zůstane ve štítku."""
+        self._dismissed = True
+        self._show_setup(False)
+
     def _show_setup(self, shown: bool) -> None:
+        shown = shown and not self._dismissed
         self.setup.setVisible(shown)
         self.status.setVisible(not shown)  # blok říká totéž podrobněji
         self.install_btn.setEnabled(self._library_ok)
         self.download_btn.setEnabled(self._library_ok)
-        self.setup_note.setText(
-            tr(
+        if not self._library_ok:
+            note = tr("Napřed je třeba v Nastavení ukázat na knihovnu SpeechScope.")
+        elif self._models_present:
+            note = tr("Modely jsou na místě. Blok zavřete tlačítkem Hotovo.")
+        else:
+            note = tr(
                 "Modely zatím nejsou nainstalované. Nainstalujte je z balíku "
                 "(zip z USB nebo sdíleného disku), nebo je stáhněte z internetu."
             )
-            if self._library_ok
-            else tr("Napřed je třeba v Nastavení ukázat na knihovnu SpeechScope.")
-        )
+        self.setup_note.setText(note)
 
     def _recommend(self, env: bool) -> None:
         """Modré je doporučené tlačítko, druhé zůstane obyčejné."""
