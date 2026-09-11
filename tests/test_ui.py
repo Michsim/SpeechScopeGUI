@@ -69,6 +69,14 @@ def test_window_runs_batch_end_to_end(
     assert (run_dirs[0] / "features.csv").is_file()
     assert (run_dirs[0] / "protocol.yaml").is_file()
     assert (run_dirs[0] / "speechscope.log").is_file()
+    run_file = json.loads((run_dirs[0] / "run.json").read_text(encoding="utf-8"))
+    assert run_file["status"] == "ok" and run_file["total"] == 4 and run_file["processed"] == 4
+    # historie na Výsledcích: jeden běh, vybraný, se stavem hotovo
+    results = window.results_page
+    assert results.runs.rowCount() == 1
+    assert results.runs.item(0, 1).text() == "Fonace, základní"
+    assert results.runs.item(0, 3).text() == "hotovo"
+    assert results.runs.selectionModel().selectedRows()[0].row() == 0
 
 
 def test_save_protocol_from_advanced_mode(qtbot: QtBot, settings: AppSettings) -> None:

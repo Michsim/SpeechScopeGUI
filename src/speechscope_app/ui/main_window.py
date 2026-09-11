@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__, contract
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
+from ..backend.history import write_run_file
 from ..backend.manifest import write_normalized
 from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.settings import AppSettings
@@ -76,6 +77,7 @@ class MainWindow(QMainWindow):
         ):
             self.pages.addWidget(page)
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
+        self.nav.currentRowChanged.connect(self._page_shown)
 
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
@@ -130,6 +132,7 @@ class MainWindow(QMainWindow):
         self.env_page.report_changed.connect(self.protocols_page.set_doctor)
         self.batch_page.set_stats_lookup(self.settings.seconds_per_file)
         self.protocols_page.set_stats_lookup(self.settings.seconds_per_file)
+        self.results_page.set_work_root(self.settings.work_root)
         self.protocols_page.protocols_changed.connect(self.reload_protocols)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.prepare_requested.connect(self._start_prepare)
@@ -142,6 +145,10 @@ class MainWindow(QMainWindow):
         self.nav.setCurrentRow(page)
         if page == PAGE_ENV and self.library is not None:
             self.env_page.refresh()  # první spuštění: rovnou ukázat, co chybí
+
+    def _page_shown(self, index: int) -> None:
+        if index == PAGE_RESULTS:
+            self.results_page.refresh()
 
     def start_page(self) -> int:
         """Klinik začíná na Datech; bez knihovny nebo bez modelů na Prostředí."""
@@ -272,6 +279,9 @@ class MainWindow(QMainWindow):
         self.nav.setCurrentRow(PAGE_RUN)
         self._running_slug = slug
         self._running_out = req.out
+        self._running_dir = run_dir
+        self._running_kind = "extract"
+        self._running_name = proto.display_name
         self.run_page.start(
             argv,
             title=proto.display_name,
@@ -322,6 +332,9 @@ class MainWindow(QMainWindow):
         self.nav.setCurrentRow(PAGE_RUN)
         self._running_slug = None
         self._running_out = None
+        self._running_dir = run_dir
+        self._running_kind = "prepare"
+        self._running_name = proto.display_name
         self.run_page.start(
             self.library.argv(args),
             title=tr("Jen {what} · {name}").format(what=label, name=proto.display_name),
@@ -330,6 +343,26 @@ class MainWindow(QMainWindow):
         )
 
     def _batch_finished(self, state: contract.BatchState, code: int, cancelled: bool) -> None:
+        run_dir = getattr(self, "_running_dir", None)
+        if run_dir is not None and run_dir.is_dir():
+            if cancelled:
+                status = "cancelled"
+            elif code != 0:
+                status = "error"
+            elif self._running_kind == "prepare":
+                status = "prepare"
+            else:
+                status = "ok"
+            write_run_file(
+                run_dir,
+                status=status,
+                kind=self._running_kind,
+                protocol=self._running_name,
+                processed=state.processed,
+                total=state.total,
+                seconds=self.run_page.elapsed_seconds(),
+                out=state.out,
+            )
         per_file = self.run_page.seconds_per_file()
         if per_file is not None and not cancelled and code == 0 and self._running_slug:
             self.settings.set_seconds_per_file(self._running_slug, per_file)

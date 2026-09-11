@@ -401,6 +401,10 @@ class RunPage(QWidget):
             self._stage_cell(running, time.monotonic() - self._stage_started_at)
         self._update_current()
 
+    def elapsed_seconds(self) -> float:
+        end = self._finished_at if self._finished_at is not None else time.monotonic()
+        return round(end - self._started_at, 1)
+
     def seconds_per_file(self) -> float | None:
         """Střední doba na nahrávku z tohoto běhu; pro statistiku protokolu."""
         return estimate_per_file(self._durations)
