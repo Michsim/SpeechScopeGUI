@@ -200,9 +200,14 @@ uv run ruff check src tests
 ```
 
 ## Rozhraní pro GUI (smlouva, neměnit bez zvednutí verze)
-`speechscope extract ... --progress-json` píše na stdout JSON řádky:
-`start` (total, task, features, providers) → `file` (index, path, status ok|error, msg)
-→ `done` (n_ok) → `saved` (out). Všechno ostatní jde na stderr.
+`speechscope extract ... --progress-json` píše na stdout JSON řádky
+(smlouva verze 2, pole `protocol` v události `start`):
+`start` (total, task, features, providers) → pro každou nahrávku
+`begin` (index, path), `stage` (index, provider, status running|done|cached|error,
+seconds, msg) a `file` (index, path, status ok|error, msg) → `done` (n_ok)
+→ `saved` (out). Všechno ostatní jde na stderr. `stage` přijde jen pro
+providery, které se pro danou nahrávku opravdu volají; `cached` znamená
+mezivýsledek z pracovní složky.
 
 Totéž `--progress-json` mají `segment` a `transcribe` (`features` prázdné,
 `providers` jednoprvkové, `saved` = pracovní složka).

@@ -5,8 +5,10 @@ jejich parametry, stav modelů) si GUI tahá za běhu přes `list --json`,
 `list --providers --json`, `list --params NAME --json` a `doctor --json`.
 
 Tvar událostí `--progress-json` je smlouva knihovny (viz její `_progress.py`):
-``start`` -> ``file`` (pro každou nahrávku) -> ``done`` -> ``saved``.
-Při změně tvaru knihovna zvedne `protocol` v události `start`.
+``start`` -> pro každou nahrávku ``begin``, ``stage`` (provider: running, pak
+done/cached/error) a ``file`` -> ``done`` -> ``saved``. Při změně tvaru
+knihovna zvedne `protocol` v události `start`. Verze 1 (bez ``begin``
+a ``stage``) se stále přijímá, jen GUI neukáže průběh uvnitř nahrávky.
 """
 
 from __future__ import annotations
@@ -15,8 +17,9 @@ import json
 from dataclasses import dataclass, field
 
 # Verze smlouvy událostí, kterou GUI umí. Porovnává se s polem `protocol`
-# v události `start`.
-PROTOCOL_VERSION = 1
+# v události `start`. Starší verze v `SUPPORTED_PROTOCOLS` GUI také přijme.
+PROTOCOL_VERSION = 2
+SUPPORTED_PROTOCOLS: tuple[int, ...] = (1, 2)
 
 # Verze knihovny, proti které bylo GUI naposledy ověřené (`speechscope version`).
 KNOWN_LIBRARY_VERSION = "0.1.0"
@@ -69,6 +72,32 @@ class StartEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class BeginEvent:
+    """Nahrávka se začíná zpracovávat (smlouva 2)."""
+
+    index: int
+    path: str
+
+
+STAGE_STATUSES: tuple[str, ...] = ("running", "done", "cached", "error")
+
+
+@dataclass(frozen=True, slots=True)
+class StageEvent:
+    """Provider nad jednou nahrávkou (smlouva 2)."""
+
+    index: int
+    provider: str
+    status: str  # "running" | "done" | "cached" | "error"
+    seconds: float | None = None
+    msg: str | None = None
+
+    @property
+    def running(self) -> bool:
+        return self.status == "running"
+
+
+@dataclass(frozen=True, slots=True)
 class FileEvent:
     index: int
     path: str
@@ -90,7 +119,7 @@ class SavedEvent:
     out: str
 
 
-Event = StartEvent | FileEvent | DoneEvent | SavedEvent
+Event = StartEvent | BeginEvent | StageEvent | FileEvent | DoneEvent | SavedEvent
 
 
 class ContractError(ValueError):
@@ -117,8 +146,8 @@ def parse_event(line: str) -> Event | None:
     kind = payload["event"]
     try:
         if kind == "start":
-            protocol = int(payload.get("protocol", PROTOCOL_VERSION))
-            if protocol != PROTOCOL_VERSION:
+            protocol = int(payload.get("protocol", 1))
+            if protocol not in SUPPORTED_PROTOCOLS:
                 raise ContractError(
                     f"knihovna mluví smlouvou {protocol}, GUI umí {PROTOCOL_VERSION}"
                 )
@@ -128,6 +157,20 @@ def parse_event(line: str) -> Event | None:
                 features=list(payload.get("features", [])),
                 providers=list(payload.get("providers", [])),
                 protocol=protocol,
+            )
+        if kind == "begin":
+            return BeginEvent(index=int(payload["index"]), path=str(payload["path"]))
+        if kind == "stage":
+            status = str(payload["status"])
+            if status not in STAGE_STATUSES:
+                raise ContractError(f"neznámý stav stage {status!r}")
+            seconds = payload.get("seconds")
+            return StageEvent(
+                index=int(payload["index"]),
+                provider=str(payload["provider"]),
+                status=status,
+                seconds=float(seconds) if seconds is not None else None,
+                msg=payload.get("msg"),
             )
         if kind == "file":
             return FileEvent(
@@ -153,13 +196,32 @@ class BatchState:
     task: str | None = None
     features: list[str] = field(default_factory=list)
     providers: list[str] = field(default_factory=list)
+    protocol: int = PROTOCOL_VERSION
     files: list[FileEvent] = field(default_factory=list)
+    # Nahrávka, která se právě zpracovává (mezi `begin` a `file`).
+    current: BeginEvent | None = None
+    # index nahrávky -> provider -> poslední `stage`
+    stages: dict[int, dict[str, StageEvent]] = field(default_factory=dict)
     n_ok: int | None = None
     out: str | None = None
 
     @property
     def processed(self) -> int:
         return len(self.files)
+
+    @property
+    def detailed(self) -> bool:
+        """Knihovna posílá `begin` a `stage` (smlouva 2)."""
+        return self.protocol >= 2
+
+    def running_stage(self) -> StageEvent | None:
+        """Provider, který právě běží nad aktuální nahrávkou."""
+        if self.current is None:
+            return None
+        for stage in self.stages.get(self.current.index, {}).values():
+            if stage.running:
+                return stage
+        return None
 
     @property
     def errors(self) -> list[FileEvent]:
@@ -176,11 +238,19 @@ class BatchState:
                 self.task = event.task
                 self.features = list(event.features)
                 self.providers = list(event.providers)
+                self.protocol = event.protocol
                 self.files.clear()
+                self.current = None
+                self.stages.clear()
                 self.n_ok = None
                 self.out = None
+            case BeginEvent():
+                self.current = event
+            case StageEvent():
+                self.stages.setdefault(event.index, {})[event.provider] = event
             case FileEvent():
                 self.files.append(event)
+                self.current = None
             case DoneEvent():
                 self.n_ok = event.n_ok
             case SavedEvent():

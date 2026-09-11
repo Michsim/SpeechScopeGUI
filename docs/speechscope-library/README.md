@@ -46,6 +46,11 @@ Knihovna běží i bez extras. Když si vyžádáš něco, na co nemá závislos
    Bez něj nejde jen artikulace samohlásek.
 5. `uv run speechscope doctor` musí skončit kódem 0.
 
+Bez tokenů to jde taky: kdo už modely má, zabalí je přes `models pack`
+a ty je nainstaluješ ze souboru přes `models unpack` (sekce „Balík
+modelů pro kliniky“). Pak stačí `uv sync --extra whisper --extra nlp
+--extra onnx`, torch není potřeba.
+
 Detaily ke každému kroku jsou níž.
 
 ### Modely
@@ -199,6 +204,12 @@ značka `models-onnx-v1`, soubor `segmentation-onnx.zip`):
 uv run speechscope models download --only onnx    # export, potřebuje wavlm a pyannote
 uv run speechscope models pack-onnx --out out\segmentation-onnx.zip   # 287 MB
 ```
+
+`pack-onnx` je jiný zip než `models pack`: obsahuje jen složku
+`segmentation-onnx`, je komprimovaný a čte ho `models download --only
+onnx`. Slouží jen k tomu, aby se hotový export dostal na GitHub. Pro
+rozdávání modelů lidem je tu `models pack`, které zabalí i ONNX
+(`--only onnx`) a nepotřebuje token.
 
 Když se změní export (jiné okno, jiné váhy), zvedni značku v
 `modelstore.ONNX_RELEASE_TAG`, ať si staré instalace nestáhnou něco jiného,
@@ -555,14 +566,28 @@ uv run speechscope extract data\ --task story --progress-json --out out\story.cs
 Na stdout jde jeden JSON objekt na řádek, všechno ostatní na stderr:
 
 ```json
-{"event":"start","total":42,"task":"story","features":["..."],"providers":["..."]}
+{"event":"start","protocol":2,"total":42,"task":"story","features":["..."],"providers":["segments","transcript"]}
+{"event":"begin","index":0,"path":"..."}
+{"event":"stage","index":0,"provider":"segments","status":"running"}
+{"event":"stage","index":0,"provider":"segments","status":"done","seconds":4.1}
+{"event":"stage","index":0,"provider":"transcript","status":"running"}
+{"event":"stage","index":0,"provider":"transcript","status":"cached","seconds":0.01}
 {"event":"file","index":0,"path":"...","status":"ok"}
+{"event":"begin","index":1,"path":"..."}
 {"event":"file","index":1,"path":"...","status":"error","msg":"..."}
 {"event":"done","n_ok":41}
 {"event":"saved","out":"out/story.csv"}
 ```
 
-Tvar událostí je smlouva a nemění se bez zvednutí verze. Stejný
+`begin` přijde před zpracováním nahrávky, `file` po něm. `stage` hlásí
+každý provider, který se pro nahrávku opravdu spustil: `running` na
+začátku a pak `done`, `cached` (vzal se mezivýsledek z pracovní složky)
+nebo `error` (s `msg`), vždy se `seconds`. Provider se volá jednou na
+nahrávku, i když ho potřebuje víc feature. Nahrávka, kterou nejde
+načíst, má jen `begin` a `file`.
+
+Tvar událostí je smlouva a nemění se bez zvednutí verze (pole `protocol`
+v `start`, teď 2). Stejný
 `--progress-json` mají i `segment` a `transcribe`; u nich je `features`
 prázdný seznam, `providers` má jediný prvek a `saved` nese pracovní složku.
 

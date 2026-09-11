@@ -17,7 +17,7 @@ from typing import Any
 FIXTURES = resources.files("speechscope_app.fake") / "fixtures"
 AUDIO_SUFFIXES = (".wav", ".flac", ".ogg", ".mp3", ".m4a")
 TASKS = ("phonation", "ddk", "story", "monologue", "reading")
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 FAKE_VERSION = "0.1.0"
 
 PROVIDERS = ("nlp", "phonemes", "segments", "transcript")
@@ -331,8 +331,10 @@ def cmd_extract(ns: argparse.Namespace) -> int:
 
     rows: list[dict[str, Any]] = []
     n_ok = 0
+    work_dir = Path(ns.work_dir) if ns.work_dir else None
     for index, (path, task, meta) in enumerate(items):
-        time.sleep(_delay())
+        if ns.progress_json:
+            _emit({"event": "begin", "index": index, "path": str(path)})
         row: dict[str, Any] = {"file": path.name, "path": str(path), "task": task}
         row.update(meta)
         row["speechscope_version"] = FAKE_VERSION
@@ -352,6 +354,7 @@ def cmd_extract(ns: argparse.Namespace) -> int:
                     }
                 )
         else:
+            _fake_stages(index, path, providers, work_dir, ns.progress_json)
             for col in columns:
                 row[col] = _value(path.name, col)
             if "short" in stem:
@@ -387,6 +390,34 @@ def cmd_extract(ns: argparse.Namespace) -> int:
     return 0
 
 
+def _fake_stages(
+    index: int, path: Path, providers: list[str], work_dir: Path | None, progress: bool
+) -> None:
+    """Předstírá běh providerů nad nahrávkou: `stage` running a pak done.
+
+    Provider, jehož mezivýsledek už leží v pracovní složce (od `segment`
+    nebo `transcribe`), skončí jako `cached`. Doba běhu na nahrávku je
+    `SPEECHSCOPE_FAKE_DELAY`, rozdělená mezi providery; bez providerů se
+    prostě čeká.
+    """
+    if not providers:
+        time.sleep(_delay())
+        return
+    per_provider = _delay() / len(providers)
+    for provider in providers:
+        if progress:
+            _emit({"event": "stage", "index": index, "provider": provider, "status": "running"})
+        sub = {"segments": "segments", "transcript": "transcript"}.get(provider)
+        cached = bool(work_dir and sub and (work_dir / sub / f"{path.stem}.txt").is_file())
+        took = per_provider / 10 if cached else per_provider
+        time.sleep(took)
+        if progress:
+            _emit({
+                "event": "stage", "index": index, "provider": provider,
+                "status": "cached" if cached else "done", "seconds": round(took, 3),
+            })  # fmt: skip
+
+
 def _cmd_prepare(ns: argparse.Namespace, provider: str) -> int:
     log_file = Path(ns.log_file) if ns.log_file else None
     _validate_config(ns.config)
@@ -408,7 +439,8 @@ def _cmd_prepare(ns: argparse.Namespace, provider: str) -> int:
         })  # fmt: skip
     n_ok = 0
     for index, path in enumerate(items):
-        time.sleep(_delay())
+        if ns.progress_json:
+            _emit({"event": "begin", "index": index, "path": str(path)})
         if "bad" in path.stem.lower():
             msg = "soubor nejde načíst: falešná chyba"
             if ns.progress_json:
@@ -422,6 +454,7 @@ def _cmd_prepare(ns: argparse.Namespace, provider: str) -> int:
                     }
                 )
             continue
+        _fake_stages(index, path, [provider], None, ns.progress_json)
         if provider == "segments":
             (sub / f"{path.stem}.txt").write_text(
                 "0.000\t1.200\tsv\n1.200\t1.500\tps\n1.500\t3.000\tsu\n", encoding="utf-8"

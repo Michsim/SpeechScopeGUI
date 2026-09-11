@@ -91,6 +91,15 @@ def test_extract_progress_json(recordings: Path, tmp_path: Path) -> None:
     assert files[1].msg
     assert isinstance(events[-2], contract.DoneEvent) and events[-2].n_ok == 3
     assert isinstance(events[-1], contract.SavedEvent) and Path(events[-1].out) == out
+    # smlouva 2: před každou nahrávkou begin, providery hlásí stage
+    assert start.protocol == 2
+    begins = [e for e in events if isinstance(e, contract.BeginEvent)]
+    assert [b.index for b in begins] == [0, 1, 2, 3]
+    stages = [e for e in events if isinstance(e, contract.StageEvent)]
+    assert {s.provider for s in stages} == set(start.providers)
+    assert {s.index for s in stages} == {0, 2, 3}  # chybná nahrávka žádný provider nespustí
+    assert [s.status for s in stages if s.index == 0] == ["running", "done"] * len(start.providers)
+    assert all(s.seconds is not None for s in stages if not s.running)
 
     with out.open(encoding="utf-8", newline="") as fh:
         rows = list(csv.DictReader(fh))

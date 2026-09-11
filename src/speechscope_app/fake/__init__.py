@@ -1,7 +1,8 @@
 """Falešná knihovna SpeechScope pro vývoj a testy GUI bez modelů.
 
 Přijímá stejné příkazy a volby jako skutečné CLI a vrací JSON ve stejném
-tvaru. Fixtury v `fixtures/` jsou zachycené výstupy skutečné knihovny
+tvaru, včetně událostí `--progress-json` smlouvy verze 2 (`begin`,
+`stage`). Fixtury v `fixtures/` jsou zachycené výstupy skutečné knihovny
 (verze 0.1.0, 10. 9. 2026). Když se knihovna změní, zachytí se znovu:
 
     uv run speechscope list --json                > fixtures/list.json
