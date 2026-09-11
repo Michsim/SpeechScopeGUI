@@ -57,6 +57,7 @@ def _step(number: int, title: str, hint: str = "") -> tuple[QHBoxLayout, QLabel]
 class BatchPage(QWidget):
     run_requested = Signal(object, list)  # Protocol, list[Path]
     save_requested = Signal(object)  # Protocol upravený v rozšířeném režimu
+    prepare_requested = Signal(str, object, list)  # "segments" | "transcript", Protocol, cesty
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -155,6 +156,22 @@ class BatchPage(QWidget):
         self.editor_summary.setWordWrap(True)
         adv.addWidget(self.editor_summary)
         adv_buttons = QHBoxLayout()
+        self.segment_btn = QPushButton("Jen segmentace")
+        self.segment_btn.setToolTip(
+            "Spustí jen segmentaci řeči do pracovní složky (model z protokolu, "
+            "výchozí conformer). Výpočet feature ji pak vezme z cache."
+        )
+        self.segment_btn.setEnabled(False)
+        self.segment_btn.clicked.connect(lambda: self._prepare("segments"))
+        adv_buttons.addWidget(self.segment_btn)
+        self.transcribe_btn = QPushButton("Jen přepis")
+        self.transcribe_btn.setToolTip(
+            "Spustí jen přepis Whisperem do pracovní složky, v jazyce z lišty. "
+            "Přepisy jde před výpočtem ručně zkontrolovat."
+        )
+        self.transcribe_btn.setEnabled(False)
+        self.transcribe_btn.clicked.connect(lambda: self._prepare("transcript"))
+        adv_buttons.addWidget(self.transcribe_btn)
         adv_buttons.addStretch(1)
         self.edit_btn = QPushButton("Upravit…")
         self.edit_btn.setToolTip("Výběr feature a parametry jen pro tento běh")
@@ -336,6 +353,8 @@ class BatchPage(QWidget):
         proto = self.current_protocol()
         ok = bool(self._recordings) and proto is not None and self._library is not None
         self.run_btn.setEnabled(ok)
+        self.segment_btn.setEnabled(ok)
+        self.transcribe_btn.setEnabled(ok)
         self.save_btn.setEnabled(proto is not None and self.editor.has_catalog())
         self.edit_btn.setEnabled(proto is not None and self.editor.has_catalog())
         self._update_editor_summary()
@@ -386,6 +405,12 @@ class BatchPage(QWidget):
         if proto is None:
             return
         self.run_requested.emit(proto, [r.path for r in self._recordings])
+
+    def _prepare(self, kind: str) -> None:
+        proto = self.effective_protocol()
+        if proto is None:
+            return
+        self.prepare_requested.emit(kind, proto, [r.path for r in self._recordings])
 
     def _save(self) -> None:
         proto = self.effective_protocol()

@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__, contract
-from ..backend.command import extract_args
-from ..backend.protocol import Protocol, all_protocols
+from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
+from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.settings import AppSettings
 from .models_dialog import ModelsDownloadDialog
 from .models_install_dialog import ModelsInstallDialog
@@ -124,6 +124,7 @@ class MainWindow(QMainWindow):
         self.protocols_page.set_stats_lookup(self.settings.seconds_per_file)
         self.protocols_page.protocols_changed.connect(self.reload_protocols)
         self.batch_page.run_requested.connect(self._start_batch)
+        self.batch_page.prepare_requested.connect(self._start_prepare)
         self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
         self.run_page.progress_changed.connect(self._show_progress)
@@ -266,9 +267,56 @@ class MainWindow(QMainWindow):
             expected_seconds=self.settings.seconds_per_file(slug),
         )
 
+    def _start_prepare(self, kind: str, proto: Protocol, inputs: list[Path]) -> None:
+        """Jen segmentace nebo jen přepis do pracovní složky (rozšířený režim)."""
+        if self.library is None:
+            QMessageBox.warning(self, "SpeechScope", "Knihovna není nastavená.")
+            return
+        if self.run_page.runner.running:
+            QMessageBox.information(self, "SpeechScope", "Jiný běh ještě neskončil.")
+            return
+        label = contract.PROVIDER_SHORT.get(kind, kind)
+        stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        run_dir = self.settings.work_root / f"{stamp}_{proto.slug()}-{slugify(label)}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        config_path: Path | None = None
+        if proto.config:
+            config_path = run_dir / "config.yaml"
+            config_path.write_text(proto.config_yaml(), encoding="utf-8")
+        log_file = run_dir / "speechscope.log"
+        req = PrepareRequest(
+            inputs=inputs,
+            work_dir=self.settings.work_root / "work",
+            config=config_path,
+            log_file=log_file,
+        )
+        if kind == "segments":
+            model = proto.segments_model()
+            if model == "auto":  # auto bere jen cache, samostatná segmentace musí počítat
+                model = "conformer"
+            args = segment_args(req, model=model, models_dir=self.settings.models_dir)
+        else:
+            transcript = proto.config.get("transcript", {})
+            args = transcribe_args(
+                req,
+                language=str(transcript.get("language") or self.batch_page.language_code() or "cs"),
+                model=str(transcript.get("model", "large-v3")),
+                models_dir=self.settings.models_dir,
+            )
+        self.settings.last_language = self.batch_page.language_code()
+        self.nav.setCurrentRow(PAGE_RUN)
+        self._running_slug = None
+        self._running_out = None
+        self.run_page.start(
+            self.library.argv(args),
+            title=f"Jen {label} · {proto.name}",
+            log_file=log_file,
+            inputs=inputs,
+        )
+
     def _batch_finished(self, state: contract.BatchState, code: int, cancelled: bool) -> None:
         per_file = self.run_page.seconds_per_file()
-        if per_file is not None and not cancelled and code == 0:
+        if per_file is not None and not cancelled and code == 0 and self._running_slug:
             self.settings.set_seconds_per_file(self._running_slug, per_file)
             self.batch_page.refresh_summary()
         if cancelled or code != 0:
@@ -288,6 +336,8 @@ class MainWindow(QMainWindow):
         if out.is_file():
             self.results_page.load(out)
             self.nav.setCurrentRow(PAGE_RESULTS)
+        elif out.is_dir():  # jen segmentace nebo přepis: mezivýsledky v pracovní složce
+            self.statusBar().showMessage(f"Mezivýsledky jsou v {out}", 10000)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.key() == Qt.Key.Key_F5:

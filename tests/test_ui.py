@@ -274,3 +274,35 @@ def test_cancel_shows_partial_results(
     assert "Částečný výsledek po zrušení" in window.results_page.summary.text()
     assert window.results_page.table.model().rowCount() == state.processed
     assert settings.seconds_per_file("fonace-zakladni") is None
+
+
+def test_transcribe_only_writes_work_dir(
+    qtbot: QtBot, settings: AppSettings, recordings: Path
+) -> None:
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    assert page.select_protocol("Pohádka, lingvistika")
+    page.set_language("en")
+    assert page.transcribe_btn.isEnabled() and page.segment_btn.isEnabled()
+    with qtbot.waitSignal(window.run_page.finished, timeout=15000):
+        page.transcribe_btn.click()
+    state = window.run_page.runner.state
+    assert state.finished and state.providers == ["transcript"] and state.n_ok == 3
+    work = Path(state.out)
+    assert work == settings.work_root / "work"
+    assert (work / "transcript" / "p01.txt").is_file()
+    assert window.nav.currentRow() == PAGE_RUN  # bez tabulky se na Výsledky nepřepíná
+    assert window.run_page.headline.text().startswith("Hotovo")
+    argv = window.run_page.log.toPlainText().splitlines()[0]
+    assert "transcribe" in argv and "--language en" in argv
+    assert settings.seconds_per_file("pohadka-lingvistika") is None
+    run_dirs = list(settings.work_root.glob("*_pohadka-lingvistika-prepis"))
+    assert len(run_dirs) == 1 and (run_dirs[0] / "speechscope.log").is_file()
+
+    with qtbot.waitSignal(window.run_page.finished, timeout=15000):
+        page.segment_btn.click()
+    assert window.run_page.runner.state.providers == ["segments"]
+    assert (work / "segments" / "p01.txt").is_file()
+    assert "--model conformer" in window.run_page.log.toPlainText().splitlines()[0]
