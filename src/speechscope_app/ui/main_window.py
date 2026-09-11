@@ -59,7 +59,8 @@ class MainWindow(QMainWindow):
 
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
-        for label in ("Prostředí", "Data", "Běh", "Výsledky"):
+        self.nav_labels = ("Prostředí", "Data", "Běh", "Výsledky")
+        for label in self.nav_labels:
             self.nav.addItem(label)
         self.pages = QStackedWidget()
         for page in (self.env_page, self.batch_page, self.run_page, self.results_page):
@@ -101,6 +102,7 @@ class MainWindow(QMainWindow):
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
+        self.run_page.progress_changed.connect(self._show_progress)
 
         self._apply_settings()
         page = self.start_page()
@@ -133,8 +135,15 @@ class MainWindow(QMainWindow):
         if self.settings.use_fake_library:
             title += " [falešná knihovna]"
             sub += " · falešná knihovna"
+        self._base_title = title
         self.setWindowTitle(title)
         self.brand_sub.setText(sub)
+
+    def _show_progress(self, text: str) -> None:
+        """Postup běhu v nabídce a v titulku, ať je vidět i z jiné stránky."""
+        label = self.nav_labels[PAGE_RUN]
+        self.nav.item(PAGE_RUN).setText(f"{label} · {text}" if text else label)
+        self.setWindowTitle(f"{text} · {self._base_title}" if text else self._base_title)
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self)
@@ -187,7 +196,8 @@ class MainWindow(QMainWindow):
             return
 
         stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        run_dir = self.settings.work_root / f"{stamp}_{_slug(proto.name)}"
+        slug = _slug(proto.name)
+        run_dir = self.settings.work_root / f"{stamp}_{slug}"
         run_dir.mkdir(parents=True, exist_ok=True)
         work_dir = self.settings.work_root / "work"
         config_path: Path | None = None
@@ -210,9 +220,19 @@ class MainWindow(QMainWindow):
         if inputs:
             self.settings.last_input_dir = inputs[0].parent
         self.nav.setCurrentRow(PAGE_RUN)
-        self.run_page.start(argv, title=f"Spouštím {proto.name}…", log_file=log_file)
+        self._running_slug = slug
+        self.run_page.start(
+            argv,
+            title=proto.name,
+            log_file=log_file,
+            inputs=inputs,
+            expected_seconds=self.settings.seconds_per_file(slug),
+        )
 
     def _batch_finished(self, state: contract.BatchState, code: int, cancelled: bool) -> None:
+        per_file = self.run_page.seconds_per_file()
+        if per_file is not None and not cancelled and code == 0:
+            self.settings.set_seconds_per_file(self._running_slug, per_file)
         if cancelled or code != 0 or not state.out:
             return
         out = Path(state.out)

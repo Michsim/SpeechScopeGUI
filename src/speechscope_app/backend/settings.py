@@ -129,6 +129,20 @@ class AppSettings:
     def protocols_dir(self) -> Path:
         return app_data_dir() / "protocols"
 
+    # --- statistika běhů --------------------------------------------------------
+
+    def seconds_per_file(self, protocol_slug: str) -> float | None:
+        """Střední doba na nahrávku z posledního běhu protokolu, pro odhad času."""
+        raw = self._q.value(f"stats/{protocol_slug}/seconds_per_file", "")
+        try:
+            value = float(raw) if raw not in ("", None) else None
+        except (TypeError, ValueError):
+            return None
+        return value if value and value > 0 else None
+
+    def set_seconds_per_file(self, protocol_slug: str, seconds: float) -> None:
+        self._q.setValue(f"stats/{protocol_slug}/seconds_per_file", f"{seconds:.3f}")
+
     def make_library(self) -> library.Library | None:
         cmd = self.effective_command()
         if not cmd:

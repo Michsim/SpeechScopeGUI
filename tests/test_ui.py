@@ -29,8 +29,9 @@ def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AppSettings:
 
 
 def test_window_runs_batch_end_to_end(
-    qtbot: QtBot, settings: AppSettings, recordings: Path
+    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("SPEECHSCOPE_FAKE_DELAY", "0.05")  # ať má statistika co měřit
     window = MainWindow(settings)
     qtbot.addWidget(window)
     window.env_page.refresh()
@@ -49,6 +50,14 @@ def test_window_runs_batch_end_to_end(
     state = window.run_page.runner.state
     assert state.finished and state.total == 4
     assert window.nav.currentRow() == PAGE_RESULTS
+    # tabulka běhu: řádek na nahrávku, výsledek, nabídka bez postupu po konci
+    run = window.run_page
+    assert run.files.rowCount() == 4
+    statuses = [run.files.item(r, run.col_status).text() for r in range(4)]
+    assert sorted(statuses) == ["chyba", "ok", "ok", "ok"]
+    assert window.nav.item(2).text() == "Běh"
+    assert run.headline.text().startswith("Hotovo za")
+    assert settings.seconds_per_file("fonace-zakladni") is not None
     assert window.results_page.table.model().rowCount() == 4
 
     run_dirs = list((settings.work_root).glob("*_fonace-zakladni"))
