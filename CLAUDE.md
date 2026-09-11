@@ -58,6 +58,10 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
 
 ## Stránky
 Pořadí v nabídce: Analýza · Výpočet · Výsledky · Protokoly · Prostředí.
+Po startu je vždy Uvítání (`pages/welcome.py`, v zásobníku jako
+`PAGE_WELCOME`, v nabídce není): logo, dvě věty, tlačítka Začít analýzu
+a Zkontrolovat prostředí; modré je to doporučené (`start_page()`: bez
+knihovny nebo modelů Prostředí, a to se rovnou zkontroluje).
 Prostředí (doctor, modely, Diagnostika… = zip pro podporu z
 `backend/diagnostics.py`) · Analýza (dva sloupce: vlevo nahrávky s metadaty
 z `manifest.csv` (`backend/manifest.py`, tolerantní čtení, normalizovaná

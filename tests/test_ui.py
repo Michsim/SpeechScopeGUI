@@ -11,7 +11,14 @@ from pytestqt.qtbot import QtBot
 from speechscope_app import contract
 from speechscope_app.backend.library import ParamInfo
 from speechscope_app.backend.settings import AppSettings
-from speechscope_app.ui.main_window import PAGE_BATCH, PAGE_ENV, PAGE_RESULTS, PAGE_RUN, MainWindow
+from speechscope_app.ui.main_window import (
+    PAGE_BATCH,
+    PAGE_ENV,
+    PAGE_RESULTS,
+    PAGE_RUN,
+    PAGE_WELCOME,
+    MainWindow,
+)
 from speechscope_app.ui.widgets.param_form import ParamForm
 
 
@@ -124,20 +131,36 @@ def test_save_protocol_from_advanced_mode(qtbot: QtBot, settings: AppSettings) -
 
 
 def test_start_page_depends_on_models(settings: AppSettings, qtbot: QtBot) -> None:
-    """Skutečná knihovna bez modelů: začít na Prostředí a rovnou zkontrolovat."""
+    """Start je vždy uvítání bez záložky; bez modelů doporučí Prostředí a zkontroluje ho."""
     from speechscope_app.backend.library import fake_command
 
     settings.use_fake_library = False
     settings.library_command = fake_command()  # chová se jako skutečná, ale bez modelů
     window = MainWindow(settings)
     qtbot.addWidget(window)
-    assert window.nav.currentRow() == PAGE_ENV
+    assert window.nav.currentRow() == -1
+    assert window.pages.currentIndex() == PAGE_WELCOME
+    welcome = window.welcome_page
     assert window.env_page.report is not None  # refresh proběhl sám
+    # falešný doctor hlásí vše připravené, doporučení se řídí jeho zprávou
+    assert welcome.recommends_environment() == (not window.env_page.report["all_ready"])
+    welcome.set_state(library_ok=True, models_ok=False)  # laciný stav před kontrolou
+    assert welcome.recommends_environment() and welcome.env_btn.property("role") == "primary"
+    welcome.set_report({"all_ready": False})
+    assert "chybí" in welcome.status.text()
+    welcome.env_btn.click()
+    assert window.nav.currentRow() == PAGE_ENV and window.pages.currentIndex() == PAGE_ENV
 
     settings.models_dir.mkdir(parents=True)
     (settings.models_dir / "whisper-large-v3-ct2").mkdir()
     window2 = MainWindow(settings)
     qtbot.addWidget(window2)
+    assert window2.pages.currentIndex() == PAGE_WELCOME
+    welcome2 = window2.welcome_page
+    assert not welcome2.recommends_environment()
+    assert welcome2.start_btn.property("role") == "primary"
+    assert window2.env_page.report is None  # bez modelů chybějících se doctor nevolá
+    welcome2.start_btn.click()
     assert window2.nav.currentRow() == PAGE_BATCH
 
 

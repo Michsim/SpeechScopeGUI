@@ -35,11 +35,13 @@ from .pages.environment import EnvironmentPage
 from .pages.protocols import ProtocolsPage
 from .pages.results import ResultsPage
 from .pages.run import RunPage
+from .pages.welcome import WelcomePage
 from .settings_dialog import SettingsDialog
 from .widgets.sidebar_nav import SidebarNav
 
 # Pořadí v nabídce: od každodenního (analýza) k jednorázovému (prostředí).
 PAGE_BATCH, PAGE_RUN, PAGE_RESULTS, PAGE_PROTOCOLS, PAGE_ENV = range(5)
+PAGE_WELCOME = 5  # uvítání po startu; v zásobníku stránek je, v nabídce ne
 
 
 @dataclass(slots=True)
@@ -80,6 +82,7 @@ class MainWindow(QMainWindow):
         self.protocols_page = ProtocolsPage()
         self.run_page = RunPage()
         self.results_page = ResultsPage()
+        self.welcome_page = WelcomePage()
 
         self.nav_labels = (
             tr("Analýza"),
@@ -97,6 +100,7 @@ class MainWindow(QMainWindow):
             self.results_page,
             self.protocols_page,
             self.env_page,
+            self.welcome_page,
         ):
             self.pages.addWidget(page)
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
@@ -153,6 +157,9 @@ class MainWindow(QMainWindow):
         self.env_page.install_requested.connect(self.install_models)
         self.env_page.diagnostics_requested.connect(self.save_diagnostics)
         self.env_page.report_changed.connect(self.batch_page.set_doctor)
+        self.env_page.report_changed.connect(self.welcome_page.set_report)
+        self.welcome_page.analysis_requested.connect(lambda: self.nav.setCurrentRow(PAGE_BATCH))
+        self.welcome_page.environment_requested.connect(lambda: self.nav.setCurrentRow(PAGE_ENV))
         self.env_page.report_changed.connect(self.protocols_page.set_doctor)
         self.batch_page.set_stats_lookup(self.settings.seconds_per_file)
         self.protocols_page.set_stats_lookup(self.settings.seconds_per_file)
@@ -168,10 +175,18 @@ class MainWindow(QMainWindow):
         self.run_page.queue_clear.connect(self.clear_queue)
 
         self._apply_settings()
-        page = self.start_page()
-        self.nav.setCurrentRow(page)
-        if page == PAGE_ENV and self.library is not None:
-            self.env_page.refresh()  # první spuštění: rovnou ukázat, co chybí
+        self.show_welcome()
+
+    def show_welcome(self) -> None:
+        """Uvítání při každém startu: žádná záložka, doporučení podle prostředí."""
+        recommended = self.start_page()
+        self.welcome_page.set_state(
+            library_ok=self.library is not None, models_ok=recommended != PAGE_ENV
+        )
+        self.nav.setCurrentRow(-1)
+        self.pages.setCurrentIndex(PAGE_WELCOME)
+        if recommended == PAGE_ENV and self.library is not None:
+            self.env_page.refresh()  # bez modelů: rovnou zjistit, co chybí
 
     def _page_shown(self, index: int) -> None:
         if index == PAGE_RESULTS:
@@ -180,7 +195,7 @@ class MainWindow(QMainWindow):
             self.run_page.refresh_history()
 
     def start_page(self) -> int:
-        """Klinik začíná na Analýze; bez knihovny nebo bez modelů na Prostředí."""
+        """Kam uvítání doporučí: Analýza; bez knihovny nebo bez modelů Prostředí."""
         if self.library is None:
             return PAGE_ENV
         if not self.settings.use_fake_library and not _has_models(self.settings.models_dir):
