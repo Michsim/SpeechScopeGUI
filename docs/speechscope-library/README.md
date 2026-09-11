@@ -134,7 +134,7 @@ přes Windows Update. Žádný CUDA Toolkit.
 
 | co | čím se řídí |
 |---|---|
-| přepis Whisperem | vlastní vrstva v ctranslate2, kartu použije sám |
+| přepis Whisperem | vlastní vrstva v ctranslate2, kartu použije sám; když kartu neunese (málo paměti, nepodporovaný typ výpočtu), dopočítá v int8 na procesoru a zapíše to do logu |
 | segmentace přes ONNX (výchozí, když jsou modely) | na Windows libovolná karta přes DirectML, jinak procesor; při pádu na kartě dopočítá na procesoru |
 | segmentace přes torch | kartu použije jen sestavení torche s CUDA |
 
@@ -344,6 +344,13 @@ Přenos laboratorních skriptů běží. Hotové jsou tyhle feature:
 | `linguistic.syntactic.*` | stavba výpovědí, 5 feature | `mlu`, `ccsr`, `scsr`, `csr`, `sdl` |
 
 Tím je přenesených všech osm původních modulů.
+
+Whisper běží s `beam_size=5` a `condition_on_previous_text=false`: model
+nedostává předchozí text jako kontext, což u patologické řeči brání
+smyčkám halucinací („základní základní základní…“) a přepis je zhruba
+o třetinu rychlejší. Na čisté dlouhé řeči to stojí pár slov; zapnout
+jde přes `--set transcript.condition_on_previous_text=true`. Nižší
+`beam_size` zrychlí několikanásobně, ale u těžkých nahrávek kazí text.
 
 Tempo řeči potřebuje přepis s časy slov, tedy z Whisperu. Lingvistika
 potřebuje jazykový rozbor Stanzou, tedy `uv sync --all-extras` a

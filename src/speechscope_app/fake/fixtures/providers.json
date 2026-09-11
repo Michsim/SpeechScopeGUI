@@ -191,6 +191,11 @@
         "description": "Šířka svazku při dekódování",
         "ge": 1
       },
+      "condition_on_previous_text": {
+        "default": false,
+        "type": "bool",
+        "description": "Dávat modelu předchozí text jako kontext. Vypnuté brání smyčkám halucinací u patologické řeči a je rychlejší; zapnuté drží souvislost u čisté dlouhé řeči"
+      },
       "word_timestamps": {
         "default": true,
         "type": "bool",
