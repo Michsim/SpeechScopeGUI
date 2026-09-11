@@ -17,30 +17,19 @@ from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QPushButton,
     QSplitter,
     QTableView,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from ...backend.history import RunInfo, list_runs
+from ...backend.history import RunInfo
 from ...i18n import tr
-from .. import theme
+from ..widgets.run_history import RunHistory
 
 PROBLEM_COLUMNS = ("notes", "error")
-STATUS_COLORS = {
-    "ok": theme.OK,
-    "cancelled": theme.WARN,
-    "error": theme.MISSING,
-    "prepare": theme.NEUTRAL,
-    "running": theme.ACCENT,
-    "unknown": theme.MUTED,
-}
 
 
 class FrameModel(QAbstractTableModel):
@@ -86,8 +75,6 @@ class ResultsPage(QWidget):
         self._path: Path | None = None
         self._frame: pd.DataFrame | None = None
         self._note = ""
-        self._work_root: Path | None = None
-        self._runs: list[RunInfo] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -99,35 +86,11 @@ class ResultsPage(QWidget):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(self.splitter, 1)
 
-        # --- historie ---------------------------------------------------------------
-        left = QWidget()
-        left.setMinimumWidth(380)
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        head_left = QHBoxLayout()
-        self.history_title = QLabel(tr("Historie běhů"))
-        self.history_title.setObjectName("section")
-        self.refresh_btn = QPushButton(tr("Obnovit"))
-        self.refresh_btn.clicked.connect(self.refresh)
-        head_left.addWidget(self.history_title, 1)
-        head_left.addWidget(self.refresh_btn)
-        left_layout.addLayout(head_left)
-        self.runs = QTableWidget()
-        self.runs.setColumnCount(4)
-        self.runs.setHorizontalHeaderLabels([tr("kdy"), tr("protokol"), tr("nahrávek"), tr("stav")])
-        self.runs.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.runs.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.runs.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        self.runs.verticalHeader().setVisible(False)
-        self.runs.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        header = self.runs.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.runs.itemSelectionChanged.connect(self._run_selected)
-        left_layout.addWidget(self.runs, 1)
-        self.splitter.addWidget(left)
+        # --- historie (sdílený seznam) --------------------------------------------------
+        self.history = RunHistory(tr("Historie běhů"))
+        self.history.selected.connect(self.show_run)
+        self.runs = self.history.runs
+        self.splitter.addWidget(self.history)
 
         # --- tabulka -------------------------------------------------------------------
         right = QWidget()
@@ -157,53 +120,11 @@ class ResultsPage(QWidget):
     # --- historie ----------------------------------------------------------------------
 
     def set_work_root(self, root: Path) -> None:
-        self._work_root = root
-        self.refresh()
+        self.history.set_work_root(root)
 
     def refresh(self) -> None:
-        """Znovu načte seznam běhů; výběr zůstane na stejné složce."""
-        self._runs = list_runs(self._work_root) if self._work_root else []
-        current = self._path.parent if self._path else None
-        self.runs.blockSignals(True)
-        self.runs.setRowCount(len(self._runs))
-        select_row: int | None = None
-        for row, info in enumerate(self._runs):
-            when = info.started.strftime("%d.%m. %H:%M") if info.started else info.dir.name
-            count = ""
-            if info.total:
-                count = (
-                    f"{info.processed}/{info.total}"
-                    if info.processed is not None and info.processed != info.total
-                    else str(info.total)
-                )
-            elif info.rows is not None:
-                count = str(info.rows)
-            cells = [when, info.protocol_name, count, info.status_label]
-            for col, text in enumerate(cells):
-                item = QTableWidgetItem(text)
-                item.setToolTip(str(info.dir))
-                if col == 3:
-                    item.setForeground(QColor(STATUS_COLORS.get(info.status, theme.MUTED)))
-                if col == 2:
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.runs.setItem(row, col, item)
-            if current is not None and info.dir == current:
-                select_row = row
-        self.runs.blockSignals(False)
-        self.history_title.setText(
-            tr("Historie běhů ({n})").format(n=len(self._runs))
-            if self._runs
-            else tr("Historie běhů")
-        )
-        if select_row is not None:
-            self.runs.selectRow(select_row)
-
-    def _run_selected(self) -> None:
-        rows = self.runs.selectionModel().selectedRows() if self.runs.selectionModel() else []
-        if not rows:
-            return
-        info = self._runs[rows[0].row()]
-        self.show_run(info)
+        """Znovu načte seznam běhů; výběr zůstane na složce otevřené tabulky."""
+        self.history.refresh(select=self._path.parent if self._path else None)
 
     def show_run(self, info: RunInfo) -> None:
         note = ""

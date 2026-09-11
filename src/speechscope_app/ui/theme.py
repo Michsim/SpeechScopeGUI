@@ -95,6 +95,14 @@ QPushButton {{
     background: {CARD}; border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 14px;
 }}
 QPushButton:hover {{ border-color: {ACCENT}; color: {ACCENT}; }}
+QPushButton:checked {{
+    background: {ACCENT}; color: white; border-color: {ACCENT}; font-weight: 600;
+}}
+QPushButton:checked:hover {{ background: {ACCENT_HOVER}; color: white; }}
+QPushButton:checked {{
+    background: {ACCENT}; color: white; border-color: {ACCENT}; font-weight: 600;
+}}
+QPushButton:checked:hover {{ background: {ACCENT_HOVER}; color: white; }}
 QPushButton:disabled {{ color: #9ca3af; background: {NEUTRAL_SOFT}; }}
 QPushButton[role="primary"] {{
     background: {ACCENT}; color: white; border: none; font-weight: 600; padding: 7px 18px;

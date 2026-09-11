@@ -259,6 +259,49 @@ def parse_event(line: str) -> Event | None:
     raise ContractError(f"neznámá událost {kind!r}")
 
 
+def dump_event(event: Event) -> str:
+    """Událost zpět jako JSON řádek ve tvaru smlouvy, pro záznam běhu."""
+    match event:
+        case StartEvent():
+            payload: dict = {
+                "event": "start",
+                "protocol": event.protocol,
+                "total": event.total,
+                "task": event.task,
+                "features": list(event.features),
+                "providers": list(event.providers),
+            }
+        case BeginEvent():
+            payload = {"event": "begin", "index": event.index, "path": event.path}
+        case StageEvent():
+            payload = {
+                "event": "stage",
+                "index": event.index,
+                "provider": event.provider,
+                "status": event.status,
+            }
+            if event.seconds is not None:
+                payload["seconds"] = event.seconds
+            if event.msg:
+                payload["msg"] = event.msg
+        case FileEvent():
+            payload = {
+                "event": "file",
+                "index": event.index,
+                "path": event.path,
+                "status": event.status,
+            }
+            if event.msg:
+                payload["msg"] = event.msg
+        case DoneEvent():
+            payload = {"event": "done", "n_ok": event.n_ok}
+        case SavedEvent():
+            payload = {"event": "saved", "out": event.out}
+        case _:
+            raise TypeError(f"neznámá událost {event!r}")
+    return json.dumps(payload, ensure_ascii=False)
+
+
 @dataclass(slots=True)
 class BatchState:
     """Souhrn průběhu jedné dávky, skládaný z událostí."""

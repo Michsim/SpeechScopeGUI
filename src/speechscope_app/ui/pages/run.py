@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QToolButton,
@@ -36,10 +37,12 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
+from ...backend.history import RunInfo
 from ...backend.protocol import provider_order
 from ...backend.runner import Runner
 from ...i18n import tr
 from .. import theme
+from ..widgets.run_history import RunHistory
 
 TICK_MS = 1000
 
@@ -95,13 +98,28 @@ class RunPage(QWidget):
         self._expected: float | None = None
         self._providers: list[str] = []
         self._paths: list[Path] = []
+        self._events_file: Path | None = None
+        self._viewing: RunInfo | None = None  # starý běh z historie místo živého
+        self._live_dir: Path | None = None  # složka posledního živého běhu
         self._tick = QTimer(self)
         self._tick.setInterval(TICK_MS)
         self._tick.timeout.connect(self._on_tick)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(28, 24, 28, 24)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        outer.addWidget(self.splitter, 1)
+        self.history = RunHistory(tr("Historie výpočtů"))
+        self.history.selected.connect(self.show_recorded)
+        self.splitter.addWidget(self.history)
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(12, 0, 0, 0)
         layout.setSpacing(8)
+        self.splitter.addWidget(body)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([380, 720])
 
         self.headline = QLabel(tr("Žádný běh."))
         self.headline.setObjectName("headline")
@@ -187,8 +205,13 @@ class RunPage(QWidget):
     ) -> None:
         """Spustí knihovnu. `inputs` předplní tabulku, `expected_seconds` je
         doba na nahrávku z minulého běhu téhož protokolu pro první odhad."""
+        self._viewing = None
         self._paths = list(inputs or [])
         self._expected = expected_seconds
+        self._events_file = log_file.with_name("events.jsonl") if log_file else None
+        self._live_dir = log_file.parent if log_file else None
+        if self._events_file is not None:
+            self._events_file.unlink(missing_ok=True)
         self._durations = []
         self._providers = []
         self._file_started_at = None
@@ -299,8 +322,21 @@ class RunPage(QWidget):
 
     # --- události ------------------------------------------------------------------
 
+    def _record(self, event: contract.Event) -> None:
+        """Událost do events.jsonl ve složce běhu, aby šel průběh přehrát z historie."""
+        if self._events_file is None:
+            return
+        try:
+            with self._events_file.open("a", encoding="utf-8") as fh:
+                fh.write(contract.dump_event(event) + "\n")
+        except OSError:
+            self._events_file = None
+
     def _on_event(self, event: contract.Event) -> None:
-        state = self.runner.state
+        self._record(event)
+        self._render_event(event, self.runner.state)
+
+    def _render_event(self, event: contract.Event, state: contract.BatchState) -> None:
         now = time.monotonic()
         match event:
             case contract.StartEvent():
@@ -350,7 +386,8 @@ class RunPage(QWidget):
                 )
                 self._set_cell(event.index, self.col_note, event.msg or "", tooltip=event.msg)
                 self.bar.setValue(state.processed)
-                self.progress_changed.emit(f"{state.processed}/{state.total}")
+                if self._viewing is None:
+                    self.progress_changed.emit(f"{state.processed}/{state.total}")
                 self._update_timing()
                 self._update_current()
             case contract.DoneEvent():
@@ -479,6 +516,76 @@ class RunPage(QWidget):
         )
         if answer == QMessageBox.StandardButton.Yes and self.runner.running:
             self.runner.cancel()
+
+    # --- historie -------------------------------------------------------------------
+
+    def set_work_root(self, root: Path) -> None:
+        self.history.set_work_root(root)
+
+    def refresh_history(self, select: Path | None = None) -> None:
+        self.history.refresh(select=select)
+
+    def show_recorded(self, info: RunInfo) -> None:
+        """Průběh starého běhu z events.jsonl a jeho log; při živém běhu se nic nemění."""
+        if self.runner.running:
+            return
+        if self._viewing is None and self._live_dir == info.dir:
+            return  # právě dokončený běh už na stránce je, živý pohled se nepřepisuje
+        self._viewing = info
+        self._tick.stop()
+        self._paths = []
+        self._providers = []
+        self._durations = []
+        self._file_started_at = None
+        self._stage_started_at = None
+        self._started_at = time.monotonic()
+        self._finished_at = self._started_at
+        self.cancel_btn.setEnabled(False)
+        self.log.clear()
+        self.log_toggle.setChecked(False)
+        self.current.setText("")
+        self.timing.setText("")
+        self.bar.setRange(0, 1)
+        self.bar.setValue(0)
+        self._set_columns([])
+        self._fill_rows([])
+        self.headline.setText(info.protocol_name)
+        when = info.started.strftime("%d.%m.%Y %H:%M") if info.started else ""
+        parts = [when, info.status_label]
+        if info.seconds:
+            parts.append(tr("trvalo {time}").format(time=format_seconds(info.seconds)))
+        events_file = info.dir / "events.jsonl"
+        state = contract.BatchState()
+        if events_file.is_file():
+            for line in events_file.read_text(encoding="utf-8").splitlines():
+                try:
+                    event = contract.parse_event(line)
+                except contract.ContractError:
+                    continue
+                if event is None:
+                    continue
+                state.apply(event)
+                self._render_event(event, state)
+            self.bar.setRange(0, max(1, state.total))
+            self.bar.setValue(state.processed)
+            self.current.setText("")
+            self.timing.setText(
+                tr("{n} z {total} hotovo").format(n=state.processed, total=state.total)
+                if state.total
+                else ""
+            )
+        else:
+            self.current.setText(tr("Průběh tohoto běhu není zaznamenaný (starší verze)."))
+        self.summary.setText(" · ".join(p for p in parts if p))  # až po přehrání událostí
+        log_file = info.dir / "speechscope.log"
+        if log_file.is_file():
+            try:
+                self.log.setPlainText(log_file.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                pass
+        self.elapsed.setText(
+            tr("uplynulo {time}").format(time=format_seconds(info.seconds)) if info.seconds else ""
+        )
 
     def _on_finished(self, code: int, cancelled: bool) -> None:
         self._tick.stop()

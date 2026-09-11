@@ -111,3 +111,17 @@ def test_batch_state_tracks_stages() -> None:
     v1 = contract.BatchState()
     v1.apply(contract.StartEvent(total=1, task=None, features=[], providers=[], protocol=1))
     assert not v1.detailed
+
+
+def test_dump_event_roundtrip() -> None:
+    events = [
+        contract.StartEvent(total=2, task="story", features=["f"], providers=["segments"]),
+        contract.BeginEvent(index=0, path="a.wav"),
+        contract.StageEvent(index=0, provider="segments", status="running"),
+        contract.StageEvent(index=0, provider="segments", status="error", seconds=1.5, msg="x"),
+        contract.FileEvent(index=0, path="a.wav", status="ok", msg="n"),
+        contract.DoneEvent(n_ok=1),
+        contract.SavedEvent(out="o.csv"),
+    ]
+    for event in events:
+        assert contract.parse_event(contract.dump_event(event)) == event

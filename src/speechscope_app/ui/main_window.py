@@ -157,6 +157,7 @@ class MainWindow(QMainWindow):
         self.batch_page.set_stats_lookup(self.settings.seconds_per_file)
         self.protocols_page.set_stats_lookup(self.settings.seconds_per_file)
         self.results_page.set_work_root(self.settings.work_root)
+        self.run_page.set_work_root(self.settings.work_root)
         self.protocols_page.protocols_changed.connect(self.reload_protocols)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.prepare_requested.connect(self._start_prepare)
@@ -175,6 +176,8 @@ class MainWindow(QMainWindow):
     def _page_shown(self, index: int) -> None:
         if index == PAGE_RESULTS:
             self.results_page.refresh()
+        elif index == PAGE_RUN:
+            self.run_page.refresh_history()
 
     def start_page(self) -> int:
         """Klinik začíná na Analýze; bez knihovny nebo bez modelů na Prostředí."""
@@ -479,6 +482,7 @@ class MainWindow(QMainWindow):
                 seconds=self.run_page.elapsed_seconds(),
                 out=state.out,
             )
+        self.run_page.refresh_history(select=run_dir)
         per_file = self.run_page.seconds_per_file()
         if per_file is not None and not cancelled and code == 0 and self._running_slug:
             self.settings.set_seconds_per_file(self._running_slug, per_file)

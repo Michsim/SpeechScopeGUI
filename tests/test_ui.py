@@ -77,6 +77,16 @@ def test_window_runs_batch_end_to_end(
     assert results.runs.item(0, 1).text() == "Fonace, základní"
     assert results.runs.item(0, 3).text() == "hotovo"
     assert results.runs.selectionModel().selectedRows()[0].row() == 0
+    # záznam průběhu a jeho přehrání na Výpočtu
+    events = (run_dirs[0] / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    assert events[0].startswith('{"event": "start"') and events[-1].startswith('{"event": "saved"')
+    assert run.history.runs.rowCount() == 1
+    run._live_dir = None  # jako po novém startu aplikace: běh je jen v historii
+    run.show_recorded(run.history.current())
+    assert run.files.rowCount() == 4
+    replayed = sorted(run.files.item(r, run.col_status).text() for r in range(4))
+    assert replayed == ["chyba", "ok", "ok", "ok"]
+    assert "hotovo" in run.summary.text() and run.log.toPlainText()
 
 
 def test_save_protocol_from_advanced_mode(qtbot: QtBot, settings: AppSettings) -> None:
