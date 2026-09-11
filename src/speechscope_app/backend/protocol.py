@@ -145,6 +145,7 @@ class Protocol:
         work_dir: Path,
         config_path: Path | None,
         log_file: Path | None = None,
+        manifest: Path | None = None,
     ) -> ExtractRequest:
         return ExtractRequest(
             inputs=inputs,
@@ -156,6 +157,7 @@ class Protocol:
             out=out,
             work_dir=work_dir,
             log_file=log_file,
+            manifest=manifest,
         )
 
     def segments_model(self) -> str:

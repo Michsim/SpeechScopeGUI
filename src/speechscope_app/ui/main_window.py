@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__, contract
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
+from ..backend.manifest import write_normalized
 from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.settings import AppSettings
 from ..i18n import tr
@@ -250,12 +251,17 @@ class MainWindow(QMainWindow):
         proto.save(run_dir / "protocol.yaml")  # co přesně se spustilo
 
         log_file = run_dir / "speechscope.log"
+        manifest_path: Path | None = None
+        manifest = self.batch_page.manifest()
+        if manifest is not None:
+            manifest_path = write_normalized(run_dir / "manifest.csv", inputs, proto.task, manifest)
         req = proto.to_request(
             inputs,
             out=run_dir / "features.csv",
             work_dir=work_dir,
             config_path=config_path,
             log_file=log_file,
+            manifest=manifest_path,
         )
         argv = self.library.argv(extract_args(req, models_dir=self.settings.models_dir))
 

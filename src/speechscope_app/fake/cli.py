@@ -108,7 +108,7 @@ def _read_manifest(path: Path) -> list[tuple[Path, str, dict[str, str]]]:
     if not path.is_file():
         raise Fail(f"manifest neexistuje: {path}")
     rows: list[tuple[Path, str, dict[str, str]]] = []
-    with path.open(encoding="utf-8", newline="") as fh:
+    with path.open(encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         if (
             not reader.fieldnames

@@ -331,3 +331,31 @@ def test_transcribe_only_writes_work_dir(
     monkeypatch.setattr(SegmentDialog, "exec", lambda self: 0)
     page.segment_btn.click()
     assert not window.run_page.runner.running
+
+
+def test_manifest_metadata_reach_results(
+    qtbot: QtBot, settings: AppSettings, recordings: Path
+) -> None:
+    (recordings / "manifest.csv").write_text(
+        "\ufeffpath;pacient;skupina\np01.wav;PD001;PD\nsub/p04.flac;HC002;HC\n", encoding="utf-8"
+    )
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    assert page.manifest() is not None
+    headers = [page.files.horizontalHeaderItem(c).text() for c in range(page.files.columnCount())]
+    assert headers[-2:] == ["pacient", "skupina"]
+    assert "2 z 4" in page.manifest_label.text()
+    assert page.select_protocol("Fonace, základní")
+    with qtbot.waitSignal(window.run_page.finished, timeout=15000):
+        page.run_btn.click()
+    frame = window.results_page._frame
+    assert frame is not None and "pacient" in frame.columns
+    by_file = dict(zip(frame["file"], frame["pacient"].fillna(""), strict=True))
+    assert by_file["p01.wav"] == "PD001" and by_file["p02_bad.wav"] == ""
+    run_dir = next(settings.work_root.glob("*_fonace-zakladni"))
+    assert (run_dir / "manifest.csv").is_file()
+
+    page.clear_manifest()
+    assert page.manifest() is None and page.files.columnCount() == 3

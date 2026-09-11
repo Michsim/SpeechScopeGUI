@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
 from ... import contract
 from ...backend.discover import Recording, find_recordings
 from ...backend.library import Library, LibraryError
+from ...backend.manifest import Manifest, find_manifest, read_manifest
 from ...backend.protocol import Protocol, card_infos
 from ...i18n import tr
 from .. import theme
@@ -67,6 +69,8 @@ class BatchPage(QWidget):
         self._library: Library | None = None
         self._protocols: list[Protocol] = []
         self._recordings: list[Recording] = []
+        self._manifest: Manifest | None = None
+        self._manifest_auto = True  # manifest nalezený ve složce, ne vybraný ručně
         self._seconds_per_file: Callable[[str], float | None] = lambda _slug: None
 
         layout = QVBoxLayout(self)
@@ -121,6 +125,27 @@ class BatchPage(QWidget):
         self.files.verticalHeader().setVisible(False)
         self.files.verticalHeader().setDefaultSectionSize(24)
         left_layout.addWidget(self.files, 1)
+        meta_row = QHBoxLayout()
+        self.manifest_label = QLabel("")
+        self.manifest_label.setObjectName("muted")
+        self.manifest_label.setWordWrap(True)
+        self.manifest_btn = QPushButton(tr("Metadata…"))
+        self.manifest_btn.setToolTip(
+            tr(
+                "CSV s metadaty nahrávek (pacient, skupina, návštěva). Sloupec „path“ "
+                "s názvem souboru, ostatní sloupce se propíší do výsledků. "
+                "Soubor manifest.csv ve složce se načte sám."
+            )
+        )
+        self.manifest_btn.clicked.connect(self._browse_manifest)
+        self.manifest_clear_btn = QPushButton(tr("Nepoužít"))
+        self.manifest_clear_btn.setToolTip(tr("Nepoužívat metadata"))
+        self.manifest_clear_btn.clicked.connect(self.clear_manifest)
+        self.manifest_clear_btn.hide()
+        meta_row.addWidget(self.manifest_label, 1)
+        meta_row.addWidget(self.manifest_btn)
+        meta_row.addWidget(self.manifest_clear_btn)
+        left_layout.addLayout(meta_row)
 
         step2, self.step2_hint = _step(2, tr("Úloha a jazyk"), "")
         left_layout.addLayout(step2)
@@ -318,20 +343,91 @@ class BatchPage(QWidget):
             if not text
             else (tr("{n} nahrávek").format(n=n) if n else tr("žádná nenalezena"))
         )
+        if self._manifest_auto:
+            found = find_manifest(Path(text)) if text else None
+            self._manifest = read_manifest(found, Path(text)) if found else None
+        self._fill_files()
+        self._update_run_state()
+
+    # --- metadata (manifest) ------------------------------------------------------------
+
+    def manifest(self) -> Manifest | None:
+        """Manifest, který se předá knihovně; `None` = bez metadat."""
+        return self._manifest if self._manifest and not self._manifest.problems else None
+
+    def set_manifest(self, path: Path | None) -> None:
+        """Ručně vybraný manifest; relativní cesty se berou od složky s nahrávkami."""
+        base = Path(self.folder.text().strip()) if self.folder.text().strip() else None
+        self._manifest = read_manifest(path, base) if path else None
+        self._manifest_auto = path is None
+        self._fill_files()
+        self._update_run_state()
+
+    def clear_manifest(self) -> None:
+        self._manifest = None
+        self._manifest_auto = False
+        self._fill_files()
+        self._update_run_state()
+
+    def _browse_manifest(self) -> None:
+        start = self.folder.text() or str(Path.home())
+        chosen, _ = QFileDialog.getOpenFileName(
+            self, tr("Metadata nahrávek"), start, tr("Tabulka CSV (*.csv);;Všechny soubory (*)")
+        )
+        if chosen:
+            self.set_manifest(Path(chosen))
+
+    def _fill_files(self) -> None:
+        manifest = self._manifest
+        columns = list(manifest.columns) if manifest else []
+        headers = [tr("nahrávka"), tr("labely"), tr("přepis"), *columns]
+        self.files.setColumnCount(len(headers))
+        self.files.setHorizontalHeaderLabels(headers)
         self.files.setRowCount(len(self._recordings))
         for r, rec in enumerate(self._recordings):
-            for c, value in enumerate(
-                [
-                    rec.name,
-                    tr("ano") if rec.has_labels else "",
-                    tr("ano") if rec.has_transcript else "",
-                ]
-            ):
+            meta = manifest.meta_for(rec.path) if manifest else None
+            values = [
+                rec.name,
+                tr("ano") if rec.has_labels else "",
+                tr("ano") if rec.has_transcript else "",
+                *[(meta or {}).get(c, "") for c in columns],
+            ]
+            for c, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setToolTip(str(rec.path))
+                if c >= 3 and meta is None:
+                    item.setForeground(QColor(theme.MUTED))
                 self.files.setItem(r, c, item)
         self.files.resizeColumnsToContents()
-        self._update_run_state()
+        self.files.horizontalHeader().setStretchLastSection(True)
+        self.manifest_clear_btn.setVisible(manifest is not None)
+        if manifest is None:
+            self.manifest_label.setText(
+                tr("Bez metadat. Do výsledků jde jen název souboru.") if self._recordings else ""
+            )
+            self.manifest_label.setStyleSheet("")
+            return
+        if manifest.problems:
+            self.manifest_label.setText(
+                tr("{name}: {problem}").format(
+                    name=manifest.path.name, problem=manifest.problems[0]
+                )
+            )
+            self.manifest_label.setStyleSheet(f"color: {theme.MISSING};")
+            return
+        paths = [rec.path for rec in self._recordings]
+        matched = manifest.matched(paths)
+        self.manifest_label.setText(
+            tr("Metadata {name}: {columns} · {matched} z {total} nahrávek").format(
+                name=manifest.path.name,
+                columns=", ".join(columns) or tr("bez sloupců"),
+                matched=matched,
+                total=len(paths),
+            )
+        )
+        self.manifest_label.setStyleSheet(
+            f"color: {theme.WARN};" if matched < len(paths) else f"color: {theme.OK};"
+        )
 
     # --- protokol -------------------------------------------------------------------
 
