@@ -93,6 +93,15 @@ se pustí další, `Job` v `main_window.py`) · Výsledky (historie běhů ze sl
   Beam 1 je 5× rychlejší, ale u těžkých nahrávek kazí text. Při pádu
   na kartě knihovna sama dopočítá v int8 na CPU. Jazyk z lišty na Datech
   jde do `transcript.language` i `nlp.language` a přebije protokol.
+- Vzdálená plocha (RDP) a virtuální stroje: DirectML v RDP relaci
+  k fyzické kartě nemá přístup (chyba C0262002), knihovna dopočítá na
+  procesoru a `doctor` to hlásí (`gpu.remote_session`,
+  `gpu.onnxruntime_gpu_usable`), Prostředí ukáže oranžovou kartu. Ve VM
+  s kartou přes passthrough v režimu WDDM je Whisper pomalý kvůli latenci
+  na každý krok dekodéru (8 % využití karty, beam nepomůže); řešení je
+  režim TCC (`nvidia-smi -dm 1`), ne parametry knihovny.
+- V repu knihovny vždy `uv sync --all-extras`; holé `uv sync` odinstaluje
+  extras onnx a whisper a testy se tiše přeskočí.
 - Do složky s nahrávkami se nikdy nezapisuje. Výstupy do
   `Dokumenty\SpeechScope\<datum>_<protokol>\`, mezivýsledky do `work\`.
 - Skripty na snímky obrazovky (mimo testy) musí nastavit
