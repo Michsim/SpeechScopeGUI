@@ -72,6 +72,7 @@ class BatchPage(QWidget):
         self._recordings: list[Recording] = []
         self._manifest: Manifest | None = None
         self._doctor: dict[str, Any] | None = None
+        self._advanced = False
         self._manifest_auto = True  # manifest nalezený ve složce, ne vybraný ručně
         self._seconds_per_file: Callable[[str], float | None] = lambda _slug: None
 
@@ -121,7 +122,7 @@ class BatchPage(QWidget):
         left_layout.addWidget(self.recursive)
         self.files = QTableWidget()
         self.files.setColumnCount(3)
-        self.files.setHorizontalHeaderLabels([tr("nahrávka"), tr("labely"), tr("přepis")])
+        self.files.setHorizontalHeaderLabels([tr("nahrávka")])
         self.files.horizontalHeader().setStretchLastSection(True)
         self.files.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.files.verticalHeader().setVisible(False)
@@ -318,7 +319,9 @@ class BatchPage(QWidget):
         return {p.name for p in self._protocols}
 
     def set_advanced(self, advanced: bool) -> None:
+        self._advanced = advanced
         self.advanced_box.setVisible(advanced)
+        self._fill_files()
 
     def set_folder(self, folder: Path) -> None:
         self.folder.setText(str(folder))
@@ -383,22 +386,34 @@ class BatchPage(QWidget):
     def _fill_files(self) -> None:
         manifest = self._manifest
         columns = list(manifest.columns) if manifest else []
-        headers = [tr("nahrávka"), tr("labely"), tr("přepis"), *columns]
+        # Ruční vstupy (labely, přepis vedle nahrávky) zajímají výzkumníka,
+        # klinik je nikdy nemá; v základním režimu se sloupec neukazuje.
+        headers = [tr("nahrávka")]
+        if self._advanced:
+            headers.append(tr("ruční vstupy"))
+        headers.extend(columns)
+        meta_from = len(headers) - len(columns)
         self.files.setColumnCount(len(headers))
         self.files.setHorizontalHeaderLabels(headers)
         self.files.setRowCount(len(self._recordings))
         for r, rec in enumerate(self._recordings):
             meta = manifest.meta_for(rec.path) if manifest else None
-            values = [
-                rec.name,
-                tr("ano") if rec.has_labels else "",
-                tr("ano") if rec.has_transcript else "",
-                *[(meta or {}).get(c, "") for c in columns],
-            ]
+            values = [rec.name]
+            if self._advanced:
+                manual = [tr("labely")] * rec.has_labels + [tr("přepis")] * rec.has_transcript
+                values.append(", ".join(manual))
+            values.extend((meta or {}).get(c, "") for c in columns)
             for c, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setToolTip(str(rec.path))
-                if c >= 3 and meta is None:
+                if self._advanced and c == 1 and value:
+                    item.setToolTip(
+                        tr(
+                            "Ruční vstupy vedle nahrávky mají přednost před modely: "
+                            "`.labels.txt` nahradí segmentaci, `.txt` přepis Whisperem."
+                        )
+                    )
+                if c >= meta_from and meta is None:
                     item.setForeground(QColor(theme.MUTED))
                 self.files.setItem(r, c, item)
         self.files.resizeColumnsToContents()

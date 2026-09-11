@@ -376,7 +376,10 @@ def test_manifest_metadata_reach_results(
     assert (run_dir / "manifest.csv").is_file()
 
     page.clear_manifest()
-    assert page.manifest() is None and page.files.columnCount() == 3
+    assert page.manifest() is None and page.files.columnCount() == 2  # nahrávka, ruční vstupy
+    assert page.files.item(0, 1).text() == "labely, přepis"  # p01 má labely i přepis
+    page.set_advanced(False)
+    assert page.files.columnCount() == 1
 
 
 def test_run_asks_when_provider_not_ready(
