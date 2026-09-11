@@ -388,6 +388,7 @@ class RunPage(QWidget):
                 self.bar.setValue(state.processed)
                 if self._viewing is None:
                     self.progress_changed.emit(f"{state.processed}/{state.total}")
+                    self.refresh_history()  # počet hotových nahrávek v historii
                 self._update_timing()
                 self._update_current()
             case contract.DoneEvent():

@@ -134,6 +134,10 @@ class ResultsPage(QWidget):
             )
         elif info.status == "error":
             note = tr("Běh skončil chybou, viz log ve složce.")
+        elif info.status == "running":
+            note = tr("Výpočet ještě běží, tabulka je zatím částečná.")
+        elif info.status == "interrupted":
+            note = tr("Běh byl přerušen (aplikace skončila během výpočtu), tabulka je částečná.")
         if info.csv_path is not None:
             self.load(info.csv_path, note=note, refresh_history=False)
             return

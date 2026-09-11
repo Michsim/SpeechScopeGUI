@@ -9,6 +9,7 @@ import pytest
 from pytestqt.qtbot import QtBot
 
 from speechscope_app import contract
+from speechscope_app.backend.history import read_run
 from speechscope_app.backend.library import ParamInfo
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import (
@@ -58,9 +59,12 @@ def test_window_runs_batch_end_to_end(
 
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
         window.batch_page.run_btn.click()
+        run_dir = window._running_dir
+        assert read_run(run_dir).status == "running"  # záznam hned při startu
     state = window.run_page.runner.state
     assert state.finished and state.total == 4
     assert window.nav.currentRow() == PAGE_RESULTS
+    assert read_run(run_dir).status == "ok"
     # tabulka běhu: řádek na nahrávku, výsledek, nabídka bez postupu po konci
     run = window.run_page
     assert run.files.rowCount() == 4

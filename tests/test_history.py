@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from speechscope_app.backend.history import list_runs, read_run, write_run_file
+from speechscope_app.backend.history import list_runs, mark_orphans, read_run, write_run_file
 from speechscope_app.backend.protocol import Protocol
 
 
@@ -54,3 +54,21 @@ def test_list_runs_newest_first_with_status(tmp_path: Path) -> None:
     assert old.status_label == "hotovo"
     assert read_run(tmp_path / "nahodna") is None
     assert list_runs(tmp_path / "neexistuje") == []
+
+
+def test_running_run_counts_rows_and_orphans_get_interrupted(tmp_path: Path) -> None:
+    """Rozpracovaná dávka není „hotovo“, i když features.csv už leží ve složce."""
+    d = _run_dir(
+        tmp_path,
+        "2026-09-11_12-00-00_fonace-zakladni",
+        csv_rows=2,
+        run={"status": "running", "total": 5, "protocol": "Fonace, základní"},
+    )
+    info = read_run(d)
+    assert info is not None and info.status == "running" and info.status_label == "běží"
+    assert info.processed == 2 and info.total == 5  # z tabulky, záznam počet nezná
+
+    assert mark_orphans(tmp_path) == [d]
+    info = read_run(d)
+    assert info is not None and info.status == "interrupted" and info.processed == 2
+    assert mark_orphans(tmp_path) == []  # podruhé už není co značit

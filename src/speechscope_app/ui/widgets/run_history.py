@@ -31,6 +31,7 @@ STATUS_COLORS = {
     "error": theme.MISSING,
     "prepare": theme.NEUTRAL,
     "running": theme.ACCENT,
+    "interrupted": theme.WARN,
     "unknown": theme.MUTED,
 }
 

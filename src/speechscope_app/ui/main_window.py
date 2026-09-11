@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from .. import __version__, contract
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
 from ..backend.diagnostics import build_bundle, default_name
-from ..backend.history import write_run_file
+from ..backend.history import mark_orphans, write_run_file
 from ..backend.manifest import Manifest, write_normalized
 from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.settings import AppSettings
@@ -175,6 +175,7 @@ class MainWindow(QMainWindow):
         self.run_page.queue_clear.connect(self.clear_queue)
 
         self._apply_settings()
+        mark_orphans(self.settings.work_root)  # po pádu nesmí v historii zůstat „běží“
         self.show_welcome()
 
     def show_welcome(self) -> None:
@@ -471,6 +472,14 @@ class MainWindow(QMainWindow):
         self._running_dir = run_dir
         self._running_kind = "extract" if job.kind == "extract" else "prepare"
         self._running_name = proto.display_name
+        # Stav „běží“ hned: tabulka roste průběžně a bez záznamu by běh vypadal hotový.
+        write_run_file(
+            run_dir,
+            status="running",
+            kind=self._running_kind,
+            protocol=proto.display_name,
+            total=len(inputs),
+        )
         self.nav.setCurrentRow(PAGE_RUN)
         self.run_page.start(
             argv, title=title, log_file=log_file, inputs=inputs, expected_seconds=expected

@@ -4,6 +4,11 @@ Každý běh má složku s `protocol.yaml`, `speechscope.log`, případně
 `features.csv` a od této verze `run.json` se stavem (hotovo, zrušeno,
 chyba, jen segmentace či přepis). Starší složky bez `run.json` se
 poznají podle toho, co v nich leží.
+
+Hlavní okno zapíše `run.json` se stavem „běží“ hned při spuštění, protože
+knihovna zapisuje `features.csv` průběžně a bez záznamu by rozpracovaná
+dávka vypadala jako hotová. Běh, který zůstal ve stavu „běží“ po pádu
+aplikace, se při dalším startu označí jako přerušený (`mark_orphans`).
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ STATUS_LABELS = {
     "error": N_("chyba"),
     "prepare": N_("mezivýsledky"),
     "running": N_("běží"),
+    "interrupted": N_("přerušeno"),
     "unknown": N_("bez záznamu"),
 }
 
@@ -38,7 +44,7 @@ class RunInfo:
     started: datetime | None
     slug: str
     protocol_name: str
-    status: str  # ok | cancelled | error | prepare | running | unknown
+    status: str  # ok | cancelled | error | prepare | running | interrupted | unknown
     processed: int | None
     total: int | None
     seconds: float | None
@@ -98,17 +104,43 @@ def read_run(run_dir: Path) -> RunInfo | None:
         except (OSError, json.JSONDecodeError):
             data = {}
     status = str(data.get("status") or ("ok" if rows is not None else "unknown"))
+    processed = data.get("processed")
+    if status in ("running", "interrupted") and processed is None:
+        processed = rows  # záznam ze startu počet nezná, tabulka roste po nahrávce
     return RunInfo(
         dir=run_dir,
         started=started,
         slug=slug,
         protocol_name=str(data.get("protocol") or protocol_name),
         status=status,
-        processed=data.get("processed"),
+        processed=processed,
         total=data.get("total"),
         seconds=data.get("seconds"),
         rows=rows,
     )
+
+
+def mark_orphans(work_root: Path) -> list[Path]:
+    """Běhy, které zůstaly „běží“ (pád aplikace), označí jako přerušené.
+
+    Volá se při startu aplikace, kdy nic běžet nemůže.
+    """
+    marked: list[Path] = []
+    for info in list_runs(work_root):
+        if info.status != "running":
+            continue
+        try:
+            data = json.loads((info.dir / RUN_FILE).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        data["status"] = "interrupted"
+        data.setdefault("processed", info.rows)
+        try:
+            write_run_file(info.dir, **data)
+        except OSError:
+            continue
+        marked.append(info.dir)
+    return marked
 
 
 def list_runs(work_root: Path) -> list[RunInfo]:
