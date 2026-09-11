@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .. import contract
+from .audio import duration_seconds
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +19,7 @@ class Recording:
     path: Path
     has_labels: bool
     has_transcript: bool
+    duration: float | None = None  # sekundy z hlavičky; None = nejde zjistit
 
     @property
     def name(self) -> str:
@@ -51,6 +53,7 @@ def find_recordings(
                 path=path,
                 has_labels=Path(str(stem) + contract.LABELS_SUFFIX).is_file(),
                 has_transcript=Path(str(stem) + contract.TRANSCRIPT_SUFFIX).is_file(),
+                duration=duration_seconds(path),
             )
         )
     return out

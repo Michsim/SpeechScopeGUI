@@ -11,7 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -32,12 +32,14 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
+from ...backend.audio import format_duration
 from ...backend.discover import Recording, find_recordings
 from ...backend.library import Library, LibraryError
 from ...backend.manifest import Manifest, find_manifest, read_manifest
 from ...backend.protocol import Protocol, card_infos, summarize
 from ...i18n import tr
 from .. import theme
+from ..pages.run import format_seconds
 from ..prepare_dialog import SegmentDialog, TranscribeDialog
 from ..protocol_dialog import SaveProtocolDialog
 from ..widgets.protocol_editor import ProtocolEditorDialog
@@ -76,6 +78,7 @@ class BatchPage(QWidget):
         self._advanced = False
         self._manifest_auto = True  # manifest nalezený ve složce, ne vybraný ručně
         self._seconds_per_file: Callable[[str], float | None] = lambda _slug: None
+        self._seconds_per_audio_minute: Callable[[str], float | None] = lambda _slug: None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -291,6 +294,63 @@ class BatchPage(QWidget):
         self._seconds_per_file = lookup
         self.editor.set_stats_lookup(lookup)
 
+    def set_rate_lookup(self, lookup: Callable[[str], float | None]) -> None:
+        """Sekundy výpočtu na minutu zvuku podle slugu protokolu (z nastavení)."""
+        self._seconds_per_audio_minute = lookup
+
+    def durations_for(self, paths: list[Path]) -> list[float | None]:
+        """Délky zvuku k cestám ve stejném pořadí; None, kde ji nejde přečíst."""
+        known = {rec.path: rec.duration for rec in self._recordings}
+        return [known.get(p) for p in paths]
+
+    def expected_seconds(self, proto: Protocol | None = None) -> float | None:
+        """Odhad celé dávky: podle minut zvuku, kde jsou známé, jinak na nahrávku."""
+        proto = proto or self.current_protocol()
+        if proto is None or not self._recordings:
+            return None
+        slug = proto.slug()
+        rate = self._seconds_per_audio_minute(slug)
+        per_file = self._seconds_per_file(slug)
+        known = [rec.duration for rec in self._recordings if rec.duration]
+        unknown = len(self._recordings) - len(known)
+        total = 0.0
+        if rate and known:
+            total += rate / 60 * sum(known)
+        elif per_file:
+            total += per_file * len(known)
+        else:
+            return None
+        if unknown:
+            if per_file is None:
+                return None
+            total += per_file * unknown
+        return total
+
+    def _update_step1_hint(self) -> None:
+        text = self.folder.text().strip()
+        if not text:
+            self.step1_hint.setText(tr("Vyber složku."))
+            return
+        n = len(self._recordings)
+        if not n:
+            self.step1_hint.setText(tr("žádná nenalezena"))
+            return
+        parts = [tr("{n} nahrávek").format(n=n)]
+        known = [rec.duration for rec in self._recordings if rec.duration]
+        if known:
+            audio = format_seconds(sum(known))
+            parts.append(
+                tr("{time} zvuku").format(time=audio)
+                if len(known) == n
+                else tr("{time} zvuku ({k} z {n} se známou délkou)").format(
+                    time=audio, k=len(known), n=n
+                )
+            )
+        expected = self.expected_seconds()
+        if expected:
+            parts.append(tr("odhad výpočtu {time}").format(time=format_seconds(expected)))
+        self.step1_hint.setText(" · ".join(parts))
+
     def refresh_summary(self) -> None:
         """Po běhu: nová doba na nahrávku do karet i do souhrnu editoru."""
         self.editor.refresh_summary()
@@ -346,12 +406,6 @@ class BatchPage(QWidget):
         self._recordings = (
             find_recordings(Path(text), recursive=self.recursive.isChecked()) if text else []
         )
-        n = len(self._recordings)
-        self.step1_hint.setText(
-            tr("Vyber složku.")
-            if not text
-            else (tr("{n} nahrávek").format(n=n) if n else tr("žádná nenalezena"))
-        )
         if self._manifest_auto:
             found = find_manifest(Path(text)) if text else None
             self._manifest = read_manifest(found, Path(text)) if found else None
@@ -391,7 +445,7 @@ class BatchPage(QWidget):
         columns = list(manifest.columns) if manifest else []
         # Ruční vstupy (labely, přepis vedle nahrávky) zajímají výzkumníka,
         # klinik je nikdy nemá; v základním režimu se sloupec neukazuje.
-        headers = [tr("nahrávka")]
+        headers = [tr("nahrávka"), tr("délka")]
         if self._advanced:
             headers.append(tr("ruční vstupy"))
         headers.extend(columns)
@@ -401,7 +455,7 @@ class BatchPage(QWidget):
         self.files.setRowCount(len(self._recordings))
         for r, rec in enumerate(self._recordings):
             meta = manifest.meta_for(rec.path) if manifest else None
-            values = [rec.name]
+            values = [rec.name, format_duration(rec.duration)]
             if self._advanced:
                 manual = [tr("labely")] * rec.has_labels + [tr("přepis")] * rec.has_transcript
                 values.append(", ".join(manual))
@@ -409,7 +463,13 @@ class BatchPage(QWidget):
             for c, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setToolTip(str(rec.path))
-                if self._advanced and c == 1 and value:
+                if c == 1:
+                    item.setTextAlignment(
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                    )
+                    if rec.duration is None:
+                        item.setToolTip(tr("Délka se z hlavičky nedá přečíst (jen WAV a FLAC)."))
+                if self._advanced and c == 2 and value:
                     item.setToolTip(
                         tr(
                             "Ruční vstupy vedle nahrávky mají přednost před modely: "
@@ -496,6 +556,7 @@ class BatchPage(QWidget):
         self.save_btn.setEnabled(proto is not None and self.editor.has_catalog())
         self.edit_btn.setEnabled(proto is not None and self.editor.has_catalog())
         self._update_editor_summary()
+        self._update_step1_hint()
         self.step2_hint.setText(
             f"{contract.TASK_LABELS.get(proto.task, proto.task)} · "
             f"{contract.language_label(self.language_code())}"

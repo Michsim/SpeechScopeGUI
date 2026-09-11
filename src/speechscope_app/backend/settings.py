@@ -160,6 +160,19 @@ class AppSettings:
     def set_seconds_per_file(self, protocol_slug: str, seconds: float) -> None:
         self._q.setValue(f"stats/{protocol_slug}/seconds_per_file", f"{seconds:.3f}")
 
+    def seconds_per_audio_minute(self, protocol_slug: str) -> float | None:
+        """Doba výpočtu na minutu zvuku z posledního běhu; přesnější než na nahrávku,
+        když jsou nahrávky různě dlouhé (fonace 5 s, monolog 3 minuty)."""
+        raw = self._q.value(f"stats/{protocol_slug}/seconds_per_audio_minute", "")
+        try:
+            value = float(raw) if raw not in ("", None) else None
+        except (TypeError, ValueError):
+            return None
+        return value if value and value > 0 else None
+
+    def set_seconds_per_audio_minute(self, protocol_slug: str, seconds: float) -> None:
+        self._q.setValue(f"stats/{protocol_slug}/seconds_per_audio_minute", f"{seconds:.3f}")
+
     def make_library(self) -> library.Library | None:
         cmd = self.effective_command()
         if not cmd:
