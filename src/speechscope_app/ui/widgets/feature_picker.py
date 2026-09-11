@@ -58,6 +58,8 @@ class FeaturePicker(QWidget):
         self._rows: dict[str, int] = {}  # jméno feature -> řádek
         self._group_rows: dict[str, int] = {}
         self._updating = False
+        self._overridden: set[str] = set()  # feature a providery se změněnými parametry
+        self._summary_args: tuple[list[str], int, str] = ([], 0, "")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -182,6 +184,26 @@ class FeaturePicker(QWidget):
     def count(self) -> int:
         return len(self._rows)
 
+    def set_overridden(self, names: set[str]) -> None:
+        """Feature a providery se změněnými parametry: tučně v tabulce a v souhrnu."""
+        if names == self._overridden:
+            return
+        self._overridden = set(names)
+        self._updating = True
+        self.table.blockSignals(True)
+        for name, row in self._rows.items():
+            item = self.table.item(row, COL_NAME)
+            font = item.font()
+            font.setBold(name in names)
+            item.setFont(font)
+            item.setToolTip(
+                item.toolTip().split("\n\n(změněné parametry)")[0]
+                + ("\n\n(změněné parametry)" if name in names else "")
+            )
+        self.table.blockSignals(False)
+        self._updating = False
+        self.set_summary(*self._summary_args)
+
     # --- výběr --------------------------------------------------------------------
 
     def selected(self) -> list[str]:
@@ -297,10 +319,12 @@ class FeaturePicker(QWidget):
 
     def set_summary(self, providers: list[str], columns: int, hint: str = "") -> None:
         """Řádek pod tabulkou: providery jako odkazy na parametry, počty, cena."""
+        self._summary_args = (list(providers), columns, hint)
         n = len(self.selected())
         if providers:
             links = ", ".join(
                 f'<a href="provider:{p}">{contract.PROVIDER_LABELS.get(p, p)}</a>'
+                + (" <b>(upraveno)</b>" if p in self._overridden else "")
                 for p in providers
             )
             runs = f"Spustí se: {links}"

@@ -86,3 +86,16 @@ def test_summary_and_current(qtbot: QtBot) -> None:
     assert current[-1] == "segments"
     picker.set_warning("Není připraveno: x")
     assert not picker.warning.isHidden() or picker.warning.text()
+
+
+def test_overridden_marks(qtbot: QtBot) -> None:
+    picker = FeaturePicker()
+    qtbot.addWidget(picker)
+    picker.set_features(FEATURES, {"acoustic.timing.pauses"})
+    picker.set_summary(["segments"], 1, "")
+    picker.set_overridden({"acoustic.timing.pauses", "segments"})
+    item = picker.table.item(picker._rows["acoustic.timing.pauses"], COL_NAME)
+    assert item.font().bold() and "změněné" in item.toolTip()
+    assert "(upraveno)" in picker.summary.text()
+    picker.set_overridden(set())
+    assert not item.font().bold() and "(upraveno)" not in picker.summary.text()

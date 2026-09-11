@@ -36,21 +36,28 @@ class ParamsPanel(QWidget):
         super().__init__(parent)
         self._name = ""
         self._form: ParamForm | None = None
+        self.setMinimumWidth(300)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
         head = QHBoxLayout()
         self.title = QLabel("Parametry")
         self.title.setObjectName("card_title")
-        self.reset_btn = QPushButton("Výchozí")
-        self.reset_btn.setToolTip("Vrátit parametry na hodnoty z knihovny")
+        self.reset_btn = QPushButton("Výchozí vše")
+        self.reset_btn.setToolTip("Vrátit všechny parametry na hodnoty z knihovny")
         self.reset_btn.setEnabled(False)
         self.reset_btn.clicked.connect(self.reset)
         head.addWidget(self.title, 1)
         head.addWidget(self.reset_btn)
         layout.addLayout(head)
+        self.subtitle = QLabel("")
+        self.subtitle.setObjectName("muted")
+        self.subtitle.setWordWrap(True)
+        layout.addWidget(self.subtitle)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.hint = QLabel("Klikni na feature nebo provider v tabulce.")
         self.hint.setObjectName("muted")
         self.hint.setWordWrap(True)
@@ -59,21 +66,41 @@ class ParamsPanel(QWidget):
 
     def show_params(self, name: str, form: ParamForm | None, error: str = "") -> None:
         self._name = name
+        if self._form is not None:
+            self._form.changed.disconnect(self._refresh_head)
         self._form = form
         if form is not None:
-            self.title.setText(name)
             self.scroll.takeWidget()
             self.scroll.setWidget(form)
             form.show()
-            self.reset_btn.setEnabled(bool(form._params))
+            form.changed.connect(self._refresh_head)
+            self._refresh_head()
         else:
             self.title.setText(name or "Parametry")
+            self.subtitle.setText(name if name else "")
             label = QLabel(error or "Klikni na feature nebo provider v tabulce.")
             label.setObjectName("muted")
             label.setWordWrap(True)
             self.scroll.takeWidget()
             self.scroll.setWidget(label)
             self.reset_btn.setEnabled(False)
+
+    def _refresh_head(self) -> None:
+        if self._form is None:
+            return
+        n_changed = len(self._form.overrides())
+        n_all = len(self._form._params)
+        label = contract.PROVIDER_LABELS.get(self._name)
+        self.title.setText(label or self._name)
+        parts = [self._name] if label else []
+        if n_all == 0:
+            parts.append("bez parametrů")
+        elif n_changed:
+            parts.append(f"{n_changed} z {n_all} změněno")
+        else:
+            parts.append(f"{n_all} parametrů, vše výchozí")
+        self.subtitle.setText(" · ".join(parts))
+        self.reset_btn.setEnabled(n_changed > 0)
 
     def reset(self) -> None:
         if self._form is not None:
@@ -131,6 +158,10 @@ class ProtocolEditor(QWidget):
         self._param_forms.clear()
         self.params.show_params("", None)
         self._rebuild()
+        self.picker.set_overridden(self._overridden_names())
+
+    def _overridden_names(self) -> set[str]:
+        return {name for name, values in self._overrides.items() if values}
 
     def protocol(self) -> Protocol | None:
         return self._proto
@@ -205,6 +236,7 @@ class ProtocolEditor(QWidget):
             hint = f"naposledy {seconds:.0f} s na nahrávku"
         self.picker.set_summary(summary.providers, summary.columns, hint)
         self.picker.set_warning(self._missing_models(summary.providers))
+        self.picker.set_overridden(self._overridden_names())
 
     def _missing_models(self, providers: list[str]) -> str:
         if not self._doctor:
@@ -239,10 +271,14 @@ class ProtocolEditor(QWidget):
                 return
             form = ParamForm(params)
             form.set_values(self._overrides.get(name, {}))
+            # hodnota z protokolu shodná s výchozí není úprava
+            self._overrides[name] = form.overrides()
+            self.picker.set_overridden(self._overridden_names())
             form.changed.connect(lambda n=name, f=form: self._params_changed(n, f))
             self._param_forms[name] = form
         self.params.show_params(name, form)
 
     def _params_changed(self, name: str, form: ParamForm) -> None:
         self._overrides[name] = form.overrides()
+        self.picker.set_overridden(self._overridden_names())
         self.changed.emit()
