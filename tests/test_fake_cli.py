@@ -91,6 +91,7 @@ def test_extract_progress_json(recordings: Path, tmp_path: Path) -> None:
     assert files[1].msg
     assert isinstance(events[-2], contract.DoneEvent) and events[-2].n_ok == 3
     assert isinstance(events[-1], contract.SavedEvent) and Path(events[-1].out) == out
+    assert not out.with_name(out.name + ".part").exists()
     # smlouva 2: před každou nahrávkou begin, providery hlásí stage
     assert start.protocol == 2
     begins = [e for e in events if isinstance(e, contract.BeginEvent)]

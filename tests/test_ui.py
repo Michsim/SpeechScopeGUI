@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from pytestqt.qtbot import QtBot
 
+from speechscope_app import contract
 from speechscope_app.backend.library import ParamInfo
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import PAGE_BATCH, PAGE_ENV, PAGE_RESULTS, PAGE_RUN, MainWindow
@@ -247,3 +248,29 @@ def test_language_from_doctor_goes_to_run(qtbot: QtBot, settings: AppSettings) -
     assert "angličtina" in page.step2_hint.text()
     page.set_language("cs")
     assert page.effective_protocol().config["transcript"]["language"] == "cs"
+
+
+def test_cancel_shows_partial_results(
+    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SPEECHSCOPE_FAKE_DELAY", "0.4")
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.batch_page.set_folder(recordings)
+    assert window.batch_page.select_protocol("Fonace, základní")
+    run = window.run_page
+
+    def cancel_after_first(event: object) -> None:
+        if isinstance(event, contract.FileEvent):
+            run.runner.cancel()
+
+    run.runner.event.connect(cancel_after_first)
+    with qtbot.waitSignal(run.finished, timeout=15000):
+        window.batch_page.run_btn.click()
+    state = run.runner.state
+    assert 1 <= state.processed < state.total
+    assert run.headline.text().startswith("Zrušeno uživatelem po")
+    assert window.nav.currentRow() == PAGE_RESULTS
+    assert "Částečný výsledek po zrušení" in window.results_page.summary.text()
+    assert window.results_page.table.model().rowCount() == state.processed
+    assert settings.seconds_per_file("fonace-zakladni") is None

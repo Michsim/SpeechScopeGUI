@@ -82,8 +82,10 @@ class ResultsPage(QWidget):
         self.table.setAlternatingRowColors(True)
         layout.addWidget(self.table, 1)
 
-    def load(self, path: Path) -> None:
+    def load(self, path: Path, note: str = "") -> None:
+        """Načte CSV; `note` je věta před souhrn (třeba že jde o částečný výsledek)."""
         self._path = path
+        self._note = note
         try:
             self._frame = pd.read_csv(path)
         except (OSError, pd.errors.ParserError) as exc:
@@ -107,8 +109,9 @@ class ResultsPage(QWidget):
             frame = frame[mask]
         self.table.setModel(FrameModel(frame.reset_index(drop=True)))
         self.table.resizeColumnsToContents()
+        note = f"{self._note} " if getattr(self, "_note", "") else ""
         self.summary.setText(
-            f"{self._path}: {len(self._frame)} řádků, {len(self._frame.columns)} sloupců, "
+            f"{note}{self._path}: {len(self._frame)} řádků, {len(self._frame.columns)} sloupců, "
             f"{n_notes} s poznámkou, {n_err} s chybou."
         )
 

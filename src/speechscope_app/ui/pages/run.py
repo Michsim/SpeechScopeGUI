@@ -407,7 +407,11 @@ class RunPage(QWidget):
         state = self.runner.state
         spent = format_seconds(self._finished_at - self._started_at)
         if cancelled:
-            self.headline.setText("Zrušeno uživatelem.")
+            self.headline.setText(
+                f"Zrušeno uživatelem po {state.processed} z {state.total} nahrávek."
+                if state.total
+                else "Zrušeno uživatelem."
+            )
             self.bar.setValue(state.processed)
         elif code != 0:
             self.headline.setText(f"Knihovna skončila chybou (kód {code}), viz log.")

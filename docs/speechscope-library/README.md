@@ -579,6 +579,11 @@ Na stdout jde jeden JSON objekt na řádek, všechno ostatní na stderr:
 {"event":"saved","out":"out/story.csv"}
 ```
 
+S `--out` se tabulka zapisuje průběžně: po každé nahrávce leží na disku
+celá (zápis jde přes dočasný `.part` a přejmenování), takže po zabití
+procesu zůstanou hotové řádky. Průběžná verze má i prázdné sloupce
+`notes` a `error`, konečná je bez nich.
+
 `begin` přijde před zpracováním nahrávky, `file` po něm. `stage` hlásí
 každý provider, který se pro nahrávku opravdu spustil: `running` na
 začátku a pak `done`, `cached` (vzal se mezivýsledek z pracovní složky)

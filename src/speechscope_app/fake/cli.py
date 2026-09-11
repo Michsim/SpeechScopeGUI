@@ -322,6 +322,7 @@ def cmd_extract(ns: argparse.Namespace) -> int:
         meta_cols.extend(k for k in meta if k not in meta_cols)
 
     _log(f"vybráno {len(features)} feature, providery: {', '.join(providers) or '-'}", log_file)
+    out = Path(ns.out) if ns.out else Path("out.csv")
     _log(f"modely: {_models_dir(ns)}", log_file)
     if ns.progress_json:
         _emit({
@@ -365,29 +366,45 @@ def cmd_extract(ns: argparse.Namespace) -> int:
                         row[col] = "nan"
                 _log(f"{path.name}: {row['notes']}", log_file, "WARNING")
             n_ok += 1
-            if ns.progress_json:
-                _emit({"event": "file", "index": index, "path": str(path), "status": "ok"})
         rows.append(row)
+        # jako knihovna: průběžný zápis před událostí file, přes .part
+        _write_rows(rows, columns, meta_cols, out, partial=True)
+        if ns.progress_json and "bad" not in stem:
+            _emit({"event": "file", "index": index, "path": str(path), "status": "ok"})
 
     if ns.progress_json:
         _emit({"event": "done", "n_ok": n_ok})
 
-    out = Path(ns.out) if ns.out else Path("out.csv")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = ["file", "path", "task", *meta_cols, "speechscope_version", *columns]
-    if any("notes" in r for r in rows):
-        fieldnames.append("notes")
-    if any("error" in r for r in rows):
-        fieldnames.append("error")
-    with out.open("w", encoding="utf-8", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+    _write_rows(rows, columns, meta_cols, out, partial=False)
     if ns.progress_json:
         _emit({"event": "saved", "out": str(out)})
     else:
         _log(f"zapsáno {out}", log_file)
     return 0
+
+
+def _write_rows(
+    rows: list[dict[str, Any]],
+    columns: list[str],
+    meta_cols: list[str],
+    out: Path,
+    *,
+    partial: bool,
+) -> None:
+    """Zápis tabulky; průběžný nese notes i error vždy, konečný jen když jsou."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = ["file", "path", "task", *meta_cols, "speechscope_version", *columns]
+    if partial or any("notes" in r for r in rows):
+        fieldnames.append("notes")
+    if partial or any("error" in r for r in rows):
+        fieldnames.append("error")
+    tmp = out.with_name(out.name + ".part") if partial else out
+    with tmp.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    if partial:
+        os.replace(tmp, out)
 
 
 def _fake_stages(

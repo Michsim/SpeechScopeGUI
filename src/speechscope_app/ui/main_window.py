@@ -257,6 +257,7 @@ class MainWindow(QMainWindow):
             self.settings.last_input_dir = inputs[0].parent
         self.nav.setCurrentRow(PAGE_RUN)
         self._running_slug = slug
+        self._running_out = req.out
         self.run_page.start(
             argv,
             title=proto.name,
@@ -270,7 +271,18 @@ class MainWindow(QMainWindow):
         if per_file is not None and not cancelled and code == 0:
             self.settings.set_seconds_per_file(self._running_slug, per_file)
             self.batch_page.refresh_summary()
-        if cancelled or code != 0 or not state.out:
+        if cancelled or code != 0:
+            # knihovna zapisuje průběžně: co je hotové, je v tabulce
+            partial = self._running_out
+            if partial is not None and partial.is_file() and state.processed:
+                why = "zrušení" if cancelled else f"chybě (kód {code})"
+                self.results_page.load(
+                    partial,
+                    note=f"Částečný výsledek po {why}: {state.processed} z {state.total} nahrávek.",
+                )
+                self.nav.setCurrentRow(PAGE_RESULTS)
+            return
+        if not state.out:
             return
         out = Path(state.out)
         if out.is_file():
