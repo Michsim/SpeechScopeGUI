@@ -46,10 +46,6 @@ class SettingsDialog(QDialog):
         self.library.setPlaceholderText(tr("speechscope.exe z prostředí knihovny"))
         form.addRow(tr("Knihovna SpeechScope"), _path_row(self.library, self._browse_library))
 
-        self.use_fake = QCheckBox(tr("použít falešnou knihovnu (vývoj, bez modelů)"))
-        self.use_fake.setChecked(settings.use_fake_library)
-        form.addRow("", self.use_fake)
-
         self.models = QLineEdit(str(settings.models_dir))
         form.addRow(tr("Složka s modely"), _path_row(self.models, self._browse_models))
 
@@ -98,7 +94,6 @@ class SettingsDialog(QDialog):
     def accept(self) -> None:
         text = self.library.text().strip()
         self.settings.library_command = text.split() if text else None
-        self.settings.use_fake_library = self.use_fake.isChecked()
         self.settings.models_dir = Path(self.models.text().strip())
         self.settings.work_root = Path(self.work.text().strip())
         self.settings.advanced = self.advanced.isChecked()
