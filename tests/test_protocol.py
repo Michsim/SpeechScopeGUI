@@ -112,3 +112,28 @@ def test_summarize_counts_columns_and_provider_dependencies() -> None:
 def test_slug() -> None:
     assert slugify("Pohádka, akustika i lingvistika") == "pohadka-akustika-i-lingvistika"
     assert slugify("   ") == "davka"
+
+
+def test_describe_and_unique_name(tmp_path: Path) -> None:
+    from speechscope_app.backend.protocol import describe, import_protocol, unique_name
+
+    proto = Protocol(
+        name="Test", task="story", domain="acoustic", config={"segments": {"model": "conformer"}}
+    )
+    info = describe(proto, CATALOG, PROVIDERS)
+    assert info.providers == ["segments"]
+    assert info.features_text.startswith("2 z 3 (Akustika 2)")
+    assert info.params_text == "segments.model=conformer"
+    assert describe(proto, [], None).features_text == "všechny pro doménu acoustic"
+
+    assert unique_name("A", set()) == "A"
+    assert unique_name("A", {"A", "A (2)"}) == "A (3)"
+
+    folder = tmp_path / "protokoly"
+    first = import_protocol(proto, folder, [])
+    assert first == folder / "test.yaml" and first.is_file()
+    existing = [Protocol.load(first)]
+    second = import_protocol(proto, folder, existing)  # bez přepisu vedle
+    assert second == folder / "test-2.yaml"
+    third = import_protocol(proto, folder, existing, overwrite=True)
+    assert third == first

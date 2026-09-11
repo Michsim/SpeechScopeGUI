@@ -25,11 +25,12 @@ from .models_dialog import ModelsDownloadDialog
 from .models_install_dialog import ModelsInstallDialog
 from .pages.batch import BatchPage
 from .pages.environment import EnvironmentPage
+from .pages.protocols import ProtocolsPage
 from .pages.results import ResultsPage
 from .pages.run import RunPage
 from .settings_dialog import SettingsDialog
 
-PAGE_ENV, PAGE_BATCH, PAGE_RUN, PAGE_RESULTS = range(4)
+PAGE_ENV, PAGE_BATCH, PAGE_PROTOCOLS, PAGE_RUN, PAGE_RESULTS = range(5)
 
 
 def _has_models(models_dir: Path) -> bool:
@@ -46,16 +47,23 @@ class MainWindow(QMainWindow):
 
         self.env_page = EnvironmentPage()
         self.batch_page = BatchPage()
+        self.protocols_page = ProtocolsPage()
         self.run_page = RunPage()
         self.results_page = ResultsPage()
 
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
-        self.nav_labels = ("Prostředí", "Data", "Běh", "Výsledky")
+        self.nav_labels = ("Prostředí", "Data", "Protokoly", "Běh", "Výsledky")
         for label in self.nav_labels:
             self.nav.addItem(label)
         self.pages = QStackedWidget()
-        for page in (self.env_page, self.batch_page, self.run_page, self.results_page):
+        for page in (
+            self.env_page,
+            self.batch_page,
+            self.protocols_page,
+            self.run_page,
+            self.results_page,
+        ):
             self.pages.addWidget(page)
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
 
@@ -92,7 +100,10 @@ class MainWindow(QMainWindow):
         self.env_page.download_requested.connect(self.download_models)
         self.env_page.install_requested.connect(self.install_models)
         self.env_page.report_changed.connect(self.batch_page.set_doctor)
+        self.env_page.report_changed.connect(self.protocols_page.set_doctor)
         self.batch_page.set_stats_lookup(self.settings.seconds_per_file)
+        self.protocols_page.set_stats_lookup(self.settings.seconds_per_file)
+        self.protocols_page.protocols_changed.connect(self.reload_protocols)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
@@ -119,9 +130,9 @@ class MainWindow(QMainWindow):
         self.env_page.set_library(self.library)
         self.batch_page.set_library(self.library)
         self.batch_page.set_advanced(self.settings.advanced)
-        self.batch_page.set_protocols(
-            all_protocols(self.settings.protocols_dir()), current=self.settings.last_protocol
-        )
+        self.protocols_page.set_library(self.library)
+        self.protocols_page.set_advanced(self.settings.advanced)
+        self.reload_protocols(self.settings.last_protocol)
         if self.settings.last_input_dir and self.settings.last_input_dir.is_dir():
             self.batch_page.set_folder(self.settings.last_input_dir)
         title = "SpeechScope"
@@ -166,6 +177,16 @@ class MainWindow(QMainWindow):
 
     # --- protokoly ------------------------------------------------------------
 
+    def reload_protocols(self, current: str = "") -> None:
+        """Znovu načte protokoly z disku do stránek Data i Protokoly."""
+        folder = self.settings.protocols_dir()
+        protocols = all_protocols(folder)
+        current = current or self.batch_page.protocols.current_name()
+        self.batch_page.set_protocols(protocols, current=current)
+        self.protocols_page.set_protocols(
+            protocols, folder, current=self.protocols_page.current_name()
+        )
+
     def save_protocol(self, proto: Protocol) -> Path:
         """Uloží protokol mezi uživatelské a znovu načte nabídku."""
         folder = self.settings.protocols_dir()
@@ -175,7 +196,7 @@ class MainWindow(QMainWindow):
             path = existing[proto.name].path  # přepis stejného jména, ne druhý soubor
         proto.save(path)
         self.settings.last_protocol = proto.name
-        self.batch_page.set_protocols(all_protocols(folder), current=proto.name)
+        self.reload_protocols(proto.name)
         self.statusBar().showMessage(f"Protokol uložen: {path}", 8000)
         return path
 

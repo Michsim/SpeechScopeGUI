@@ -10,7 +10,7 @@ from pytestqt.qtbot import QtBot
 
 from speechscope_app.backend.library import ParamInfo
 from speechscope_app.backend.settings import AppSettings
-from speechscope_app.ui.main_window import PAGE_BATCH, PAGE_ENV, PAGE_RESULTS, MainWindow
+from speechscope_app.ui.main_window import PAGE_BATCH, PAGE_ENV, PAGE_RESULTS, PAGE_RUN, MainWindow
 from speechscope_app.ui.widgets.param_form import ParamForm
 
 
@@ -56,7 +56,7 @@ def test_window_runs_batch_end_to_end(
     assert run.files.rowCount() == 4
     statuses = [run.files.item(r, run.col_status).text() for r in range(4)]
     assert sorted(statuses) == ["chyba", "ok", "ok", "ok"]
-    assert window.nav.item(2).text() == "Běh"
+    assert window.nav.item(PAGE_RUN).text() == "Běh"
     assert run.headline.text().startswith("Hotovo za")
     assert settings.seconds_per_file("fonace-zakladni") is not None
     assert window.results_page.table.model().rowCount() == 4

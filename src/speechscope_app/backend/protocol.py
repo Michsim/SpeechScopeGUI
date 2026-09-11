@@ -219,6 +219,68 @@ def provider_order(name: str) -> tuple[int, str]:
     return (known.index(name) if name in known else len(known), name)
 
 
+@dataclass(slots=True)
+class Description:
+    """Souhrn protokolu pro čtení: providery, text o feature a o parametrech."""
+
+    providers: list[str]
+    features_text: str
+    params_text: str
+
+
+def describe(
+    proto: Protocol,
+    catalog: list[FeatureInfo],
+    providers: list[FeatureParams] | None = None,
+) -> Description:
+    pool = [f for f in catalog if proto.task in f.tasks]
+    chosen = proto.select([f.name for f in pool])
+    summary = summarize(chosen, pool, providers)
+    if pool:
+        per_domain: dict[str, int] = {}
+        for name in chosen:
+            domain = name.split(".", 1)[0]
+            per_domain[domain] = per_domain.get(domain, 0) + 1
+        parts = ", ".join(
+            f"{contract.DOMAIN_LABELS.get(d, d)} {n}" for d, n in sorted(per_domain.items())
+        )
+        features_text = f"{len(chosen)} z {len(pool)} ({parts}), {summary.columns} sloupců"
+    elif proto.features:
+        features_text = ", ".join(proto.features)
+    else:
+        features_text = f"všechny pro doménu {proto.domain}" if proto.domain else "všechny"
+    params_text = ", ".join(proto.set_items())
+    return Description(summary.providers, features_text, params_text)
+
+
+def unique_name(name: str, taken: set[str]) -> str:
+    """`Jméno`, `Jméno (2)`, `Jméno (3)`… první volné."""
+    if name not in taken:
+        return name
+    n = 2
+    while f"{name} ({n})" in taken:
+        n += 1
+    return f"{name} ({n})"
+
+
+def import_protocol(
+    proto: Protocol, folder: Path, existing: list[Protocol], *, overwrite: bool = False
+) -> Path:
+    """Uloží cizí protokol mezi vlastní. Přepis stejného jména jen s `overwrite`."""
+    match = next((p for p in existing if p.name == proto.name and not p.builtin), None)
+    if match is not None and match.path is not None and overwrite:
+        path = match.path
+    else:
+        path = folder / f"{proto.slug()}.yaml"
+        n = 2
+        while path.exists():
+            path = folder / f"{proto.slug()}-{n}.yaml"
+            n += 1
+    copy = Protocol.from_dict(proto.to_dict())
+    copy.save(path)
+    return path
+
+
 def builtin_protocols() -> list[Protocol]:
     """Protokoly přibalené k aplikaci."""
     out: list[Protocol] = []
