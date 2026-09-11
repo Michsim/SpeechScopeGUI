@@ -667,6 +667,10 @@ class RunPage(QWidget):
             self.bar.setRange(0, max(1, state.total))
             self.bar.setValue(state.processed)
             self.current.setText("")
+            if info.status in ("cancelled", "error", "interrupted"):
+                self._close_open_rows(
+                    tr("zrušeno") if info.status == "cancelled" else tr("nedokončeno")
+                )
             self.timing.setText(
                 tr("{n} z {total} hotovo").format(n=state.processed, total=state.total)
                 if state.total
@@ -719,6 +723,27 @@ class RunPage(QWidget):
                 self.summary.text() + tr(" · výstup: {path}").format(path=state.out)
             )
         self.current.setText("")
+        if cancelled or code != 0:
+            self._close_open_rows(tr("zrušeno") if cancelled else tr("nedokončeno"))
         self._update_timing()
         self.progress_changed.emit("")
         self.finished.emit(state, code, cancelled)
+
+    def _close_open_rows(self, text: str) -> None:
+        """Nahrávka, která běžela, dostane `text`; ty, co nepřišly na řadu, „neproběhlo“.
+        Stejně tak rozběhnuté providery, ať po zrušení nezůstane v tabulce „běží“."""
+        running, waiting = tr("běží"), tr("čeká")
+        for row in range(self.files.rowCount()):
+            status = self.files.item(row, self.col_status)
+            if status is None:
+                continue
+            if status.text() == running:
+                self._set_cell(row, self.col_status, text, color=theme.WARN)
+            elif status.text() == waiting:
+                self._set_cell(row, self.col_status, tr("neproběhlo"), color=theme.MUTED)
+            else:
+                continue
+            for col in range(1, 1 + len(self._providers)):
+                cell = self.files.item(row, col)
+                if cell is not None and cell.text().startswith("…"):
+                    self._set_cell(row, col, "–", color=theme.MUTED)

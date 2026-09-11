@@ -316,6 +316,13 @@ def test_cancel_shows_partial_results(
     state = run.runner.state
     assert 1 <= state.processed < state.total
     assert run.headline.text().startswith("Zrušeno uživatelem po")
+    statuses = [run.files.item(r, run.col_status).text() for r in range(run.files.rowCount())]
+    assert "běží" not in statuses and "čeká" not in statuses  # po zrušení nic „neběží“
+    assert "zrušeno" in statuses or "neproběhlo" in statuses
+    run._live_dir = None
+    run.show_recorded(run.history.current())  # přehrání ze záznamu totéž
+    replayed = [run.files.item(r, run.col_status).text() for r in range(run.files.rowCount())]
+    assert "běží" not in replayed and "čeká" not in replayed
     assert window.nav.currentRow() == PAGE_RESULTS
     assert "Částečný výsledek po zrušení" in window.results_page.summary.text()
     assert window.results_page.table.model().rowCount() == state.processed
