@@ -399,3 +399,42 @@ def test_run_asks_when_provider_not_ready(
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
         page.run_btn.click()
     assert len(asked) == 1
+
+
+def test_runs_queue_up_and_continue(
+    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SPEECHSCOPE_FAKE_DELAY", "0.3")
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    finished: list[str] = []
+    window.run_page.finished.connect(
+        lambda state, code, cancelled: finished.append(state.out or "")
+    )
+
+    assert page.select_protocol("Fonace, základní")
+    page.run_btn.click()
+    assert window.run_page.runner.running
+    assert page.select_protocol("DDK, základní")
+    page.run_btn.click()  # běží jiná dávka: do fronty
+    assert page.select_protocol("Pohádka, akustika")
+    page.run_btn.click()
+    assert [j.proto.name for j in window.queued_jobs()] == ["DDK, základní", "Pohádka, akustika"]
+    assert not window.run_page.queue_box.isHidden()
+    assert window.run_page.queue_list.count() == 2
+    assert "(+2)" in window.nav.item(PAGE_RUN).text()
+
+    window.remove_queued(1)  # pohádku vyhodit
+    assert [j.proto.name for j in window.queued_jobs()] == ["DDK, základní"]
+
+    qtbot.waitUntil(lambda: len(finished) == 2, timeout=30000)
+    qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=5000)
+    assert not window.queued_jobs() and window.run_page.queue_box.isHidden()
+    assert window.nav.item(PAGE_RUN).text() == "Běh"
+    assert window.nav.currentRow() == PAGE_RESULTS  # až po poslední dávce
+    run_dirs = sorted(p.name for p in settings.work_root.iterdir() if p.name != "work")
+    assert any(n.endswith("fonace-zakladni") for n in run_dirs)
+    assert any(n.endswith("ddk-zakladni") for n in run_dirs)
+    assert len(run_dirs) == 2

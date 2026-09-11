@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -24,7 +25,7 @@ from .. import __version__, contract
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
 from ..backend.diagnostics import build_bundle, default_name
 from ..backend.history import write_run_file
-from ..backend.manifest import write_normalized
+from ..backend.manifest import Manifest, write_normalized
 from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.settings import AppSettings
 from ..i18n import tr
@@ -40,6 +41,25 @@ from .settings_dialog import SettingsDialog
 PAGE_ENV, PAGE_BATCH, PAGE_PROTOCOLS, PAGE_RUN, PAGE_RESULTS = range(5)
 
 
+@dataclass(slots=True)
+class Job:
+    """Jedna dávka ve frontě: co spustit, s čím a nad čím."""
+
+    kind: str  # "extract" | "segments" | "transcript"
+    proto: Protocol
+    inputs: list[Path]
+    options: dict = field(default_factory=dict)
+    manifest: Manifest | None = None
+    language: str = ""
+
+    def title(self) -> str:
+        name = self.proto.display_name
+        if self.kind != "extract":
+            what = contract.PROVIDER_SHORT.get(self.kind, self.kind)
+            name = tr("Jen {what} · {name}").format(what=what, name=name)
+        return tr("{name} ({n} nahrávek)").format(name=name, n=len(self.inputs))
+
+
 def _has_models(models_dir: Path) -> bool:
     """Laciný test bez volání knihovny: složka existuje a není prázdná."""
     return models_dir.is_dir() and any(models_dir.iterdir())
@@ -52,6 +72,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(tr("SpeechScope"))
         self.resize(1100, 720)
 
+        self._queue: list[Job] = []
+        self._last_progress = ""
         self.env_page = EnvironmentPage()
         self.batch_page = BatchPage()
         self.protocols_page = ProtocolsPage()
@@ -142,6 +164,8 @@ class MainWindow(QMainWindow):
         self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
         self.run_page.progress_changed.connect(self._show_progress)
+        self.run_page.queue_remove.connect(self.remove_queued)
+        self.run_page.queue_clear.connect(self.clear_queue)
 
         self._apply_settings()
         page = self.start_page()
@@ -185,6 +209,9 @@ class MainWindow(QMainWindow):
 
     def _show_progress(self, text: str) -> None:
         """Postup běhu v nabídce a v titulku, ať je vidět i z jiné stránky."""
+        self._last_progress = text
+        if self._queue:
+            text = f"{text} (+{len(self._queue)})" if text else f"+{len(self._queue)}"
         label = self.nav_labels[PAGE_RUN]
         self.nav.item(PAGE_RUN).setText(f"{label} · {text}" if text else label)
         self.setWindowTitle(f"{text} · {self._base_title}" if text else self._base_title)
@@ -275,56 +302,28 @@ class MainWindow(QMainWindow):
 
     # --- běh ------------------------------------------------------------------
 
+    # --- běh a fronta ------------------------------------------------------------
+
+    # --- běh a fronta ------------------------------------------------------------
+
+    # --- běh a fronta ------------------------------------------------------------
+
     def _start_batch(self, proto: Protocol, inputs: list[Path]) -> None:
         if self.library is None:
             QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
             return
-        if self.run_page.runner.running:
-            QMessageBox.information(self, tr("SpeechScope"), tr("Jiný běh ještě neskončil."))
-            return
-
-        stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        slug = proto.slug()
-        run_dir = self.settings.work_root / f"{stamp}_{slug}"
-        run_dir.mkdir(parents=True, exist_ok=True)
-        work_dir = self.settings.work_root / "work"
-        config_path: Path | None = None
-        if proto.config:
-            config_path = run_dir / "config.yaml"
-            config_path.write_text(proto.config_yaml(), encoding="utf-8")
-        proto.save(run_dir / "protocol.yaml")  # co přesně se spustilo
-
-        log_file = run_dir / "speechscope.log"
-        manifest_path: Path | None = None
-        manifest = self.batch_page.manifest()
-        if manifest is not None:
-            manifest_path = write_normalized(run_dir / "manifest.csv", inputs, proto.task, manifest)
-        req = proto.to_request(
-            inputs,
-            out=run_dir / "features.csv",
-            work_dir=work_dir,
-            config_path=config_path,
-            log_file=log_file,
-            manifest=manifest_path,
-        )
-        argv = self.library.argv(extract_args(req, models_dir=self.settings.models_dir))
-
         self.settings.last_protocol = proto.name
         self.settings.last_language = self.batch_page.language_code()
         if inputs:
             self.settings.last_input_dir = inputs[0].parent
-        self.nav.setCurrentRow(PAGE_RUN)
-        self._running_slug = slug
-        self._running_out = req.out
-        self._running_dir = run_dir
-        self._running_kind = "extract"
-        self._running_name = proto.display_name
-        self.run_page.start(
-            argv,
-            title=proto.display_name,
-            log_file=log_file,
-            inputs=inputs,
-            expected_seconds=self.settings.seconds_per_file(slug),
+        self._submit(
+            Job(
+                kind="extract",
+                proto=proto,
+                inputs=list(inputs),
+                manifest=self.batch_page.manifest(),
+                language=self.batch_page.language_code(),
+            )
         )
 
     def _start_prepare(self, kind: str, proto: Protocol, inputs: list[Path], options: dict) -> None:
@@ -332,51 +331,119 @@ class MainWindow(QMainWindow):
         if self.library is None:
             QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
             return
+        self.settings.last_language = self.batch_page.language_code()
+        self._submit(
+            Job(
+                kind=kind,
+                proto=proto,
+                inputs=list(inputs),
+                options=dict(options),
+                language=self.batch_page.language_code(),
+            )
+        )
+
+    def _submit(self, job: Job) -> None:
+        """Spustí hned, nebo zařadí za běžící dávku."""
         if self.run_page.runner.running:
-            QMessageBox.information(self, tr("SpeechScope"), tr("Jiný běh ještě neskončil."))
+            self._queue.append(job)
+            self._show_queue()
+            self.statusBar().showMessage(
+                tr("Zařazeno do fronty jako {n}.: {name}").format(
+                    n=len(self._queue), name=job.title()
+                ),
+                6000,
+            )
             return
-        label = contract.PROVIDER_SHORT.get(kind, kind)
+        self._launch(job)
+
+    def queued_jobs(self) -> list[Job]:
+        return list(self._queue)
+
+    def remove_queued(self, index: int) -> None:
+        if 0 <= index < len(self._queue):
+            del self._queue[index]
+            self._show_queue()
+
+    def clear_queue(self) -> None:
+        self._queue.clear()
+        self._show_queue()
+
+    def _show_queue(self) -> None:
+        self.run_page.set_queue([job.title() for job in self._queue])
+        self._show_progress(self._last_progress)
+
+    def _launch_next(self) -> None:
+        if self._queue and not self.run_page.runner.running:
+            self._launch(self._queue.pop(0))
+            self._show_queue()
+
+    def _launch(self, job: Job) -> None:
+        assert self.library is not None
+        proto, inputs = job.proto, job.inputs
         stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        run_dir = self.settings.work_root / f"{stamp}_{proto.slug()}-{slugify(label)}"
+        slug = proto.slug()
+        label = contract.PROVIDER_SHORT.get(job.kind, job.kind)
+        suffix = "" if job.kind == "extract" else f"-{slugify(label)}"
+        run_dir = self.settings.work_root / f"{stamp}_{slug}{suffix}"
         run_dir.mkdir(parents=True, exist_ok=True)
+        work_dir = self.settings.work_root / "work"
         config_path: Path | None = None
         if proto.config:
             config_path = run_dir / "config.yaml"
             config_path.write_text(proto.config_yaml(), encoding="utf-8")
         log_file = run_dir / "speechscope.log"
-        req = PrepareRequest(
-            inputs=inputs,
-            work_dir=self.settings.work_root / "work",
-            config=config_path,
-            log_file=log_file,
-        )
-        if kind == "segments":
-            args = segment_args(
-                req,
-                model=str(options.get("model") or "conformer"),
-                cut_audio=bool(options.get("cut_audio")),
-                models_dir=self.settings.models_dir,
+
+        if job.kind == "extract":
+            proto.save(run_dir / "protocol.yaml")  # co přesně se spustilo
+            manifest_path: Path | None = None
+            if job.manifest is not None:
+                manifest_path = write_normalized(
+                    run_dir / "manifest.csv", inputs, proto.task, job.manifest
+                )
+            req = proto.to_request(
+                inputs,
+                out=run_dir / "features.csv",
+                work_dir=work_dir,
+                config_path=config_path,
+                log_file=log_file,
+                manifest=manifest_path,
             )
+            argv = self.library.argv(extract_args(req, models_dir=self.settings.models_dir))
+            self._running_slug = slug
+            self._running_out = req.out
+            title = proto.display_name
+            expected = self.settings.seconds_per_file(slug)
         else:
-            transcript = proto.config.get("transcript", {})
-            args = transcribe_args(
-                req,
-                language=str(options.get("language") or self.batch_page.language_code() or "cs"),
-                model=str(transcript.get("model", "large-v3")),
-                models_dir=self.settings.models_dir,
+            preq = PrepareRequest(
+                inputs=inputs, work_dir=work_dir, config=config_path, log_file=log_file
             )
-        self.settings.last_language = self.batch_page.language_code()
-        self.nav.setCurrentRow(PAGE_RUN)
-        self._running_slug = None
-        self._running_out = None
+            if job.kind == "segments":
+                args = segment_args(
+                    preq,
+                    model=str(job.options.get("model") or "conformer"),
+                    cut_audio=bool(job.options.get("cut_audio")),
+                    models_dir=self.settings.models_dir,
+                )
+            else:
+                transcript = proto.config.get("transcript", {})
+                args = transcribe_args(
+                    preq,
+                    language=str(job.options.get("language") or job.language or "cs"),
+                    model=str(transcript.get("model", "large-v3")),
+                    models_dir=self.settings.models_dir,
+                )
+            argv = self.library.argv(args)
+            self._running_slug = None
+            self._running_out = None
+            title = tr("Jen {what} · {name}").format(what=label, name=proto.display_name)
+            expected = None
+
         self._running_dir = run_dir
-        self._running_kind = "prepare"
+        self._running_kind = "extract" if job.kind == "extract" else "prepare"
         self._running_name = proto.display_name
+        self.nav.setCurrentRow(PAGE_RUN)
         self.run_page.start(
-            self.library.argv(args),
-            title=tr("Jen {what} · {name}").format(what=label, name=proto.display_name),
-            log_file=log_file,
-            inputs=inputs,
+            argv, title=title, log_file=log_file, inputs=inputs, expected_seconds=expected
         )
 
     def _batch_finished(self, state: contract.BatchState, code: int, cancelled: bool) -> None:
@@ -404,8 +471,11 @@ class MainWindow(QMainWindow):
         if per_file is not None and not cancelled and code == 0 and self._running_slug:
             self.settings.set_seconds_per_file(self._running_slug, per_file)
             self.batch_page.refresh_summary()
+        # další dávka z fronty; na Výsledky se skáče, jen když už nic nečeká
+        more = bool(self._queue)
+        if more:
+            QTimer.singleShot(0, self._launch_next)
         if cancelled or code != 0:
-            # knihovna zapisuje průběžně: co je hotové, je v tabulce
             partial = self._running_out
             if partial is not None and partial.is_file() and state.processed:
                 why = tr("zrušení") if cancelled else tr("chybě (kód {code})").format(code=code)
@@ -415,14 +485,16 @@ class MainWindow(QMainWindow):
                         why=why, n=state.processed, total=state.total
                     ),
                 )
-                self.nav.setCurrentRow(PAGE_RESULTS)
+                if not more:
+                    self.nav.setCurrentRow(PAGE_RESULTS)
             return
         if not state.out:
             return
         out = Path(state.out)
         if out.is_file():
             self.results_page.load(out)
-            self.nav.setCurrentRow(PAGE_RESULTS)
+            if not more:
+                self.nav.setCurrentRow(PAGE_RESULTS)
         elif out.is_dir():  # jen segmentace nebo přepis: mezivýsledky v pracovní složce
             self.statusBar().showMessage(tr("Mezivýsledky jsou v {path}").format(path=out), 10000)
 

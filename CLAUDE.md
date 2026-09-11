@@ -65,7 +65,8 @@ v rozšířeném režimu souhrn feature, Upravit…, Uložit jako protokol…,
 Jen segmentace, Jen přepis; Spustit se před nepřipraveným providerem
 zeptá) · Protokoly (přibalené ke čtení, kopie, vlastní s editorem, import,
 export, smazání) · Běh (tabulka nahrávek × providerů, odhad času, Zrušit
-s potvrzením) · Výsledky (historie běhů ze složek v Dokumentech přes
+s potvrzením, fronta dalších dávek: Spustit během běhu zařadí, po konci
+se pustí další, `Job` v `main_window.py`) · Výsledky (historie běhů ze složek v Dokumentech přes
 `backend/history.py` a `run.json`, tabulka vybraného běhu).
 
 ## Pasti z knihovny, které GUI hlídá

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QListWidget,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
+from ...backend.protocol import provider_order
 from ...backend.runner import Runner
 from ...i18n import tr
 from .. import theme
@@ -72,6 +74,8 @@ def estimate_per_file(durations: list[float]) -> float | None:
 class RunPage(QWidget):
     finished = Signal(object, int, bool)  # BatchState, návratový kód, zrušeno
     progress_changed = Signal(str)  # krátký text do nabídky, "" když nic neběží
+    queue_remove = Signal(int)  # vyhodit položku fronty
+    queue_clear = Signal()
 
     COL_FILE = 0
 
@@ -123,6 +127,28 @@ class RunPage(QWidget):
         self.files.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._set_columns([])
         layout.addWidget(self.files, 2)
+
+        # fronta dalších dávek (jen když něco čeká)
+        self.queue_box = QWidget()
+        queue_layout = QVBoxLayout(self.queue_box)
+        queue_layout.setContentsMargins(0, 0, 0, 0)
+        queue_layout.setSpacing(4)
+        queue_head = QHBoxLayout()
+        self.queue_title = QLabel("")
+        self.queue_title.setObjectName("section")
+        self.queue_remove_btn = QPushButton(tr("Odebrat vybranou"))
+        self.queue_remove_btn.clicked.connect(self._remove_selected_queued)
+        self.queue_clear_btn = QPushButton(tr("Vyprázdnit frontu"))
+        self.queue_clear_btn.clicked.connect(self.queue_clear)
+        queue_head.addWidget(self.queue_title, 1)
+        queue_head.addWidget(self.queue_remove_btn)
+        queue_head.addWidget(self.queue_clear_btn)
+        queue_layout.addLayout(queue_head)
+        self.queue_list = QListWidget()
+        self.queue_list.setMaximumHeight(96)
+        queue_layout.addWidget(self.queue_list)
+        self.queue_box.hide()
+        layout.addWidget(self.queue_box)
 
         self.log_toggle = QToolButton()
         self.log_toggle.setText(tr("Log knihovny"))
@@ -218,6 +244,7 @@ class RunPage(QWidget):
         return 2 + len(self._providers)
 
     def _fill_rows(self, names: list[str]) -> None:
+        self.files.clearContents()  # buňky ze startu bez sloupců providerů by zůstaly
         self.files.setRowCount(len(names))
         for row, name in enumerate(names):
             self._set_cell(row, self.COL_FILE, name)
@@ -279,7 +306,7 @@ class RunPage(QWidget):
             case contract.StartEvent():
                 self.bar.setRange(0, max(1, event.total))
                 self.bar.setValue(0)
-                self._set_columns(event.providers)
+                self._set_columns(sorted(event.providers, key=provider_order))
                 names = [p.name for p in self._paths]
                 if event.total != len(names):
                     names = [""] * event.total
@@ -400,6 +427,18 @@ class RunPage(QWidget):
         if running is not None and self._stage_started_at is not None:
             self._stage_cell(running, time.monotonic() - self._stage_started_at)
         self._update_current()
+
+    def set_queue(self, titles: list[str]) -> None:
+        self.queue_list.clear()
+        for i, title in enumerate(titles, start=1):
+            self.queue_list.addItem(f"{i}. {title}")
+        self.queue_title.setText(tr("Ve frontě ({n})").format(n=len(titles)))
+        self.queue_box.setVisible(bool(titles))
+
+    def _remove_selected_queued(self) -> None:
+        row = self.queue_list.currentRow()
+        if row >= 0:
+            self.queue_remove.emit(row)
 
     def elapsed_seconds(self) -> float:
         end = self._finished_at if self._finished_at is not None else time.monotonic()
