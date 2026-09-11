@@ -18,15 +18,18 @@ from PySide6.QtWidgets import (
 )
 
 from .. import contract
+from ..i18n import N_, Labels, tr
 
 # Modely segmentace, které samostatný běh umí spočítat. `auto` chybí schválně:
 # bere jen hotovou cache, takže by samostatná segmentace nic neudělala.
 SEGMENT_MODELS: tuple[str, ...] = ("conformer", "pyannote", "labels")
-SEGMENT_MODEL_LABELS: dict[str, str] = {
-    "conformer": "conformer (ONNX, doporučený)",
-    "pyannote": "pyannote (potřebuje torch a model pyannote)",
-    "labels": "jen ruční labely vedle nahrávek",
-}
+SEGMENT_MODEL_LABELS = Labels(
+    {
+        "conformer": N_("conformer (ONNX, doporučený)"),
+        "pyannote": N_("pyannote (potřebuje torch a model pyannote)"),
+        "labels": N_("jen ruční labely vedle nahrávek"),
+    }
+)
 
 
 class _PrepareDialog(QDialog):
@@ -41,8 +44,8 @@ class _PrepareDialog(QDialog):
         self.form = QFormLayout()
         layout.addLayout(self.form)
         self.buttons = QDialogButtonBox()
-        self.buttons.addButton("Spustit", QDialogButtonBox.ButtonRole.AcceptRole)
-        self.buttons.addButton("Zrušit", QDialogButtonBox.ButtonRole.RejectRole)
+        self.buttons.addButton(tr("Spustit"), QDialogButtonBox.ButtonRole.AcceptRole)
+        self.buttons.addButton(tr("Zrušit"), QDialogButtonBox.ButtonRole.RejectRole)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
@@ -58,9 +61,11 @@ class SegmentDialog(_PrepareDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(
-            "Jen segmentace",
-            f"Segmentace řeči {n_inputs} nahrávek do pracovní složky. Žádné feature se "
-            "nepočítají; výpočet je pak vezme z cache.",
+            tr("Jen segmentace"),
+            tr(
+                "Segmentace řeči {n} nahrávek do pracovní složky. Žádné feature se "
+                "nepočítají; výpočet je pak vezme z cache."
+            ).format(n=n_inputs),
             parent,
         )
         self.model = QComboBox()
@@ -70,9 +75,9 @@ class SegmentDialog(_PrepareDialog):
             self.model.addItem(SEGMENT_MODEL_LABELS.get(name, name), name)
         idx = self.model.findData(model if model != "auto" else "conformer")
         self.model.setCurrentIndex(max(0, idx))
-        self.form.addRow("Model:", self.model)
-        self.cut_audio = QCheckBox("uložit i vyříznutou řeč (VAD) jako wav do pracovní složky")
-        self.cut_audio.setToolTip("Do složky s nahrávkami se nikdy nezapisuje.")
+        self.form.addRow(tr("Model:"), self.model)
+        self.cut_audio = QCheckBox(tr("uložit i vyříznutou řeč (VAD) jako wav do pracovní složky"))
+        self.cut_audio.setToolTip(tr("Do složky s nahrávkami se nikdy nezapisuje."))
         self.form.addRow("", self.cut_audio)
 
     def options(self) -> dict[str, object]:
@@ -90,9 +95,11 @@ class TranscribeDialog(_PrepareDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(
-            "Jen přepis",
-            f"Nahrávky ({n_inputs}) se jen přepíší Whisperem do pracovní složky. Žádné "
-            "feature se nepočítají; přepisy jde před výpočtem ručně zkontrolovat.",
+            tr("Jen přepis"),
+            tr(
+                "Nahrávky ({n}) se jen přepíší Whisperem do pracovní složky. Žádné "
+                "feature se nepočítají; přepisy jde před výpočtem ručně zkontrolovat."
+            ).format(n=n_inputs),
             parent,
         )
         self.language = QComboBox()
@@ -100,10 +107,10 @@ class TranscribeDialog(_PrepareDialog):
             self.language.addItem(contract.language_label(code), code)
         idx = self.language.findData(language)
         self.language.setCurrentIndex(max(0, idx))
-        self.form.addRow("Jazyk:", self.language)
+        self.form.addRow(tr("Jazyk:"), self.language)
         model_label = QLabel(model)
         model_label.setObjectName("muted")
-        self.form.addRow("Model:", model_label)
+        self.form.addRow(tr("Model:"), model_label)
 
     def options(self) -> dict[str, object]:
         return {"language": str(self.language.currentData())}

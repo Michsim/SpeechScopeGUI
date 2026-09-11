@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 
 from ... import contract
 from ...backend.library import FeatureInfo
+from ...i18n import tr
 from .. import theme
 
 ROLE_KIND = Qt.ItemDataRole.UserRole  # "group" | "provider"
@@ -62,10 +63,10 @@ def feature_short(name: str) -> str:
 
 def columns_label(n: int) -> str:
     if n == 1:
-        return "1 sloupec"
+        return tr("1 sloupec")
     if n < 5:
-        return f"{n} sloupce"
-    return f"{n} sloupců"
+        return tr("{n} sloupce").format(n=n)
+    return tr("{n} sloupců").format(n=n)
 
 
 class FeatureCard(QFrame):
@@ -104,7 +105,7 @@ class FeatureCard(QFrame):
             layout.addWidget(text)
         foot = QHBoxLayout()
         req = QLabel(
-            "potřebuje: " + requires_label(info.requires) if info.requires else "bez modelů"
+            tr("potřebuje: ") + requires_label(info.requires) if info.requires else tr("bez modelů")
         )
         color = theme.MUTED if info.requires else theme.OK
         req.setStyleSheet(f"color: {color}; font-size: 8.5pt;")
@@ -115,7 +116,7 @@ class FeatureCard(QFrame):
         layout.addLayout(foot)
 
     def set_modified(self, modified: bool) -> None:
-        self.modified.setText("● změněné parametry" if modified else "")
+        self.modified.setText(tr("● změněné parametry") if modified else "")
 
     def set_current(self, current: bool) -> None:
         theme.set_role(self, "selected" if current else "neutral")
@@ -148,19 +149,23 @@ class FeaturePicker(QWidget):
 
         top = QHBoxLayout()
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Hledat ve všech skupinách…")
+        self.search.setPlaceholderText(tr("Hledat ve všech skupinách…"))
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._search_changed)
         top.addWidget(self.search, 1)
         self.quick: dict[str, QPushButton] = {}
         for key, label, tip in (
-            ("all", "Vše", "Vybrat všechny feature pro úlohu"),
-            ("none", "Nic", "Zrušit výběr"),
-            ("nomodels", "Jen bez modelů", "Jen feature, které nepotřebují žádný provider"),
+            ("all", tr("Vše"), tr("Vybrat všechny feature pro úlohu")),
+            ("none", tr("Nic"), tr("Zrušit výběr")),
+            (
+                "nomodels",
+                tr("Jen bez modelů"),
+                tr("Jen feature, které nepotřebují žádný provider"),
+            ),
             (
                 "notranscript",
-                "Bez přepisu",
-                "Vynechat feature, které potřebují Whisper nebo Stanzu",
+                tr("Bez přepisu"),
+                tr("Vynechat feature, které potřebují Whisper nebo Stanzu"),
             ),
         ):
             btn = QPushButton(label)
@@ -184,7 +189,7 @@ class FeaturePicker(QWidget):
         mid.setSpacing(6)
         head = QHBoxLayout()
         self.group_check = QCheckBox("")
-        self.group_check.setToolTip("Vybrat nebo zrušit všechny zobrazené")
+        self.group_check.setToolTip(tr("Vybrat nebo zrušit všechny zobrazené"))
         self.group_check.clicked.connect(self._group_check_clicked)
         self.group_title = QLabel("")
         self.group_title.setObjectName("card_title")
@@ -292,7 +297,11 @@ class FeaturePicker(QWidget):
             item = QListWidgetItem(f"    {group_short(group)}{mark}    {n}/{len(members)}")
             item.setData(ROLE_KIND, "group")
             item.setData(ROLE_KEY, group)
-            item.setToolTip(f"{group_label(group)}: {n} z {len(members)} vybráno")
+            item.setToolTip(
+                tr("{group}: {n} z {total} vybráno").format(
+                    group=group_label(group), n=n, total=len(members)
+                )
+            )
             if n == 0:
                 item.setForeground(QColor(theme.MUTED))
             self.groups.addItem(item)
@@ -368,12 +377,14 @@ class FeaturePicker(QWidget):
         features = self.visible_features()
         searching = bool(self.search.text().strip())
         if searching:
-            self.group_title.setText(f"Hledání „{self.search.text().strip()}“")
+            self.group_title.setText(tr("Hledání „{text}“").format(text=self.search.text().strip()))
         else:
             group = self.current_group()
             self.group_title.setText(group_label(group) if group else "")
         n = sum(self._checked[f.name] for f in features)
-        self.group_count.setText(f"{n} z {len(features)} vybráno" if features else "")
+        self.group_count.setText(
+            tr("{n} z {total} vybráno").format(n=n, total=len(features)) if features else ""
+        )
         self.group_check.setVisible(bool(features))
         self.group_check.blockSignals(True)
         self.group_check.setChecked(bool(features) and n == len(features))
@@ -387,7 +398,7 @@ class FeaturePicker(QWidget):
             self._add_middle(card)
             self._cards[f.name] = card
         if not features:
-            empty = QLabel("Nic nenalezeno." if searching else "Skupina je prázdná.")
+            empty = QLabel(tr("Nic nenalezeno.") if searching else tr("Skupina je prázdná."))
             empty.setObjectName("muted")
             self._add_middle(empty)
             self._extras.append(empty)
@@ -398,10 +409,16 @@ class FeaturePicker(QWidget):
         self.group_title.setText(contract.PROVIDER_LABELS.get(provider, provider))
         users = [f for f in self._features if provider in f.requires]
         chosen = [f for f in users if self._checked[f.name]]
-        self.group_count.setText(f"potřebuje ho {len(chosen)} z {len(users)} vybraných")
+        self.group_count.setText(
+            tr("potřebuje ho {n} z {total} vybraných").format(n=len(chosen), total=len(users))
+        )
         self.group_check.setVisible(False)
-        names = ", ".join(feature_short(f.name) for f in users) or "žádná"
-        text = QLabel(f"Parametry providera jsou vpravo. Feature, které ho potřebují: {names}.")
+        names = ", ".join(feature_short(f.name) for f in users) or tr("žádná")
+        text = QLabel(
+            tr("Parametry providera jsou vpravo. Feature, které ho potřebují: {names}.").format(
+                names=names
+            )
+        )
         text.setObjectName("muted")
         text.setWordWrap(True)
         self._add_middle(text)
@@ -491,13 +508,13 @@ class FeaturePicker(QWidget):
         if providers:
             links = ", ".join(
                 f'<a href="provider:{p}">{contract.PROVIDER_LABELS.get(p, p)}</a>'
-                + (" <b>(upraveno)</b>" if p in self._overridden else "")
+                + (" <b>" + tr("(upraveno)") + "</b>" if p in self._overridden else "")
                 for p in providers
             )
-            runs = f"Spustí se: {links}"
+            runs = tr("Spustí se: {links}").format(links=links)
         else:
-            runs = "Bez modelů"
-        parts = [runs, f"{n} feature, {columns} sloupců"]
+            runs = tr("Bez modelů")
+        parts = [runs, tr("{n} feature, {columns} sloupců").format(n=n, columns=columns)]
         if hint:
             parts.append(hint)
         self.summary.setText(" · ".join(parts))

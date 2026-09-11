@@ -30,10 +30,11 @@ from PySide6.QtWidgets import (
 
 from ... import contract
 from ...backend.library import Library, LibraryError
+from ...i18n import N_, tr
 from .. import theme
 
-NOT_CHECKED = "Prostředí zatím nebylo zkontrolováno."
-NOT_CHECKED_HINT = "Stiskni Zkontrolovat nebo F5."
+NOT_CHECKED = N_("Prostředí zatím nebylo zkontrolováno.")
+NOT_CHECKED_HINT = N_("Stiskni Zkontrolovat nebo F5.")
 
 
 # --- drobné stavební prvky ----------------------------------------------------
@@ -128,11 +129,13 @@ class EnvironmentPage(QWidget):
         layout.setSpacing(12)
 
         # hlavička stránky
-        layout.addWidget(_label("Prostředí", "page_title"))
+        layout.addWidget(_label(tr("Prostředí"), "page_title"))
         layout.addWidget(
             _label(
-                "Kontrola knihovny SpeechScope, modelů a grafické karty. "
-                "Zpracování jde spustit, jen když je připravené to, co protokol potřebuje.",
+                tr(
+                    "Kontrola knihovny SpeechScope, modelů a grafické karty. "
+                    "Zpracování jde spustit, jen když je připravené to, co protokol potřebuje."
+                ),
                 "page_subtitle",
             )
         )
@@ -143,28 +146,30 @@ class EnvironmentPage(QWidget):
         row.setSpacing(16)
         text = QVBoxLayout()
         text.setSpacing(2)
-        self.summary = _label(NOT_CHECKED, "headline")
-        self.summary_detail = _label(NOT_CHECKED_HINT, "muted")
+        self.summary = _label(tr(NOT_CHECKED), "headline")
+        self.summary_detail = _label(tr(NOT_CHECKED_HINT), "muted")
         text.addWidget(self.summary)
         text.addWidget(self.summary_detail)
         row.addLayout(text, 1)
-        self.settings_btn = QPushButton("Nastavení…")
+        self.settings_btn = QPushButton(tr("Nastavení…"))
         self.settings_btn.clicked.connect(self.settings_requested)
         self.settings_btn.hide()
         row.addWidget(self.settings_btn, 0, Qt.AlignmentFlag.AlignTop)
-        self.download_btn = QPushButton("Stáhnout modely…")
+        self.download_btn = QPushButton(tr("Stáhnout modely…"))
         self.download_btn.clicked.connect(self.download_requested)
         self.download_btn.hide()
         row.addWidget(self.download_btn, 0, Qt.AlignmentFlag.AlignTop)
-        self.install_btn = QPushButton("Modely ze souboru…")
+        self.install_btn = QPushButton(tr("Modely ze souboru…"))
         self.install_btn.setToolTip(
-            "Nainstaluje modely z balíku (zip) z USB, sdíleného disku nebo odkazu; "
-            "bez internetu a bez tokenů."
+            tr(
+                "Nainstaluje modely z balíku (zip) z USB, sdíleného disku nebo odkazu; "
+                "bez internetu a bez tokenů."
+            )
         )
         self.install_btn.clicked.connect(self.install_requested)
         self.install_btn.hide()
         row.addWidget(self.install_btn, 0, Qt.AlignmentFlag.AlignTop)
-        self.check_btn = QPushButton("Zkontrolovat")
+        self.check_btn = QPushButton(tr("Zkontrolovat"))
         theme.set_role(self.check_btn, "primary")
         self.check_btn.clicked.connect(self.refresh)
         row.addWidget(self.check_btn, 0, Qt.AlignmentFlag.AlignTop)
@@ -172,7 +177,7 @@ class EnvironmentPage(QWidget):
         layout.addWidget(self.status_card)
 
         # části knihovny
-        layout.addWidget(_label("Části knihovny", "section"))
+        layout.addWidget(_label(tr("Části knihovny"), "section"))
         self.providers = QWidget()
         grid = QGridLayout(self.providers)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -185,10 +190,10 @@ class EnvironmentPage(QWidget):
         layout.addWidget(self.providers)
 
         # modely
-        layout.addWidget(_label("Modely", "section"))
+        layout.addWidget(_label(tr("Modely"), "section"))
         self.models = QTableWidget()
         self.models.setColumnCount(4)
-        self.models.setHorizontalHeaderLabels(["", "Model", "K čemu slouží", "Cesta"])
+        self.models.setHorizontalHeaderLabels(["", tr("Model"), tr("K čemu slouží"), tr("Cesta")])
         self.models.verticalHeader().hide()
         self.models.setShowGrid(False)
         self.models.setAlternatingRowColors(True)
@@ -205,15 +210,15 @@ class EnvironmentPage(QWidget):
         layout.addWidget(self.models)
 
         # akcelerace
-        layout.addWidget(_label("Akcelerace", "section"))
+        layout.addWidget(_label(tr("Akcelerace"), "section"))
         self.gpu = QWidget()
         gpu_row = QHBoxLayout(self.gpu)
         gpu_row.setContentsMargins(0, 0, 0, 0)
         gpu_row.setSpacing(12)
         self.gpu_cards: dict[str, StatusCard] = {}
         for key, title in (
-            ("whisper", "Přepis (CTranslate2)"),
-            ("onnx", "Segmentace (ONNX Runtime)"),
+            ("whisper", tr("Přepis (CTranslate2)")),
+            ("onnx", tr("Segmentace (ONNX Runtime)")),
             ("torch", "Torch"),
         ):
             card = StatusCard(title)
@@ -229,7 +234,7 @@ class EnvironmentPage(QWidget):
     def set_library(self, library: Library | None) -> None:
         self._library = library
         self.check_btn.setEnabled(library is not None)
-        self.check_btn.setText("Zkontrolovat")
+        self.check_btn.setText(tr("Zkontrolovat"))
         self.settings_btn.setVisible(library is None)
         self.download_btn.hide()
         self.install_btn.setVisible(library is not None)
@@ -237,18 +242,18 @@ class EnvironmentPage(QWidget):
         if library is None:
             self._set_status(
                 "warn",
-                "Knihovna SpeechScope není nastavená.",
-                "V Nastavení ukaž na speechscope.exe a složku s modely.",
+                tr("Knihovna SpeechScope není nastavená."),
+                tr("V Nastavení ukaž na speechscope.exe a složku s modely."),
             )
         else:
-            self._set_status("neutral", NOT_CHECKED, NOT_CHECKED_HINT)
+            self._set_status("neutral", tr(NOT_CHECKED), tr(NOT_CHECKED_HINT))
         self._clear_cards()
 
     def refresh(self) -> None:
         if self._library is None:
             return
         self.check_btn.setEnabled(False)
-        self.check_btn.setText("Kontroluji…")
+        self.check_btn.setText(tr("Kontroluji…"))
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
         QApplication.processEvents()
         try:
@@ -256,14 +261,14 @@ class EnvironmentPage(QWidget):
             report = self._library.doctor()
         except LibraryError as exc:
             self.report = None
-            self._set_status("missing", "Knihovnu se nepodařilo spustit.", str(exc))
+            self._set_status("missing", tr("Knihovnu se nepodařilo spustit."), str(exc))
             self.download_btn.hide()
             self._clear_cards()
             self.report_changed.emit(None)
             return
         finally:
             QApplication.restoreOverrideCursor()
-            self.check_btn.setText("Zkontrolovat znovu")
+            self.check_btn.setText(tr("Zkontrolovat znovu"))
             self.check_btn.setEnabled(True)
         self.report = report
         self._show(version, report)
@@ -301,11 +306,15 @@ class EnvironmentPage(QWidget):
         providers: dict[str, Any],
         models: dict[str, Any],
     ) -> None:
-        detail = f"Knihovna {version}, modely v {report.get('models_dir')}."
+        detail = tr("Knihovna {version}, modely v {path}.").format(
+            version=version, path=report.get("models_dir")
+        )
         if version != contract.KNOWN_LIBRARY_VERSION:
-            detail += f" Aplikace byla ověřená s verzí {contract.KNOWN_LIBRARY_VERSION}."
+            detail += tr(" Aplikace byla ověřená s verzí {version}.").format(
+                version=contract.KNOWN_LIBRARY_VERSION
+            )
         if report.get("all_ready"):
-            self._set_status("ok", "Všechno je připravené.", detail)
+            self._set_status("ok", tr("Všechno je připravené."), detail)
             return
         missing_providers = [
             contract.PROVIDER_LABELS.get(n, n) for n, p in providers.items() if not p.get("ready")
@@ -313,11 +322,11 @@ class EnvironmentPage(QWidget):
         missing_models = [m.get("name", k) for k, m in models.items() if not m.get("present")]
         parts = []
         if missing_providers:
-            parts.append("nefunguje " + ", ".join(missing_providers))
+            parts.append(tr("nefunguje ") + ", ".join(missing_providers))
         if missing_models:
-            parts.append("chybí model " + ", ".join(missing_models))
-        what = "; ".join(parts) or "knihovna hlásí, že něco chybí"
-        self._set_status("missing", "Něco chybí.", what[0].upper() + what[1:] + ". " + detail)
+            parts.append(tr("chybí model ") + ", ".join(missing_models))
+        what = "; ".join(parts) or tr("knihovna hlásí, že něco chybí")
+        self._set_status("missing", tr("Něco chybí."), what[0].upper() + what[1:] + ". " + detail)
 
     def _show_providers(self, providers: dict[str, Any]) -> None:
         for name, card in self.provider_cards.items():
@@ -325,9 +334,14 @@ class EnvironmentPage(QWidget):
             if p is None:
                 card.clear()
             elif p.get("ready"):
-                card.set_state("ok", "Připraveno", "ok")
+                card.set_state("ok", tr("Připraveno"), "ok")
             else:
-                card.set_state("missing", "Chybí", "missing", f"Potřebuje: {p.get('needs', '')}")
+                card.set_state(
+                    "missing",
+                    tr("Chybí"),
+                    "missing",
+                    tr("Potřebuje: {needs}").format(needs=p.get("needs", "")),
+                )
 
     def _show_models(self, models: dict[str, Any]) -> None:
         self.models.setRowCount(len(models))
@@ -338,7 +352,7 @@ class EnvironmentPage(QWidget):
             dot = QTableWidgetItem("●")
             dot.setForeground(QColor(theme.OK if present else theme.MISSING))
             dot.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            dot.setToolTip("je na místě" if present else "chybí")
+            dot.setToolTip(tr("je na místě") if present else tr("chybí"))
             # jen poslední část: složka modelů je ve stavové kartě, celá cesta v nápovědě
             path_item = QTableWidgetItem(PureWindowsPath(path).name if path else "")
             path_item.setForeground(QColor(theme.MUTED))
@@ -360,7 +374,9 @@ class EnvironmentPage(QWidget):
             "whisper",
             cuda > 0,
             "CUDA" if cuda > 0 else "CPU",
-            f"{cuda} zařízení CUDA." if cuda > 0 else "Bez grafické karty, přepis bude pomalejší.",
+            tr("{n} zařízení CUDA.").format(n=cuda)
+            if cuda > 0
+            else tr("Bez grafické karty, přepis bude pomalejší."),
         )
         names = [
             str(p).removesuffix("ExecutionProvider") for p in gpu.get("onnxruntime_providers") or []
@@ -370,7 +386,9 @@ class EnvironmentPage(QWidget):
             "onnx",
             dml,
             "DirectML" if dml else "CPU",
-            "Providery: " + ", ".join(names) + "." if names else "onnxruntime není k dispozici.",
+            tr("Providery: ") + ", ".join(names) + "."
+            if names
+            else tr("onnxruntime není k dispozici."),
         )
         torch_cuda = bool(gpu.get("torch_cuda"))
         build = str(gpu.get("torch_build") or "")
@@ -378,7 +396,9 @@ class EnvironmentPage(QWidget):
             "torch",
             torch_cuda,
             "CUDA" if torch_cuda else "CPU",
-            f"Sestavení {build}." if build else "Torch není nainstalovaný.",
+            tr("Sestavení {build}.").format(build=build)
+            if build
+            else tr("Torch není nainstalovaný."),
         )
 
     def _set_accel(self, key: str, gpu: bool, pill: str, detail: str) -> None:

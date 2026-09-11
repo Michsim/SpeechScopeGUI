@@ -1,6 +1,8 @@
 format: 1
 name: Pohádka, akustika i lingvistika
+name_en: Story, acoustics and linguistics
 description: Všechny feature pro vyprávění. Spouští Whisper i Stanzu, trvá minuty na nahrávku.
+description_en: All features for story retelling. Runs Whisper and Stanza, takes minutes per recording.
 task: story
 config:
   segments:

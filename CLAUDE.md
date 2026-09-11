@@ -41,6 +41,21 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   `--models-dir` je globální volba a patří PŘED podpříkaz
   (`speechscope --models-dir M doctor --json`).
 
+## Jazyky GUI
+- Zdrojové texty jsou české a jsou zároveň klíče. Každý text pro uživatele
+  jde přes `tr("…")` z `i18n.py`; texty v tabulkách (`contract.py`,
+  popisky modelů) se píší jako `N_("…")` v `i18n.Labels`, který překládá
+  při čtení. Proměnné do textu jen přes `tr("… {n} …").format(n=…)`,
+  nikdy f-string.
+- Překlady jsou v `assets/i18n/<jazyk>.json`. Po přidání textů spustit
+  `uv run python packaging/extract_strings.py` a doplnit překlad;
+  `tests/test_i18n.py` hlídá, že nic nechybí a že sedí zástupné symboly.
+  Nový jazyk = nový JSON + název v `i18n.LANGUAGE_NAMES`.
+- Jazyk se volí v Nastavení (`ui/language`, prázdné = systém), platí po
+  restartu. Texty z knihovny (popisy feature, parametrů, log) zůstávají
+  české. Přibalené protokoly mají `name_en`/`description_en`;
+  v UI se používá `proto.display_name`, `proto.name` zůstává klíč.
+
 ## Stránky
 Prostředí (doctor, modely) · Data (dva sloupce: vlevo nahrávky, úloha
 a jazyk, vpravo karty protokolů; v rozšířeném režimu souhrn feature,

@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 from ... import contract
 from ...backend.library import FeatureInfo, Library, LibraryError
 from ...backend.protocol import Protocol, provider_order, summarize
+from ...i18n import tr
 from .feature_picker import FeaturePicker
 from .param_form import ParamForm
 
@@ -44,10 +45,10 @@ class ParamsPanel(QWidget):
         layout.setContentsMargins(12, 0, 0, 0)
         layout.setSpacing(4)
         head = QHBoxLayout()
-        self.title = QLabel("Parametry")
+        self.title = QLabel(tr("Parametry"))
         self.title.setObjectName("card_title")
-        self.reset_btn = QPushButton("Výchozí vše")
-        self.reset_btn.setToolTip("Vrátit všechny parametry na hodnoty z knihovny")
+        self.reset_btn = QPushButton(tr("Výchozí vše"))
+        self.reset_btn.setToolTip(tr("Vrátit všechny parametry na hodnoty z knihovny"))
         self.reset_btn.setEnabled(False)
         self.reset_btn.clicked.connect(self.reset)
         head.addWidget(self.title, 1)
@@ -61,7 +62,7 @@ class ParamsPanel(QWidget):
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.hint = QLabel("Klikni na feature nebo provider v tabulce.")
+        self.hint = QLabel(tr("Klikni na feature nebo provider v tabulce."))
         self.hint.setObjectName("muted")
         self.hint.setWordWrap(True)
         self.scroll.setWidget(self.hint)
@@ -97,11 +98,11 @@ class ParamsPanel(QWidget):
         self.title.setText(label or self._name)
         parts = [self._name] if label else []
         if n_all == 0:
-            parts.append("bez parametrů")
+            parts.append(tr("bez parametrů"))
         elif n_changed:
-            parts.append(f"{n_changed} z {n_all} změněno")
+            parts.append(tr("{n} z {total} změněno").format(n=n_changed, total=n_all))
         else:
-            parts.append(f"{n_all} parametrů, vše výchozí")
+            parts.append(tr("{n} parametrů, vše výchozí").format(n=n_all))
         self.subtitle.setText(" · ".join(parts))
         self.reset_btn.setEnabled(n_changed > 0)
 
@@ -214,7 +215,7 @@ class ProtocolEditor(QWidget):
         try:
             return self._library.features(self._proto.task)
         except LibraryError as exc:
-            self.picker.set_warning(f"Seznam feature nejde načíst: {exc}")
+            self.picker.set_warning(tr("Seznam feature nejde načíst: {error}").format(error=exc))
             return []
 
     def _rebuild(self) -> None:
@@ -245,7 +246,7 @@ class ProtocolEditor(QWidget):
         hint = summary.cost_hint()
         seconds = self._seconds_per_file(proto.slug())
         if seconds:
-            hint = f"naposledy {seconds:.0f} s na nahrávku"
+            hint = tr("naposledy {n:.0f} s na nahrávku").format(n=seconds)
         self.picker.set_summary(summary.providers, summary.columns, hint)
         self.picker.set_warning(self._missing_models(summary.providers))
         self.picker.set_overridden(self._overridden_names())
@@ -261,11 +262,9 @@ class ProtocolEditor(QWidget):
         ]
         if not missing:
             return ""
-        return (
-            "Není připraveno: "
-            + ", ".join(missing)
-            + " (viz Prostředí). Dotčené sloupce zůstanou prázdné."
-        )
+        return tr(
+            "Není připraveno: {missing} (viz Prostředí). Dotčené sloupce zůstanou prázdné."
+        ).format(missing=", ".join(missing))
 
     def show_params(self, name: str) -> None:
         self._show_params(name)
@@ -316,7 +315,7 @@ class ProtocolEditorDialog(QDialog):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Feature a parametry")
+        self.setWindowTitle(tr("Feature a parametry"))
         self.setModal(True)
         self.editor = ProtocolEditor()
         layout = QVBoxLayout(self)
@@ -326,8 +325,10 @@ class ProtocolEditorDialog(QDialog):
         layout.addWidget(self.heading)
         layout.addWidget(self.editor, 1)
         self.buttons = QDialogButtonBox()
-        self.apply_btn = self.buttons.addButton("Použít", QDialogButtonBox.ButtonRole.AcceptRole)
-        self.buttons.addButton("Zrušit", QDialogButtonBox.ButtonRole.RejectRole)
+        self.apply_btn = self.buttons.addButton(
+            tr("Použít"), QDialogButtonBox.ButtonRole.AcceptRole
+        )
+        self.buttons.addButton(tr("Zrušit"), QDialogButtonBox.ButtonRole.RejectRole)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)

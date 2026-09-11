@@ -23,6 +23,7 @@ from .. import __version__, contract
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
 from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.settings import AppSettings
+from ..i18n import tr
 from .models_dialog import ModelsDownloadDialog
 from .models_install_dialog import ModelsInstallDialog
 from .pages.batch import BatchPage
@@ -44,7 +45,7 @@ class MainWindow(QMainWindow):
     def __init__(self, settings: AppSettings) -> None:
         super().__init__()
         self.settings = settings
-        self.setWindowTitle("SpeechScope")
+        self.setWindowTitle(tr("SpeechScope"))
         self.resize(1100, 720)
 
         self.env_page = EnvironmentPage()
@@ -55,7 +56,13 @@ class MainWindow(QMainWindow):
 
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
-        self.nav_labels = ("Prostředí", "Data", "Protokoly", "Běh", "Výsledky")
+        self.nav_labels = (
+            tr("Prostředí"),
+            tr("Data"),
+            tr("Protokoly"),
+            tr("Běh"),
+            tr("Výsledky"),
+        )
         for label in self.nav_labels:
             self.nav.addItem(label)
         self.pages = QStackedWidget()
@@ -84,7 +91,7 @@ class MainWindow(QMainWindow):
         brand.setObjectName("brand")
         wordmark = QPixmap(str(resources.files("speechscope_app") / "assets" / "wordmark.png"))
         if wordmark.isNull():
-            brand.setText("SpeechScope")
+            brand.setText(tr("SpeechScope"))
         else:
             # škálovat na fyzické pixely, jinak je logo na HiDPI rozmazané
             dpr = self.devicePixelRatioF()
@@ -108,12 +115,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.pages, 1)
         self.setCentralWidget(central)
 
-        menu = self.menuBar().addMenu("Aplikace")
-        menu.addAction("Nastavení…", self._open_settings)
-        menu.addAction("Stáhnout modely…", self.download_models)
-        menu.addAction("Nainstalovat modely ze souboru…", self.install_models)
+        menu = self.menuBar().addMenu(tr("Aplikace"))
+        menu.addAction(tr("Nastavení…"), self._open_settings)
+        menu.addAction(tr("Stáhnout modely…"), self.download_models)
+        menu.addAction(tr("Nainstalovat modely ze souboru…"), self.install_models)
         menu.addSeparator()
-        menu.addAction("Konec", self.close)
+        menu.addAction(tr("Konec"), self.close)
 
         self.env_page.settings_requested.connect(self._open_settings)
         self.env_page.download_requested.connect(self.download_models)
@@ -157,10 +164,10 @@ class MainWindow(QMainWindow):
             self.batch_page.set_folder(self.settings.last_input_dir)
         self.batch_page.set_language(self.settings.last_language)
         title = "SpeechScope"
-        sub = f"aplikace {__version__}"
+        sub = tr("aplikace {version}").format(version=__version__)
         if self.settings.use_fake_library:
-            title += " [falešná knihovna]"
-            sub += " · falešná knihovna"
+            title += tr(" [falešná knihovna]")
+            sub += tr(" · falešná knihovna")
         self._base_title = title
         self.setWindowTitle(title)
         self.brand_sub.setText(sub)
@@ -178,7 +185,7 @@ class MainWindow(QMainWindow):
 
     def download_models(self) -> None:
         if self.library is None:
-            QMessageBox.warning(self, "SpeechScope", "Knihovna není nastavená.")
+            QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
             return
         dialog = ModelsDownloadDialog(self.library, self.settings.models_dir, self)
         dialog.exec()
@@ -188,7 +195,7 @@ class MainWindow(QMainWindow):
 
     def install_models(self, archive: Path | None = None) -> None:
         if self.library is None:
-            QMessageBox.warning(self, "SpeechScope", "Knihovna není nastavená.")
+            QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
             return
         dialog = ModelsInstallDialog(self.library, self.settings.models_dir, self, archive=archive)
         dialog.exec()
@@ -218,17 +225,17 @@ class MainWindow(QMainWindow):
         proto.save(path)
         self.settings.last_protocol = proto.name
         self.reload_protocols(proto.name)
-        self.statusBar().showMessage(f"Protokol uložen: {path}", 8000)
+        self.statusBar().showMessage(tr("Protokol uložen: {path}").format(path=path), 8000)
         return path
 
     # --- běh ------------------------------------------------------------------
 
     def _start_batch(self, proto: Protocol, inputs: list[Path]) -> None:
         if self.library is None:
-            QMessageBox.warning(self, "SpeechScope", "Knihovna není nastavená.")
+            QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
             return
         if self.run_page.runner.running:
-            QMessageBox.information(self, "SpeechScope", "Jiný běh ještě neskončil.")
+            QMessageBox.information(self, tr("SpeechScope"), tr("Jiný běh ještě neskončil."))
             return
 
         stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -261,7 +268,7 @@ class MainWindow(QMainWindow):
         self._running_out = req.out
         self.run_page.start(
             argv,
-            title=proto.name,
+            title=proto.display_name,
             log_file=log_file,
             inputs=inputs,
             expected_seconds=self.settings.seconds_per_file(slug),
@@ -270,10 +277,10 @@ class MainWindow(QMainWindow):
     def _start_prepare(self, kind: str, proto: Protocol, inputs: list[Path], options: dict) -> None:
         """Jen segmentace nebo jen přepis do pracovní složky (rozšířený režim)."""
         if self.library is None:
-            QMessageBox.warning(self, "SpeechScope", "Knihovna není nastavená.")
+            QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
             return
         if self.run_page.runner.running:
-            QMessageBox.information(self, "SpeechScope", "Jiný běh ještě neskončil.")
+            QMessageBox.information(self, tr("SpeechScope"), tr("Jiný běh ještě neskončil."))
             return
         label = contract.PROVIDER_SHORT.get(kind, kind)
         stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -311,7 +318,7 @@ class MainWindow(QMainWindow):
         self._running_out = None
         self.run_page.start(
             self.library.argv(args),
-            title=f"Jen {label} · {proto.name}",
+            title=tr("Jen {what} · {name}").format(what=label, name=proto.display_name),
             log_file=log_file,
             inputs=inputs,
         )
@@ -325,10 +332,12 @@ class MainWindow(QMainWindow):
             # knihovna zapisuje průběžně: co je hotové, je v tabulce
             partial = self._running_out
             if partial is not None and partial.is_file() and state.processed:
-                why = "zrušení" if cancelled else f"chybě (kód {code})"
+                why = tr("zrušení") if cancelled else tr("chybě (kód {code})").format(code=code)
                 self.results_page.load(
                     partial,
-                    note=f"Částečný výsledek po {why}: {state.processed} z {state.total} nahrávek.",
+                    note=tr("Částečný výsledek po {why}: {n} z {total} nahrávek.").format(
+                        why=why, n=state.processed, total=state.total
+                    ),
                 )
                 self.nav.setCurrentRow(PAGE_RESULTS)
             return
@@ -339,7 +348,7 @@ class MainWindow(QMainWindow):
             self.results_page.load(out)
             self.nav.setCurrentRow(PAGE_RESULTS)
         elif out.is_dir():  # jen segmentace nebo přepis: mezivýsledky v pracovní složce
-            self.statusBar().showMessage(f"Mezivýsledky jsou v {out}", 10000)
+            self.statusBar().showMessage(tr("Mezivýsledky jsou v {path}").format(path=out), 10000)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.key() == Qt.Key.Key_F5:

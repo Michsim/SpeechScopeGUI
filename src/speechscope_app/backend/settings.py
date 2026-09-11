@@ -126,6 +126,15 @@ class AppSettings:
     # --- UI -------------------------------------------------------------------
 
     @property
+    def ui_language(self) -> str:
+        """Jazyk aplikace: kód (`cs`, `en`), prázdné = podle systému."""
+        return str(self._q.value("ui/language", ""))
+
+    @ui_language.setter
+    def ui_language(self, value: str) -> None:
+        self._q.setValue("ui/language", value)
+
+    @property
     def advanced(self) -> bool:
         """Rozšířený režim pro výzkumníky: strom feature a všechny parametry."""
         return self._q.value("ui/advanced", False, type=bool)

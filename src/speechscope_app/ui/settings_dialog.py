@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -17,7 +18,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import i18n
 from ..backend.settings import AppSettings
+from ..i18n import tr
 
 
 def _path_row(edit: QLineEdit, on_browse) -> QWidget:
@@ -35,27 +38,35 @@ def _path_row(edit: QLineEdit, on_browse) -> QWidget:
 class SettingsDialog(QDialog):
     def __init__(self, settings: AppSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Nastavení")
+        self.setWindowTitle(tr("Nastavení"))
         self.settings = settings
 
         form = QFormLayout(self)
         self.library = QLineEdit(" ".join(settings.library_command or []))
-        self.library.setPlaceholderText("speechscope.exe z prostředí knihovny")
-        form.addRow("Knihovna SpeechScope", _path_row(self.library, self._browse_library))
+        self.library.setPlaceholderText(tr("speechscope.exe z prostředí knihovny"))
+        form.addRow(tr("Knihovna SpeechScope"), _path_row(self.library, self._browse_library))
 
-        self.use_fake = QCheckBox("použít falešnou knihovnu (vývoj, bez modelů)")
+        self.use_fake = QCheckBox(tr("použít falešnou knihovnu (vývoj, bez modelů)"))
         self.use_fake.setChecked(settings.use_fake_library)
         form.addRow("", self.use_fake)
 
         self.models = QLineEdit(str(settings.models_dir))
-        form.addRow("Složka s modely", _path_row(self.models, self._browse_models))
+        form.addRow(tr("Složka s modely"), _path_row(self.models, self._browse_models))
 
         self.work = QLineEdit(str(settings.work_root))
-        form.addRow("Výstupy a mezivýsledky", _path_row(self.work, self._browse_work))
+        form.addRow(tr("Výstupy a mezivýsledky"), _path_row(self.work, self._browse_work))
 
-        self.advanced = QCheckBox("rozšířený režim (výběr feature a parametrů)")
+        self.advanced = QCheckBox(tr("rozšířený režim (výběr feature a parametrů)"))
         self.advanced.setChecked(settings.advanced)
         form.addRow("", self.advanced)
+
+        self.language = QComboBox()
+        self.language.addItem(tr("podle systému"), "")
+        for code in i18n.available():
+            self.language.addItem(i18n.LANGUAGE_NAMES.get(code, code), code)
+        self.language.setCurrentIndex(max(0, self.language.findData(settings.ui_language)))
+        self.language.setToolTip(tr("Projeví se po novém spuštění aplikace."))
+        form.addRow(tr("Jazyk aplikace"), self.language)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -66,7 +77,7 @@ class SettingsDialog(QDialog):
 
     def _browse_library(self) -> None:
         chosen, _ = QFileDialog.getOpenFileName(
-            self, "Spustitelný soubor knihovny", "", "speechscope (speechscope*.exe *.py *)"
+            self, tr("Spustitelný soubor knihovny"), "", tr("speechscope (speechscope*.exe *.py *)")
         )
         if chosen:
             if chosen.endswith(".py"):
@@ -75,12 +86,12 @@ class SettingsDialog(QDialog):
                 self.library.setText(chosen)
 
     def _browse_models(self) -> None:
-        chosen = QFileDialog.getExistingDirectory(self, "Složka s modely", self.models.text())
+        chosen = QFileDialog.getExistingDirectory(self, tr("Složka s modely"), self.models.text())
         if chosen:
             self.models.setText(chosen)
 
     def _browse_work(self) -> None:
-        chosen = QFileDialog.getExistingDirectory(self, "Pracovní složka", self.work.text())
+        chosen = QFileDialog.getExistingDirectory(self, tr("Pracovní složka"), self.work.text())
         if chosen:
             self.work.setText(chosen)
 
@@ -91,4 +102,5 @@ class SettingsDialog(QDialog):
         self.settings.models_dir = Path(self.models.text().strip())
         self.settings.work_root = Path(self.work.text().strip())
         self.settings.advanced = self.advanced.isChecked()
+        self.settings.ui_language = str(self.language.currentData() or "")
         super().accept()

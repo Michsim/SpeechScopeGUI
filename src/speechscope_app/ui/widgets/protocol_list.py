@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from ... import contract
 from ...backend.protocol import Protocol
+from ...i18n import tr
 from .. import theme
 
 
@@ -54,12 +55,12 @@ class ProtocolCard(QFrame):
         layout.setSpacing(3)
         head = QHBoxLayout()
         head.setSpacing(6)
-        name = QLabel(proto.name)
+        name = QLabel(proto.display_name)
         name.setObjectName("card_title")
         head.addWidget(name)
         if not proto.builtin:
-            head.addWidget(_pill("vlastní", "accent"))
-        self.modified = _pill("upraveno", "warn")
+            head.addWidget(_pill(tr("vlastní"), "accent"))
+        self.modified = _pill(tr("upraveno"), "warn")
         self.modified.setVisible(False)
         head.addWidget(self.modified)
         head.addStretch(1)
@@ -67,7 +68,7 @@ class ProtocolCard(QFrame):
         hint.setObjectName("muted")
         head.addWidget(hint)
         layout.addLayout(head)
-        desc = QLabel(proto.description)
+        desc = QLabel(proto.display_description)
         desc.setObjectName("muted")
         desc.setWordWrap(True)
         layout.addWidget(desc)
@@ -76,7 +77,7 @@ class ProtocolCard(QFrame):
         for provider in info.providers:
             foot.addWidget(_pill(contract.PROVIDER_SHORT.get(provider, provider), "neutral"))
         if not info.providers:
-            foot.addWidget(_pill("bez modelů", "ok"))
+            foot.addWidget(_pill(tr("bez modelů"), "ok"))
         foot.addStretch(1)
         layout.addLayout(foot)
 

@@ -1,6 +1,8 @@
 format: 1
 name: Monolog, akustika
+name_en: Monologue, acoustics
 description: Akustické feature z monologu včetně pauz a časování. Segmentace conformerem.
+description_en: Acoustic features from a monologue including pauses and timing. Conformer segmentation.
 task: monologue
 domain: acoustic
 config:

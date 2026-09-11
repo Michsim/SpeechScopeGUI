@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 
 from ... import contract
 from ...backend.runner import Runner
+from ...i18n import tr
 from .. import theme
 
 TICK_MS = 1000
@@ -98,7 +99,7 @@ class RunPage(QWidget):
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(8)
 
-        self.headline = QLabel("Žádný běh.")
+        self.headline = QLabel(tr("Žádný běh."))
         self.headline.setObjectName("headline")
         self.headline.setWordWrap(True)
         layout.addWidget(self.headline)
@@ -124,7 +125,7 @@ class RunPage(QWidget):
         layout.addWidget(self.files, 2)
 
         self.log_toggle = QToolButton()
-        self.log_toggle.setText("Log knihovny")
+        self.log_toggle.setText(tr("Log knihovny"))
         self.log_toggle.setCheckable(True)
         self.log_toggle.setArrowType(Qt.ArrowType.RightArrow)
         self.log_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -140,7 +141,7 @@ class RunPage(QWidget):
         bottom = QHBoxLayout()
         self.elapsed = QLabel("")
         self.elapsed.setObjectName("muted")
-        self.cancel_btn = QPushButton("Zrušit")
+        self.cancel_btn = QPushButton(tr("Zrušit"))
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self.confirm_cancel)
         bottom.addWidget(self.elapsed, 1)
@@ -170,14 +171,16 @@ class RunPage(QWidget):
         self._started_at = time.monotonic()
 
         self.headline.setText(title)
-        self.summary.setText(f"{len(self._paths)} nahrávek" if self._paths else "")
+        self.summary.setText(tr("{n} nahrávek").format(n=len(self._paths)) if self._paths else "")
         self.bar.setRange(0, 0)
         self.timing.setText(
-            f"podle minulého běhu asi {format_seconds(expected_seconds * len(self._paths))}"
+            tr("podle minulého běhu asi {time}").format(
+                time=format_seconds(expected_seconds * len(self._paths))
+            )
             if expected_seconds and self._paths
             else ""
         )
-        self.current.setText("Spouštím knihovnu…")
+        self.current.setText(tr("Spouštím knihovnu…"))
         self.elapsed.setText("")
         self.log.clear()
         self.log_toggle.setChecked(False)
@@ -194,10 +197,10 @@ class RunPage(QWidget):
     def _set_columns(self, providers: list[str]) -> None:
         self._providers = list(providers)
         labels = [
-            "nahrávka",
+            tr("nahrávka"),
             *(PROVIDER_SHORT.get(p, p) for p in providers),
-            "výsledek",
-            "poznámka",
+            tr("výsledek"),
+            tr("poznámka"),
         ]
         self.files.setColumnCount(len(labels))
         self.files.setHorizontalHeaderLabels(labels)
@@ -218,7 +221,7 @@ class RunPage(QWidget):
         self.files.setRowCount(len(names))
         for row, name in enumerate(names):
             self._set_cell(row, self.COL_FILE, name)
-            self._set_cell(row, self.col_status, "čeká", color=theme.MUTED)
+            self._set_cell(row, self.col_status, tr("čeká"), color=theme.MUTED)
             self._set_cell(row, self.col_note, "")
         self.files.resizeColumnsToContents()
 
@@ -227,7 +230,7 @@ class RunPage(QWidget):
         while self.files.rowCount() <= index:
             row = self.files.rowCount()
             self.files.insertRow(row)
-            self._set_cell(row, self.col_status, "čeká", color=theme.MUTED)
+            self._set_cell(row, self.col_status, tr("čeká"), color=theme.MUTED)
         name = path.replace("\\", "/").rsplit("/", 1)[-1]
         item = self.files.item(index, self.COL_FILE)
         if item is None or item.text() != name:
@@ -283,16 +286,20 @@ class RunPage(QWidget):
                 self._fill_rows(names)
                 providers = ", ".join(contract.PROVIDER_LABELS.get(p, p) for p in event.providers)
                 self.summary.setText(
-                    f"{event.total} nahrávek, {len(event.features)} feature"
-                    + (f" · spouští se: {providers}" if providers else " · bez modelů")
+                    tr("{n} nahrávek, {k} feature").format(n=event.total, k=len(event.features))
+                    + (
+                        tr(" · spouští se: {providers}").format(providers=providers)
+                        if providers
+                        else tr(" · bez modelů")
+                    )
                 )
                 if not state.detailed:
-                    self.current.setText("Knihovna hlásí jen dokončené nahrávky.")
+                    self.current.setText(tr("Knihovna hlásí jen dokončené nahrávky."))
             case contract.BeginEvent():
                 self._file_started_at = now
                 self._stage_started_at = None
                 self._ensure_row(event.index, event.path)
-                self._set_cell(event.index, self.col_status, "běží", color=theme.ACCENT)
+                self._set_cell(event.index, self.col_status, tr("běží"), color=theme.ACCENT)
                 self.files.scrollToItem(self.files.item(event.index, self.COL_FILE))
                 self._update_current()
             case contract.StageEvent():
@@ -311,7 +318,7 @@ class RunPage(QWidget):
                 self._set_cell(
                     event.index,
                     self.col_status,
-                    "ok" if event.ok else "chyba",
+                    tr("ok") if event.ok else tr("chyba"),
                     color=theme.OK if event.ok else theme.MISSING,
                 )
                 self._set_cell(event.index, self.col_note, event.msg or "", tooltip=event.msg)
@@ -340,12 +347,14 @@ class RunPage(QWidget):
                 spent = time.monotonic() - (self._stage_started_at or time.monotonic())
                 parts.append(f"{label} … {format_seconds(spent)}")
             elif stage.status == "cached":
-                parts.append(f"{label} z cache")
+                parts.append(tr("{label} z cache").format(label=label))
             elif stage.status == "error":
                 parts.append(f"{label} ✗")
             else:
                 parts.append(f"{label} ✓ {format_seconds(stage.seconds or 0)}")
-        text = f"Právě: {name} ({state.current.index + 1}/{state.total})"
+        text = tr("Právě: {name} ({i}/{total})").format(
+            name=name, i=state.current.index + 1, total=state.total
+        )
         if parts:
             text += " · " + " · ".join(parts)
         self.current.setText(text)
@@ -354,25 +363,34 @@ class RunPage(QWidget):
         state = self.runner.state
         end = self._finished_at if self._finished_at is not None else time.monotonic()
         spent = end - self._started_at
-        self.elapsed.setText(f"uplynulo {format_seconds(spent)}")
+        self.elapsed.setText(tr("uplynulo {time}").format(time=format_seconds(spent)))
         if self._finished_at is not None or not state.total:
             self.timing.setText("")
             return
         per_file = estimate_per_file(self._durations)
-        source = "podle hotových nahrávek"
+        source = tr("podle hotových nahrávek")
         if per_file is None:
             per_file = self._expected
-            source = "podle minulého běhu"
+            source = tr("podle minulého běhu")
         remaining_files = state.total - state.processed
         if per_file is None or remaining_files <= 0:
-            self.timing.setText(f"{state.processed} z {state.total} hotovo")
+            self.timing.setText(
+                tr("{n} z {total} hotovo").format(n=state.processed, total=state.total)
+            )
             return
         remaining = per_file * remaining_files
         if self._file_started_at is not None:
             remaining -= min(per_file, time.monotonic() - self._file_started_at)
         self.timing.setText(
-            f"{state.processed} z {state.total} hotovo · zbývá asi {format_seconds(remaining)} "
-            f"({source}, {format_seconds(per_file)} na nahrávku)"
+            tr(
+                "{n} z {total} hotovo · zbývá asi {remaining} ({source}, {per_file} na nahrávku)"
+            ).format(
+                n=state.processed,
+                total=state.total,
+                remaining=format_seconds(remaining),
+                source=source,
+                per_file=format_seconds(per_file),
+            )
         )
 
     def _on_tick(self) -> None:
@@ -408,9 +426,11 @@ class RunPage(QWidget):
         done = f"{state.processed} z {state.total}" if state.total else "0"
         answer = QMessageBox.question(
             self,
-            "Zrušit výpočet",
-            f"Opravdu zrušit výpočet? Hotovo je {done} nahrávek.\n"
-            "Hotové řádky zůstanou ve výsledcích, mezivýsledky ve složce work.",
+            tr("Zrušit výpočet"),
+            tr(
+                "Opravdu zrušit výpočet? Hotovo je {done} nahrávek.\n"
+                "Hotové řádky zůstanou ve výsledcích, mezivýsledky ve složce work."
+            ).format(done=done),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -426,22 +446,30 @@ class RunPage(QWidget):
         spent = format_seconds(self._finished_at - self._started_at)
         if cancelled:
             self.headline.setText(
-                f"Zrušeno uživatelem po {state.processed} z {state.total} nahrávek."
+                tr("Zrušeno uživatelem po {n} z {total} nahrávek.").format(
+                    n=state.processed, total=state.total
+                )
                 if state.total
-                else "Zrušeno uživatelem."
+                else tr("Zrušeno uživatelem.")
             )
             self.bar.setValue(state.processed)
         elif code != 0:
-            self.headline.setText(f"Knihovna skončila chybou (kód {code}), viz log.")
+            self.headline.setText(
+                tr("Knihovna skončila chybou (kód {code}), viz log.").format(code=code)
+            )
             self.log_toggle.setChecked(True)
         else:
             n_err = len(state.errors)
             self.headline.setText(
-                f"Hotovo za {spent}: {state.processed - n_err} z {state.total} ok"
-                + (f", {n_err} s chybou" if n_err else "")
+                tr("Hotovo za {time}: {ok} z {total} ok").format(
+                    time=spent, ok=state.processed - n_err, total=state.total
+                )
+                + (tr(", {n} s chybou").format(n=n_err) if n_err else "")
             )
         if state.out:
-            self.summary.setText(self.summary.text() + f" · výstup: {state.out}")
+            self.summary.setText(
+                self.summary.text() + tr(" · výstup: {path}").format(path=state.out)
+            )
         self.current.setText("")
         self._update_timing()
         self.progress_changed.emit("")

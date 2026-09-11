@@ -1,6 +1,8 @@
 format: 1
 name: Fonace, základní
+name_en: Phonation, basic
 description: Kvalita hlasu a F0 z prodloužené samohlásky. Bez segmentace a přepisu.
+description_en: Voice quality and F0 from a sustained vowel. No segmentation or transcription.
 task: phonation
 domain: acoustic
 vad: false

@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...backend.library import ParamInfo
+from ...i18n import tr
 from .. import theme
 
 _BIG = 1e9
@@ -51,9 +52,9 @@ def format_default(value: Any) -> str:
     if value is None:
         return "–"
     if isinstance(value, bool):
-        return "ano" if value else "ne"
+        return tr("ano") if value else tr("ne")
     if value == "":
-        return "prázdné"
+        return tr("prázdné")
     return str(value)
 
 
@@ -77,7 +78,9 @@ class _Row(QWidget):
         self.reset_btn = QToolButton()
         self.reset_btn.setText("↺")
         self.reset_btn.setAutoRaise(True)
-        self.reset_btn.setToolTip(f"Vrátit na výchozí: {format_default(info.default)}")
+        self.reset_btn.setToolTip(
+            tr("Vrátit na výchozí: {value}").format(value=format_default(info.default))
+        )
         self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         head.addWidget(self.mark)
         head.addWidget(self.name, 1)
@@ -87,7 +90,9 @@ class _Row(QWidget):
         desc = info.description.strip().rstrip(".")
         text = f"{desc} · " if desc else ""
         text += (
-            f"<span style='color:{theme.NEUTRAL}'>výchozí: {format_default(info.default)}</span>"
+            f"<span style='color:{theme.NEUTRAL}'>"
+            + tr("výchozí: {value}").format(value=format_default(info.default))
+            + "</span>"
         )
         self.desc = QLabel(text)
         self.desc.setObjectName("muted")
@@ -117,7 +122,7 @@ class ParamForm(QWidget):
         layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(0)
         if not params:
-            empty = QLabel("Bez parametrů.")
+            empty = QLabel(tr("Bez parametrů."))
             empty.setObjectName("muted")
             layout.addWidget(empty)
         for i, p in enumerate(params):
@@ -145,7 +150,7 @@ class ParamForm(QWidget):
             combo.currentIndexChanged.connect(self.changed)
             return combo
         if p.type == "bool":
-            box = QCheckBox("zapnuto")
+            box = QCheckBox(tr("zapnuto"))
             box.setChecked(bool(p.default))
             box.toggled.connect(self.changed)
             return box
@@ -166,7 +171,7 @@ class ParamForm(QWidget):
             spin.valueChanged.connect(self.changed)
             return spin
         edit = QLineEdit(str(p.default if p.default is not None else ""))
-        edit.setPlaceholderText("prázdné" if p.default in ("", None) else "")
+        edit.setPlaceholderText(tr("prázdné") if p.default in ("", None) else "")
         edit.textChanged.connect(self.changed)
         return edit
 

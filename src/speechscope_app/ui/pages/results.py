@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...i18n import tr
+
 PROBLEM_COLUMNS = ("notes", "error")
 
 
@@ -66,11 +68,11 @@ class ResultsPage(QWidget):
 
         layout = QVBoxLayout(self)
         head = QHBoxLayout()
-        self.summary = QLabel("Zatím žádný výstup.")
+        self.summary = QLabel(tr("Zatím žádný výstup."))
         self.summary.setWordWrap(True)
-        self.problems_only = QCheckBox("jen řádky s poznámkou nebo chybou")
+        self.problems_only = QCheckBox(tr("jen řádky s poznámkou nebo chybou"))
         self.problems_only.toggled.connect(self._refresh)
-        self.open_btn = QPushButton("Otevřít složku")
+        self.open_btn = QPushButton(tr("Otevřít složku"))
         self.open_btn.setEnabled(False)
         self.open_btn.clicked.connect(self._open_folder)
         head.addWidget(self.summary, 1)
@@ -89,7 +91,7 @@ class ResultsPage(QWidget):
         try:
             self._frame = pd.read_csv(path)
         except (OSError, pd.errors.ParserError) as exc:
-            self.summary.setText(f"CSV nejde načíst: {exc}")
+            self.summary.setText(tr("CSV nejde načíst: {error}").format(error=exc))
             self._frame = None
             return
         self.open_btn.setEnabled(True)
@@ -111,8 +113,16 @@ class ResultsPage(QWidget):
         self.table.resizeColumnsToContents()
         note = f"{self._note} " if getattr(self, "_note", "") else ""
         self.summary.setText(
-            f"{note}{self._path}: {len(self._frame)} řádků, {len(self._frame.columns)} sloupců, "
-            f"{n_notes} s poznámkou, {n_err} s chybou."
+            note
+            + tr(
+                "{path}: {rows} řádků, {cols} sloupců, {notes} s poznámkou, {errors} s chybou."
+            ).format(
+                path=self._path,
+                rows=len(self._frame),
+                cols=len(self._frame.columns),
+                notes=n_notes,
+                errors=n_err,
+            )
         )
 
     def _open_folder(self) -> None:

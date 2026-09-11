@@ -17,7 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from .. import contract
+from .. import contract, i18n
+from ..i18n import tr
 from .command import ExtractRequest
 
 if TYPE_CHECKING:
@@ -44,10 +45,22 @@ class Protocol:
     config: dict[str, dict[str, Any]] = field(default_factory=dict)
     builtin: bool = False
     path: Path | None = None
+    # překlady jména a popisu: kód jazyka -> text (v YAML `name_en`, `description_en`)
+    names: dict[str, str] = field(default_factory=dict)
+    descriptions: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.task not in contract.TASKS:
             raise ValueError(f"neznámá úloha {self.task!r}")
+
+    @property
+    def display_name(self) -> str:
+        """Jméno v jazyce aplikace; `name` zůstává klíčem (soubor, statistika)."""
+        return self.names.get(i18n.language()) or self.name
+
+    @property
+    def display_description(self) -> str:
+        return self.descriptions.get(i18n.language()) or self.description
 
     # --- serializace ----------------------------------------------------------
 
@@ -59,6 +72,12 @@ class Protocol:
         }
         if self.description:
             data["description"] = self.description
+        for lang, text in sorted(self.names.items()):
+            if text:
+                data[f"name_{lang}"] = text
+        for lang, text in sorted(self.descriptions.items()):
+            if text:
+                data[f"description_{lang}"] = text
         if self.features:
             data["features"] = list(self.features)
         if self.domain:
@@ -82,6 +101,16 @@ class Protocol:
             vad=data.get("vad"),
             config={str(k): dict(v) for k, v in (data.get("config") or {}).items()},
             path=path,
+            names={
+                k[len("name_") :]: str(v)
+                for k, v in data.items()
+                if k.startswith("name_") and isinstance(v, str)
+            },
+            descriptions={
+                k[len("description_") :]: str(v)
+                for k, v in data.items()
+                if k.startswith("description_") and isinstance(v, str)
+            },
         )
 
     def save(self, path: Path) -> None:
@@ -157,8 +186,8 @@ class Summary:
     def cost_hint(self) -> str:
         for provider, hint in contract.PROVIDER_COST:
             if provider in self.providers:
-                return hint
-        return contract.NO_MODELS_COST
+                return tr(hint)
+        return tr(contract.NO_MODELS_COST)
 
 
 def card_infos(
@@ -177,7 +206,11 @@ def card_infos(
         pool = [f for f in catalog if proto.task in f.tasks]
         summary = summarize(proto.select([f.name for f in pool]), pool, providers)
         seconds = seconds_per_file(proto.slug())
-        hint = f"naposledy {seconds:.0f} s na nahrávku" if seconds else summary.cost_hint()
+        hint = (
+            tr("naposledy {n:.0f} s na nahrávku").format(n=seconds)
+            if seconds
+            else summary.cost_hint()
+        )
         out[proto.name] = (summary.providers, hint)
     return out
 
@@ -244,11 +277,17 @@ def describe(
         parts = ", ".join(
             f"{contract.DOMAIN_LABELS.get(d, d)} {n}" for d, n in sorted(per_domain.items())
         )
-        features_text = f"{len(chosen)} z {len(pool)} ({parts}), {summary.columns} sloupců"
+        features_text = tr("{n} z {total} ({parts}), {columns} sloupců").format(
+            n=len(chosen), total=len(pool), parts=parts, columns=summary.columns
+        )
     elif proto.features:
         features_text = ", ".join(proto.features)
     else:
-        features_text = f"všechny pro doménu {proto.domain}" if proto.domain else "všechny"
+        features_text = (
+            tr("všechny pro doménu {domain}").format(domain=proto.domain)
+            if proto.domain
+            else tr("všechny")
+        )
     params_text = ", ".join(proto.set_items())
     return Description(summary.providers, features_text, params_text)
 

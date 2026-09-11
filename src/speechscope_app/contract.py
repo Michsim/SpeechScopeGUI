@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
+from .i18n import N_, Labels, tr
+
 # Verze smlouvy událostí, kterou GUI umí. Porovnává se s polem `protocol`
 # v události `start`. Starší verze v `SUPPORTED_PROTOCOLS` GUI také přijme.
 PROTOCOL_VERSION = 2
@@ -26,56 +28,66 @@ KNOWN_LIBRARY_VERSION = "0.1.0"
 
 TASKS: tuple[str, ...] = ("phonation", "ddk", "story", "monologue", "reading")
 
-TASK_LABELS: dict[str, str] = {
-    "phonation": "Fonace (prodloužená samohláska)",
-    "ddk": "Diadochokineze (pa-ta-ka)",
-    "story": "Vyprávění pohádky",
-    "monologue": "Monolog",
-    "reading": "Čtený text",
-}
+TASK_LABELS = Labels(
+    {
+        "phonation": N_("Fonace (prodloužená samohláska)"),
+        "ddk": N_("Diadochokineze (pa-ta-ka)"),
+        "story": N_("Vyprávění pohádky"),
+        "monologue": N_("Monolog"),
+        "reading": N_("Čtený text"),
+    }
+)
 
 # Jazyk nahrávek: nabídka se bere z `doctor --json` (models.stanza.languages),
 # tohle je záloha pro starší knihovnu a popisky.
 DEFAULT_LANGUAGES: tuple[str, ...] = ("cs", "en")
-LANGUAGE_LABELS: dict[str, str] = {
-    "cs": "čeština",
-    "en": "angličtina",
-    "sk": "slovenština",
-    "de": "němčina",
-}
+LANGUAGE_LABELS = Labels(
+    {
+        "cs": N_("čeština"),
+        "en": N_("angličtina"),
+        "sk": N_("slovenština"),
+        "de": N_("němčina"),
+    }
+)
 
 
 def language_label(code: str) -> str:
-    return LANGUAGE_LABELS.get(code, code)
+    return LANGUAGE_LABELS.get(code) or code
 
 
-TASK_SHORT: dict[str, str] = {
-    "phonation": "Fonace",
-    "ddk": "DDK",
-    "story": "Pohádka",
-    "monologue": "Monolog",
-    "reading": "Čtení",
-}
+TASK_SHORT = Labels(
+    {
+        "phonation": N_("Fonace"),
+        "ddk": N_("DDK"),
+        "story": N_("Pohádka"),
+        "monologue": N_("Monolog"),
+        "reading": N_("Čtení"),
+    }
+)
 
 DOMAINS: tuple[str, ...] = ("acoustic", "linguistic")
 
-DOMAIN_LABELS: dict[str, str] = {
-    "acoustic": "Akustika",
-    "linguistic": "Lingvistika",
-}
+DOMAIN_LABELS = Labels(
+    {
+        "acoustic": N_("Akustika"),
+        "linguistic": N_("Lingvistika"),
+    }
+)
 
 # Skupina = doména a druhá část jména feature (`acoustic.timing.pauses`).
 # Neznámá skupina se v UI ukáže surově, nikdy nespadne.
-GROUP_LABELS: dict[str, str] = {
-    "acoustic.articulation": "Akustika · artikulace",
-    "acoustic.intensity": "Akustika · intenzita",
-    "acoustic.pitch": "Akustika · výška",
-    "acoustic.quality": "Akustika · kvalita hlasu",
-    "acoustic.spectral": "Akustika · spektrum",
-    "acoustic.timing": "Akustika · časování",
-    "linguistic.lexical": "Lingvistika · lexikum",
-    "linguistic.syntactic": "Lingvistika · syntax",
-}
+GROUP_LABELS = Labels(
+    {
+        "acoustic.articulation": N_("Akustika · artikulace"),
+        "acoustic.intensity": N_("Akustika · intenzita"),
+        "acoustic.pitch": N_("Akustika · výška"),
+        "acoustic.quality": N_("Akustika · kvalita hlasu"),
+        "acoustic.spectral": N_("Akustika · spektrum"),
+        "acoustic.timing": N_("Akustika · časování"),
+        "linguistic.lexical": N_("Lingvistika · lexikum"),
+        "linguistic.syntactic": N_("Lingvistika · syntax"),
+    }
+)
 
 # Stejné jako `speechscope.signal.AUDIO_SUFFIXES`.
 AUDIO_SUFFIXES: tuple[str, ...] = (".wav", ".flac", ".ogg", ".mp3", ".m4a")
@@ -86,33 +98,37 @@ TRANSCRIPT_SUFFIX = ".txt"
 
 # Balík modelů z `speechscope models pack`: zip s `manifest.json`. Instaluje
 # ho `models unpack`; kód 1 = některý model selhal, kód 2 = není to balík.
-MODELS_BUNDLE_FILTER = "Balík modelů SpeechScope (*.zip)"
+MODELS_BUNDLE_FILTER = N_("Balík modelů SpeechScope (*.zip)")
 
 # Pořadí = pořadí, v jakém providery v běhu přicházejí na řadu.
-PROVIDER_LABELS: dict[str, str] = {
-    "segments": "Segmentace řeči",
-    "phonemes": "Fonémy (phnrec)",
-    "transcript": "Přepis (Whisper)",
-    "nlp": "Jazykový rozbor (Stanza)",
-}
+PROVIDER_LABELS = Labels(
+    {
+        "segments": N_("Segmentace řeči"),
+        "phonemes": N_("Fonémy (phnrec)"),
+        "transcript": N_("Přepis (Whisper)"),
+        "nlp": N_("Jazykový rozbor (Stanza)"),
+    }
+)
 
 # Krátké popisky do tabulek.
-PROVIDER_SHORT: dict[str, str] = {
-    "segments": "segmentace",
-    "transcript": "přepis",
-    "nlp": "jaz. rozbor",
-    "phonemes": "fonémy",
-}
+PROVIDER_SHORT = Labels(
+    {
+        "segments": N_("segmentace"),
+        "transcript": N_("přepis"),
+        "nlp": N_("jaz. rozbor"),
+        "phonemes": N_("fonémy"),
+    }
+)
 
 # Orientační cena běhu podle nejdražšího provideru, dokud není změřená.
 # Pořadí od nejdražšího.
 PROVIDER_COST: tuple[tuple[str, str], ...] = (
-    ("transcript", "minuty na nahrávku"),
-    ("nlp", "minuty na nahrávku"),
-    ("segments", "desítky sekund na nahrávku"),
-    ("phonemes", "sekundy na nahrávku"),
+    ("transcript", N_("minuty na nahrávku")),
+    ("nlp", N_("minuty na nahrávku")),
+    ("segments", N_("desítky sekund na nahrávku")),
+    ("phonemes", N_("sekundy na nahrávku")),
 )
-NO_MODELS_COST = "sekundy na nahrávku"
+NO_MODELS_COST = N_("sekundy na nahrávku")
 
 # --- události --progress-json -------------------------------------------------
 
@@ -194,9 +210,9 @@ def parse_event(line: str) -> Event | None:
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ContractError(f"stdout není JSON: {text[:200]!r}") from exc
+        raise ContractError(tr("stdout není JSON: {text!r}").format(text=text[:200])) from exc
     if not isinstance(payload, dict) or "event" not in payload:
-        raise ContractError(f"chybí pole event: {text[:200]!r}")
+        raise ContractError(tr("chybí pole event: {text!r}").format(text=text[:200]))
 
     kind = payload["event"]
     try:

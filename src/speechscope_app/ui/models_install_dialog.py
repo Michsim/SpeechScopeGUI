@@ -28,6 +28,7 @@ from ..backend import command
 from ..backend.library import Library
 from ..backend.runner import Runner
 from ..contract import MODELS_BUNDLE_FILTER
+from ..i18n import tr
 from . import theme
 
 
@@ -41,7 +42,7 @@ class ModelsInstallDialog(QDialog):
         archive: Path | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Instalace modelů ze souboru")
+        self.setWindowTitle(tr("Instalace modelů ze souboru"))
         self.setMinimumSize(640, 460)
         self._library = library
         self._models_dir = models_dir
@@ -54,19 +55,21 @@ class ModelsInstallDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         intro = QLabel(
-            f"Modely se rozbalí do <b>{models_dir}</b>. Balík je zip vyrobený příkazem "
-            "<code>speechscope models pack</code> (přes 4 GB); každý soubor se při rozbalení "
-            "ověřuje. Modely, které už na místě jsou, balík nahradí."
+            tr(
+                "Modely se rozbalí do <b>{path}</b>. Balík je zip vyrobený příkazem "
+                "<code>speechscope models pack</code> (přes 4 GB); každý soubor se při "
+                "rozbalení ověřuje. Modely, které už na místě jsou, balík nahradí."
+            ).format(path=models_dir)
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
         row = QHBoxLayout()
         self.archive = QLineEdit()
-        self.archive.setPlaceholderText("cesta k balíku modelů (.zip)")
+        self.archive.setPlaceholderText(tr("cesta k balíku modelů (.zip)"))
         self.archive.textChanged.connect(self._update_start)
         row.addWidget(self.archive, 1)
-        self.browse_btn = QPushButton("Vybrat…")
+        self.browse_btn = QPushButton(tr("Vybrat…"))
         self.browse_btn.clicked.connect(self._browse)
         row.addWidget(self.browse_btn)
         layout.addLayout(row)
@@ -83,14 +86,14 @@ class ModelsInstallDialog(QDialog):
         buttons = QHBoxLayout()
         self.status = QLabel("")
         buttons.addWidget(self.status, 1)
-        self.cancel_btn = QPushButton("Zrušit")
+        self.cancel_btn = QPushButton(tr("Zrušit"))
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self.runner.cancel)
         buttons.addWidget(self.cancel_btn)
-        self.close_btn = QPushButton("Zavřít")
+        self.close_btn = QPushButton(tr("Zavřít"))
         self.close_btn.clicked.connect(self.reject)
         buttons.addWidget(self.close_btn)
-        self.start_btn = QPushButton("Nainstalovat")
+        self.start_btn = QPushButton(tr("Nainstalovat"))
         theme.set_role(self.start_btn, "primary")
         self.start_btn.clicked.connect(self.start)
         buttons.addWidget(self.start_btn)
@@ -105,7 +108,7 @@ class ModelsInstallDialog(QDialog):
     def _browse(self) -> None:
         start = self.archive.text().strip() or str(Path.home())
         chosen, _ = QFileDialog.getOpenFileName(
-            self, "Balík modelů SpeechScope", start, MODELS_BUNDLE_FILTER
+            self, tr("Balík modelů SpeechScope"), start, tr(MODELS_BUNDLE_FILTER)
         )
         if chosen:
             self.archive.setText(chosen)
@@ -128,7 +131,7 @@ class ModelsInstallDialog(QDialog):
         self.log.clear()
         self.log.appendPlainText("$ " + " ".join(argv))
         self.bar.setRange(0, 0)
-        self.status.setText(f"Rozbaluji {path.name}…")
+        self.status.setText(tr("Rozbaluji {name}…").format(name=path.name))
         self.start_btn.setEnabled(False)
         self.browse_btn.setEnabled(False)
         self.archive.setEnabled(False)
@@ -148,14 +151,16 @@ class ModelsInstallDialog(QDialog):
         self.archive.setEnabled(True)
         self._update_start()
         if cancelled:
-            self.status.setText("Zrušeno. Rozpracovaný model se neuložil, hotové zůstávají.")
+            self.status.setText(tr("Zrušeno. Rozpracovaný model se neuložil, hotové zůstávají."))
         elif code == 2:
-            self.status.setText("Soubor není balík modelů SpeechScope, viz log.")
+            self.status.setText(tr("Soubor není balík modelů SpeechScope, viz log."))
         elif code != 0:
-            self.status.setText(f"Instalace skončila chybou (kód {code}), viz log.")
+            self.status.setText(
+                tr("Instalace skončila chybou (kód {code}), viz log.").format(code=code)
+            )
         else:
             self.installed = True
-            self.status.setText("Hotovo.")
+            self.status.setText(tr("Hotovo."))
 
     def reject(self) -> None:
         if self.runner.running:

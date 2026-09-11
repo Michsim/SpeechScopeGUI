@@ -39,6 +39,7 @@ from ...backend.protocol import (
     import_protocol,
     unique_name,
 )
+from ...i18n import tr
 from .. import theme
 from ..widgets.protocol_editor import ProtocolEditorDialog
 
@@ -62,24 +63,26 @@ class ProtocolsPage(QWidget):
         layout.setSpacing(10)
 
         head = QHBoxLayout()
-        title = QLabel("Protokoly")
+        title = QLabel(tr("Protokoly"))
         title.setObjectName("page_title")
         head.addWidget(title, 1)
-        self.copy_btn = QPushButton("Vytvořit kopii")
-        self.copy_btn.setToolTip("Nový vlastní protokol podle vybraného")
+        self.copy_btn = QPushButton(tr("Vytvořit kopii"))
+        self.copy_btn.setToolTip(tr("Nový vlastní protokol podle vybraného"))
         self.copy_btn.clicked.connect(self.copy_current)
-        self.import_btn = QPushButton("Import…")
-        self.import_btn.setToolTip("Přidat protokol ze souboru YAML, třeba od kolegy")
+        self.import_btn = QPushButton(tr("Import…"))
+        self.import_btn.setToolTip(tr("Přidat protokol ze souboru YAML, třeba od kolegy"))
         self.import_btn.clicked.connect(self.import_file)
-        self.folder_btn = QPushButton("Otevřít složku")
-        self.folder_btn.setToolTip("Složka s vlastními protokoly v Průzkumníku")
+        self.folder_btn = QPushButton(tr("Otevřít složku"))
+        self.folder_btn.setToolTip(tr("Složka s vlastními protokoly v Průzkumníku"))
         self.folder_btn.clicked.connect(self.open_folder)
         for btn in (self.copy_btn, self.import_btn, self.folder_btn):
             head.addWidget(btn)
         layout.addLayout(head)
         subtitle = QLabel(
-            "Protokol je pojmenované nastavení dávky: úloha, výběr feature a parametry. "
-            "Přibalené protokoly se nemění, vlastní jdou upravit, poslat kolegovi nebo smazat."
+            tr(
+                "Protokol je pojmenované nastavení dávky: úloha, výběr feature a parametry. "
+                "Přibalené protokoly se nemění, vlastní jdou upravit, poslat kolegovi nebo smazat."
+            )
         )
         subtitle.setObjectName("page_subtitle")
         subtitle.setWordWrap(True)
@@ -115,16 +118,16 @@ class ProtocolsPage(QWidget):
         form.setContentsMargins(0, 0, 0, 0)
         self.name_edit = QLineEdit()
         self.name_edit.textChanged.connect(self._mark_dirty)
-        form.addRow("Jméno:", self.name_edit)
+        form.addRow(tr("Jméno:"), self.name_edit)
         self.desc_edit = QPlainTextEdit()
         self.desc_edit.setFixedHeight(56)
         self.desc_edit.textChanged.connect(self._mark_dirty)
-        form.addRow("Popis:", self.desc_edit)
+        form.addRow(tr("Popis:"), self.desc_edit)
         detail.addWidget(self.edit_box)
         self.editor_dialog = ProtocolEditorDialog(self)
         self.editor = self.editor_dialog.editor
         self.editor.changed.connect(self._mark_dirty)
-        self.edit_btn = QPushButton("Upravit feature a parametry…")
+        self.edit_btn = QPushButton(tr("Upravit feature a parametry…"))
         self.edit_btn.clicked.connect(self.open_editor)
         detail.addWidget(self.edit_btn, 0, Qt.AlignmentFlag.AlignLeft)
         detail.addStretch(1)
@@ -134,11 +137,11 @@ class ProtocolsPage(QWidget):
         self.note.setObjectName("muted")
         self.note.setWordWrap(True)
         actions.addWidget(self.note, 1)
-        self.export_btn = QPushButton("Export…")
+        self.export_btn = QPushButton(tr("Export…"))
         self.export_btn.clicked.connect(self.export_current)
-        self.delete_btn = QPushButton("Smazat")
+        self.delete_btn = QPushButton(tr("Smazat"))
         self.delete_btn.clicked.connect(self.delete_current)
-        self.save_btn = QPushButton("Uložit")
+        self.save_btn = QPushButton(tr("Uložit"))
         theme.set_role(self.save_btn, "primary")
         self.save_btn.clicked.connect(self.save_current)
         for btn in (self.export_btn, self.delete_btn, self.save_btn):
@@ -172,7 +175,7 @@ class ProtocolsPage(QWidget):
         self.list.clear()
         chosen: QListWidgetItem | None = None
         order = {t: i for i, t in enumerate(contract.TASKS)}
-        for builtin, header in ((True, "Přibalené"), (False, "Vlastní")):
+        for builtin, header in ((True, tr("Přibalené")), (False, tr("Vlastní"))):
             group = sorted(
                 (p for p in protocols if p.builtin == builtin),
                 key=lambda p: (order.get(p.task, len(order)), p.name),
@@ -186,13 +189,13 @@ class ProtocolsPage(QWidget):
             head.setFont(font)
             self.list.addItem(head)
             if not group:
-                hint = QListWidgetItem("  zatím žádné")
+                hint = QListWidgetItem(tr("  zatím žádné"))
                 hint.setFlags(Qt.ItemFlag.NoItemFlags)
                 self.list.addItem(hint)
             for proto in group:
-                item = QListWidgetItem("  " + proto.name)
+                item = QListWidgetItem("  " + proto.display_name)
                 item.setData(ROLE_PROTO, proto)
-                item.setToolTip(str(proto.path) if proto.path else "přibalený k aplikaci")
+                item.setToolTip(str(proto.path) if proto.path else tr("přibalený k aplikaci"))
                 self.list.addItem(item)
                 if proto.name == current or chosen is None:
                     chosen = item
@@ -235,15 +238,15 @@ class ProtocolsPage(QWidget):
         self.save_btn.setVisible(editable)
         self.save_btn.setEnabled(False)
         if proto is None:
-            self.name_label.setText("Žádný protokol")
+            self.name_label.setText(tr("Žádný protokol"))
             self.origin.setVisible(False)
             self.summary.setText("")
             self.note.setText("")
             self.editor.set_protocol(None)
             return
-        self.name_label.setText(proto.name)
+        self.name_label.setText(proto.display_name)
         self.origin.setVisible(True)
-        self.origin.setText("přibalený" if proto.builtin else "vlastní")
+        self.origin.setText(tr("přibalený") if proto.builtin else tr("vlastní"))
         theme.set_role(self.origin, "neutral" if proto.builtin else "accent")
         self.summary.setText(self._summary_html(proto))
         if editable:
@@ -258,9 +261,11 @@ class ProtocolsPage(QWidget):
         else:
             self.editor.set_protocol(None)
             if proto.builtin:
-                self.note.setText("Přibalený protokol se nemění. Uprav si jeho kopii.")
+                self.note.setText(tr("Přibalený protokol se nemění. Uprav si jeho kopii."))
             elif not self._advanced:
-                self.note.setText("Úprava feature a parametrů je v rozšířeném režimu (Nastavení).")
+                self.note.setText(
+                    tr("Úprava feature a parametrů je v rozšířeném režimu (Nastavení).")
+                )
             else:
                 self.note.setText("")
 
@@ -275,18 +280,18 @@ class ProtocolsPage(QWidget):
                 catalog = []
         info = describe(proto, catalog, providers)
         rows = [
-            ("Úloha", contract.TASK_LABELS.get(proto.task, proto.task)),
-            ("Popis", proto.description or "–"),
+            (tr("Úloha"), contract.TASK_LABELS.get(proto.task, proto.task)),
+            (tr("Popis"), proto.display_description or "–"),
             (
-                "Spustí se",
+                tr("Spustí se"),
                 ", ".join(contract.PROVIDER_LABELS.get(p, p) for p in info.providers)
-                or "nic, jen akustika bez modelů",
+                or tr("nic, jen akustika bez modelů"),
             ),
-            ("Feature", info.features_text),
-            ("Změněné parametry", info.params_text or "žádné, výchozí z knihovny"),
+            (tr("Feature"), info.features_text),
+            (tr("Změněné parametry"), info.params_text or tr("žádné, výchozí z knihovny")),
         ]
         if proto.path:
-            rows.append(("Soubor", str(proto.path)))
+            rows.append((tr("Soubor"), str(proto.path)))
         return (
             "<table cellspacing='0' cellpadding='3'>"
             + "".join(
@@ -337,11 +342,15 @@ class ProtocolsPage(QWidget):
             return
         taken = {p.name for p in self._protocols if p.name != base.name}
         if proto.name in taken:
-            QMessageBox.warning(self, "SpeechScope", f"Protokol „{proto.name}“ už existuje.")
+            QMessageBox.warning(
+                self,
+                tr("SpeechScope"),
+                tr("Protokol „{name}“ už existuje.").format(name=proto.name),
+            )
             return
         path = base.path or self._folder / f"{proto.slug()}.yaml"
         proto.save(path)
-        self.note.setText(f"Uloženo do {path}")
+        self.note.setText(tr("Uloženo do {path}").format(path=path))
         self._dirty = False
         self._reload(proto.name)
 
@@ -349,7 +358,9 @@ class ProtocolsPage(QWidget):
         base = self.current()
         if base is None or self._folder is None:
             return
-        name = unique_name(f"{base.name} (kopie)", {p.name for p in self._protocols})
+        name = unique_name(
+            tr("{name} (kopie)").format(name=base.name), {p.name for p in self._protocols}
+        )
         proto = Protocol(
             name=name,
             task=base.task,
@@ -368,8 +379,10 @@ class ProtocolsPage(QWidget):
             return
         answer = QMessageBox.question(
             self,
-            "Smazat protokol",
-            f"Opravdu smazat vlastní protokol „{proto.name}“?\n{proto.path}",
+            tr("Smazat protokol"),
+            tr("Opravdu smazat vlastní protokol „{name}“?\n{path}").format(
+                name=proto.display_name, path=proto.path
+            ),
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
@@ -381,7 +394,7 @@ class ProtocolsPage(QWidget):
         if proto is None:
             return
         target, _ = QFileDialog.getSaveFileName(
-            self, "Exportovat protokol", f"{proto.slug()}.yaml", YAML_FILTER
+            self, tr("Exportovat protokol"), f"{proto.slug()}.yaml", YAML_FILTER
         )
         if target:
             self.export_to(Path(target))
@@ -392,10 +405,10 @@ class ProtocolsPage(QWidget):
             return
         copy = Protocol.from_dict(proto.to_dict())
         copy.save(target)
-        self.note.setText(f"Exportováno do {target}")
+        self.note.setText(tr("Exportováno do {path}").format(path=target))
 
     def import_file(self) -> None:
-        source, _ = QFileDialog.getOpenFileName(self, "Importovat protokol", "", YAML_FILTER)
+        source, _ = QFileDialog.getOpenFileName(self, tr("Importovat protokol"), "", YAML_FILTER)
         if source:
             self.import_from(Path(source))
 
@@ -405,7 +418,11 @@ class ProtocolsPage(QWidget):
         try:
             proto = Protocol.load(source)
         except Exception as exc:  # rozbitý YAML, chybějící pole, cizí úloha
-            QMessageBox.warning(self, "SpeechScope", f"Soubor není platný protokol: {exc}")
+            QMessageBox.warning(
+                self,
+                tr("SpeechScope"),
+                tr("Soubor není platný protokol: {error}").format(error=exc),
+            )
             return
         taken = {p.name for p in self._protocols}
         overwrite = False
@@ -416,15 +433,17 @@ class ProtocolsPage(QWidget):
             else:
                 answer = QMessageBox.question(
                     self,
-                    "Protokol už existuje",
-                    f"Vlastní protokol „{proto.name}“ už existuje. Přepsat ho?\n"
-                    "Ne = uložit vedle pod jiným jménem.",
+                    tr("Protokol už existuje"),
+                    tr(
+                        "Vlastní protokol „{name}“ už existuje. Přepsat ho?\n"
+                        "Ne = uložit vedle pod jiným jménem."
+                    ).format(name=proto.name),
                 )
                 overwrite = answer == QMessageBox.StandardButton.Yes
                 if not overwrite:
                     proto.name = unique_name(proto.name, taken)
         path = import_protocol(proto, self._folder, self._protocols, overwrite=overwrite)
-        self.note.setText(f"Importováno do {path}")
+        self.note.setText(tr("Importováno do {path}").format(path=path))
         self._reload(proto.name)
 
     def open_folder(self) -> None:

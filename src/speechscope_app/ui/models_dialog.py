@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 from ..backend import command
 from ..backend.library import Library, LibraryError
 from ..backend.runner import Runner
+from ..i18n import tr
 from . import theme
 
 NOT_DOWNLOADABLE = {"phnrec"}
@@ -39,7 +40,7 @@ NEEDS_GITHUB_TOKEN = {"onnx"}
 class ModelsDownloadDialog(QDialog):
     def __init__(self, library: Library, models_dir: Path, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Stažení modelů")
+        self.setWindowTitle(tr("Stažení modelů"))
         self.setMinimumSize(640, 520)
         self._library = library
         self._models_dir = models_dir
@@ -53,8 +54,10 @@ class ModelsDownloadDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         intro = QLabel(
-            f"Modely se stáhnou do <b>{models_dir}</b>. Dohromady mají přes 4 GB, "
-            "stažení trvá podle připojení desítky minut. Aplikaci mezitím nezavírej."
+            tr(
+                "Modely se stáhnou do <b>{path}</b>. Dohromady mají přes 4 GB, "
+                "stažení trvá podle připojení desítky minut. Aplikaci mezitím nezavírej."
+            ).format(path=models_dir)
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -66,13 +69,13 @@ class ModelsDownloadDialog(QDialog):
         tokens = QFormLayout()
         self.hf_token = QLineEdit()
         self.hf_token.setEchoMode(QLineEdit.EchoMode.Password)
-        self.hf_token.setPlaceholderText("hf_…  (jen pro pyannote; odsouhlas podmínky modelu)")
-        self.hf_label = QLabel("Token Hugging Face:")
+        self.hf_token.setPlaceholderText(tr("hf_…  (jen pro pyannote; odsouhlas podmínky modelu)"))
+        self.hf_label = QLabel(tr("Token Hugging Face:"))
         tokens.addRow(self.hf_label, self.hf_token)
         self.gh_token = QLineEdit()
         self.gh_token.setEchoMode(QLineEdit.EchoMode.Password)
-        self.gh_token.setPlaceholderText("github_pat_…  (jen pro ONNX segmentaci)")
-        self.gh_label = QLabel("Token GitHubu:")
+        self.gh_token.setPlaceholderText(tr("github_pat_…  (jen pro ONNX segmentaci)"))
+        self.gh_label = QLabel(tr("Token GitHubu:"))
         tokens.addRow(self.gh_label, self.gh_token)
         layout.addLayout(tokens)
 
@@ -93,14 +96,14 @@ class ModelsDownloadDialog(QDialog):
         buttons = QHBoxLayout()
         self.status = QLabel("")
         buttons.addWidget(self.status, 1)
-        self.cancel_btn = QPushButton("Zrušit stahování")
+        self.cancel_btn = QPushButton(tr("Zrušit stahování"))
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self.runner.cancel)
         buttons.addWidget(self.cancel_btn)
-        self.close_btn = QPushButton("Zavřít")
+        self.close_btn = QPushButton(tr("Zavřít"))
         self.close_btn.clicked.connect(self.reject)
         buttons.addWidget(self.close_btn)
-        self.start_btn = QPushButton("Stáhnout")
+        self.start_btn = QPushButton(tr("Stáhnout"))
         theme.set_role(self.start_btn, "primary")
         self.start_btn.clicked.connect(self.start)
         buttons.addWidget(self.start_btn)
@@ -119,7 +122,7 @@ class ModelsDownloadDialog(QDialog):
         try:
             models: list[dict[str, Any]] = self._library.models()["models"]
         except (LibraryError, KeyError, TypeError) as exc:
-            self.rows.addWidget(QLabel(f"Seznam modelů nejde načíst: {exc}"))
+            self.rows.addWidget(QLabel(tr("Seznam modelů nejde načíst: {error}").format(error=exc)))
             self.start_btn.setEnabled(False)
             return
         manual: list[str] = []
@@ -131,11 +134,18 @@ class ModelsDownloadDialog(QDialog):
             if size:
                 text += f"  ({size} MB)"
             if present:
-                row = QLabel(f"<span style='color:{theme.OK}'>●</span>  {text}, je na místě")
+                row = QLabel(
+                    f"<span style='color:{theme.OK}'>●</span>  "
+                    + tr("{model}, je na místě").format(model=text)
+                )
                 self.rows.addWidget(row)
                 continue
             if key in NOT_DOWNLOADABLE:
-                manual.append(f"{m.get('name', key)}: zkopíruj složku ručně do {m.get('path')}")
+                manual.append(
+                    tr("{model}: zkopíruj složku ručně do {path}").format(
+                        model=m.get("name", key), path=m.get("path")
+                    )
+                )
                 continue
             box = QCheckBox(text)
             box.setChecked(True)
@@ -146,7 +156,7 @@ class ModelsDownloadDialog(QDialog):
         self.note.setVisible(bool(manual))
         self._update_tokens()
         if not self._checks:
-            self.status.setText("Všechny stažitelné modely už jsou na místě.")
+            self.status.setText(tr("Všechny stažitelné modely už jsou na místě."))
         self.start_btn.setEnabled(bool(self._checks))
 
     def selected(self) -> list[str]:
@@ -198,12 +208,14 @@ class ModelsDownloadDialog(QDialog):
         for box in self._checks.values():
             box.setEnabled(True)
         if cancelled:
-            self.status.setText("Zrušeno. Co se stihlo stáhnout, zůstává.")
+            self.status.setText(tr("Zrušeno. Co se stihlo stáhnout, zůstává."))
         elif code != 0:
-            self.status.setText(f"Stahování skončilo chybou (kód {code}), viz log.")
+            self.status.setText(
+                tr("Stahování skončilo chybou (kód {code}), viz log.").format(code=code)
+            )
         else:
             self.downloaded = True
-            self.status.setText("Hotovo.")
+            self.status.setText(tr("Hotovo."))
         self.refresh_models()
 
     def reject(self) -> None:

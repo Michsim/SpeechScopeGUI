@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..backend.protocol import Protocol
+from ..i18n import tr
 
 
 class SaveProtocolDialog(QDialog):
@@ -21,15 +22,17 @@ class SaveProtocolDialog(QDialog):
 
     def __init__(self, proto: Protocol, taken: set[str], parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Uložit jako protokol")
+        self.setWindowTitle(tr("Uložit jako protokol"))
         self.setMinimumWidth(460)
         self._proto = proto
         self._taken = taken
 
         layout = QVBoxLayout(self)
         hint = QLabel(
-            f"Uloží se úloha, {len(proto.features)} vybraných feature a upravené parametry. "
-            "Protokol pak uvidí každý, kdo aplikaci na tomhle počítači spustí."
+            tr(
+                "Uloží se úloha, {n} vybraných feature a upravené parametry. "
+                "Protokol pak uvidí každý, kdo aplikaci na tomhle počítači spustí."
+            ).format(n=len(proto.features))
         )
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -38,10 +41,10 @@ class SaveProtocolDialog(QDialog):
         self.name = QLineEdit(proto.name)
         self.name.selectAll()
         self.name.textChanged.connect(self._validate)
-        form.addRow("Jméno:", self.name)
+        form.addRow(tr("Jméno:"), self.name)
         self.description = QPlainTextEdit(proto.description)
         self.description.setFixedHeight(70)
-        form.addRow("Popis:", self.description)
+        form.addRow(tr("Popis:"), self.description)
         layout.addLayout(form)
 
         self.note = QLabel("")
@@ -61,9 +64,9 @@ class SaveProtocolDialog(QDialog):
         name = self.name.text().strip()
         ok = bool(name)
         if not name:
-            self.note.setText("Zadej jméno.")
+            self.note.setText(tr("Zadej jméno."))
         elif name in self._taken:
-            self.note.setText("Protokol s tímhle jménem už existuje, přepíše se.")
+            self.note.setText(tr("Protokol s tímhle jménem už existuje, přepíše se."))
         else:
             self.note.setText("")
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(ok)

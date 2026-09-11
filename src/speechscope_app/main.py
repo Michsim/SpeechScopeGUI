@@ -16,11 +16,11 @@ import os
 import sys
 from importlib import resources
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QLibraryInfo, QLocale, QTimer, QTranslator
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from . import __version__
+from . import __version__, i18n
 from .backend.library import CHILD_ENV
 from .backend.settings import APP, ORG, AppSettings
 from .ui import theme
@@ -60,6 +60,11 @@ def main(argv: list[str] | None = None) -> int:
     settings = AppSettings()
     if "--fake" in args:
         settings.fake_override = True
+    language = i18n.activate(settings.ui_language)
+    translator = QTranslator(app)  # texty samotného Qt: Ano/Ne, Storno, dialogy souborů
+    qt_dir = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+    if translator.load(QLocale(language), "qtbase", "_", qt_dir):
+        app.installTranslator(translator)
     window = MainWindow(settings)
     window.show()
     if "--smoke" in args:

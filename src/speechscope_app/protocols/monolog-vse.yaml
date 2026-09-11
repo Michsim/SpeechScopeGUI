@@ -1,6 +1,8 @@
 format: 1
 name: Monolog, akustika i lingvistika
+name_en: Monologue, acoustics and linguistics
 description: Všechny feature pro monolog. Spouští Whisper i Stanzu, trvá minuty na nahrávku.
+description_en: All features for a monologue. Runs Whisper and Stanza, takes minutes per recording.
 task: monologue
 config:
   segments:
