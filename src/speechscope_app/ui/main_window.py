@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
-    QListWidget,
     QMainWindow,
     QMessageBox,
     QStackedWidget,
@@ -37,6 +36,7 @@ from .pages.protocols import ProtocolsPage
 from .pages.results import ResultsPage
 from .pages.run import RunPage
 from .settings_dialog import SettingsDialog
+from .widgets.sidebar_nav import SidebarNav
 
 # Pořadí v nabídce: od každodenního (analýza) k jednorázovému (prostředí).
 PAGE_BATCH, PAGE_RUN, PAGE_RESULTS, PAGE_PROTOCOLS, PAGE_ENV = range(5)
@@ -81,8 +81,6 @@ class MainWindow(QMainWindow):
         self.run_page = RunPage()
         self.results_page = ResultsPage()
 
-        self.nav = QListWidget()
-        self.nav.setObjectName("nav")
         self.nav_labels = (
             tr("Analýza"),
             tr("Výpočet"),
@@ -90,8 +88,8 @@ class MainWindow(QMainWindow):
             tr("Protokoly"),
             tr("Prostředí"),
         )
-        for label in self.nav_labels:
-            self.nav.addItem(label)
+        # Protokoly a Prostředí sedí u dolního okraje, nad nimi je mezera.
+        self.nav = SidebarNav(self.nav_labels, bottom_from=PAGE_PROTOCOLS)
         self.pages = QStackedWidget()
         for page in (
             self.batch_page,
