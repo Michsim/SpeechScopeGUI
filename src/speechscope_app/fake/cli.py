@@ -18,7 +18,7 @@ FIXTURES = resources.files("speechscope_app.fake") / "fixtures"
 AUDIO_SUFFIXES = (".wav", ".flac", ".ogg", ".mp3", ".m4a")
 TASKS = ("phonation", "ddk", "story", "monologue", "reading")
 PROTOCOL_VERSION = 2
-FAKE_VERSION = "0.1.0"
+FAKE_VERSION = "0.2.0"
 
 PROVIDERS = ("nlp", "phonemes", "segments", "transcript")
 

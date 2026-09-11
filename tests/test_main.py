@@ -26,7 +26,7 @@ def test_subprocess_env_marks_child() -> None:
 def test_fake_cli_route_runs_without_gui(capsys: pytest.CaptureFixture[str]) -> None:
     code = app_main.main(["--fake-cli", "version"])
     assert code == 0
-    assert capsys.readouterr().out.strip() == "0.1.0"
+    assert capsys.readouterr().out.strip() == "0.2.0"
 
 
 def test_child_guard_exits_before_gui(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,6 +1,6 @@
 [project]
 name = "speechscope-app"
-version = "0.1.0"
+version = "0.2.0"
 description = "Desktopová aplikace nad knihovnou SpeechScope: dávková extrakce řečových feature pro kliniku i výzkum"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"

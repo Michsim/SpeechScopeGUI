@@ -3,7 +3,7 @@
 Přijímá stejné příkazy a volby jako skutečné CLI a vrací JSON ve stejném
 tvaru, včetně událostí `--progress-json` smlouvy verze 2 (`begin`,
 `stage`). Fixtury v `fixtures/` jsou zachycené výstupy skutečné knihovny
-(verze 0.1.0, 10. 9. 2026). Když se knihovna změní, zachytí se znovu:
+(knihovna 0.2.0, fixtury z 11. 9. 2026). Když se knihovna změní, zachytí se znovu:
 
     uv run speechscope list --json                > fixtures/list.json
     uv run speechscope list --providers --json    > fixtures/providers.json

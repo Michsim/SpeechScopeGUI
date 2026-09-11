@@ -24,7 +24,7 @@ PROTOCOL_VERSION = 2
 SUPPORTED_PROTOCOLS: tuple[int, ...] = (1, 2)
 
 # Verze knihovny, proti které bylo GUI naposledy ověřené (`speechscope version`).
-KNOWN_LIBRARY_VERSION = "0.1.0"
+KNOWN_LIBRARY_VERSION = "0.2.0"
 
 TASKS: tuple[str, ...] = ("phonation", "ddk", "story", "monologue", "reading")
 
