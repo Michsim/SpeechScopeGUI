@@ -57,12 +57,16 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   v UI se používá `proto.display_name`, `proto.name` zůstává klíč.
 
 ## Stránky
-Prostředí (doctor, modely) · Data (dva sloupce: vlevo nahrávky, úloha
-a jazyk, vpravo karty protokolů; v rozšířeném režimu souhrn feature,
-Upravit…, Uložit jako protokol…, Jen segmentace, Jen přepis) · Protokoly
-(přibalené ke čtení, kopie, vlastní s editorem, import, export, smazání)
-· Běh (tabulka nahrávek × providerů, odhad času, Zrušit s potvrzením)
-· Výsledky.
+Prostředí (doctor, modely, Diagnostika… = zip pro podporu z
+`backend/diagnostics.py`) · Data (dva sloupce: vlevo nahrávky s metadaty
+z `manifest.csv` (`backend/manifest.py`, tolerantní čtení, normalizovaná
+kopie do složky běhu), úloha a jazyk, vpravo karty protokolů;
+v rozšířeném režimu souhrn feature, Upravit…, Uložit jako protokol…,
+Jen segmentace, Jen přepis; Spustit se před nepřipraveným providerem
+zeptá) · Protokoly (přibalené ke čtení, kopie, vlastní s editorem, import,
+export, smazání) · Běh (tabulka nahrávek × providerů, odhad času, Zrušit
+s potvrzením) · Výsledky (historie běhů ze složek v Dokumentech přes
+`backend/history.py` a `run.json`, tabulka vybraného běhu).
 
 ## Pasti z knihovny, které GUI hlídá
 - Podproces vždy s `PYTHONUTF8=1` (`library.subprocess_env`). Bez toho
