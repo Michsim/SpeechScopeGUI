@@ -1,0 +1,8 @@
+format: 1
+name: Monolog, lingvistika
+description: Jen lingvistické feature z monologu (lexikum a syntax). Spouští Whisper a Stanzu, bez akustiky.
+task: monologue
+domain: linguistic
+config:
+  transcript:
+    language: cs

@@ -1,0 +1,8 @@
+format: 1
+name: Pohádka, lingvistika
+description: Jen lingvistické feature z vyprávění (lexikum a syntax). Spouští Whisper a Stanzu, bez akustiky.
+task: story
+domain: linguistic
+config:
+  transcript:
+    language: cs
