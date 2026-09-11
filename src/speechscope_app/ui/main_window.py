@@ -267,7 +267,7 @@ class MainWindow(QMainWindow):
             expected_seconds=self.settings.seconds_per_file(slug),
         )
 
-    def _start_prepare(self, kind: str, proto: Protocol, inputs: list[Path]) -> None:
+    def _start_prepare(self, kind: str, proto: Protocol, inputs: list[Path], options: dict) -> None:
         """Jen segmentace nebo jen přepis do pracovní složky (rozšířený režim)."""
         if self.library is None:
             QMessageBox.warning(self, "SpeechScope", "Knihovna není nastavená.")
@@ -291,15 +291,17 @@ class MainWindow(QMainWindow):
             log_file=log_file,
         )
         if kind == "segments":
-            model = proto.segments_model()
-            if model == "auto":  # auto bere jen cache, samostatná segmentace musí počítat
-                model = "conformer"
-            args = segment_args(req, model=model, models_dir=self.settings.models_dir)
+            args = segment_args(
+                req,
+                model=str(options.get("model") or "conformer"),
+                cut_audio=bool(options.get("cut_audio")),
+                models_dir=self.settings.models_dir,
+            )
         else:
             transcript = proto.config.get("transcript", {})
             args = transcribe_args(
                 req,
-                language=str(transcript.get("language") or self.batch_page.language_code() or "cs"),
+                language=str(options.get("language") or self.batch_page.language_code() or "cs"),
                 model=str(transcript.get("model", "large-v3")),
                 models_dir=self.settings.models_dir,
             )

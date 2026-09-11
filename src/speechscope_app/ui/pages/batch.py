@@ -33,6 +33,7 @@ from ...backend.discover import Recording, find_recordings
 from ...backend.library import Library, LibraryError
 from ...backend.protocol import Protocol, card_infos
 from .. import theme
+from ..prepare_dialog import SegmentDialog, TranscribeDialog
 from ..protocol_dialog import SaveProtocolDialog
 from ..widgets.protocol_editor import ProtocolEditorDialog
 from ..widgets.protocol_list import ProtocolCardInfo, ProtocolList
@@ -57,7 +58,8 @@ def _step(number: int, title: str, hint: str = "") -> tuple[QHBoxLayout, QLabel]
 class BatchPage(QWidget):
     run_requested = Signal(object, list)  # Protocol, list[Path]
     save_requested = Signal(object)  # Protocol upravený v rozšířeném režimu
-    prepare_requested = Signal(str, object, list)  # "segments" | "transcript", Protocol, cesty
+    # "segments" | "transcript", Protocol, cesty, volby z dialogu (model, cut_audio, language)
+    prepare_requested = Signal(str, object, list, dict)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -410,7 +412,33 @@ class BatchPage(QWidget):
         proto = self.effective_protocol()
         if proto is None:
             return
-        self.prepare_requested.emit(kind, proto, [r.path for r in self._recordings])
+        n = len(self._recordings)
+        if kind == "segments":
+            choices: list[str] | None = None
+            if self._library is not None:
+                try:
+                    param = next(
+                        p for p in self._library.params("segments").params if p.name == "model"
+                    )
+                    choices = [str(c) for c in (param.choices or [])] or None
+                except (LibraryError, StopIteration):
+                    choices = None
+            dialog: SegmentDialog | TranscribeDialog = SegmentDialog(
+                n, model=proto.segments_model(), choices=choices, parent=self
+            )
+        else:
+            transcript = proto.config.get("transcript", {})
+            dialog = TranscribeDialog(
+                n,
+                language=self.language_code(),
+                languages=[self.language.itemData(i) for i in range(self.language.count())],
+                model=str(transcript.get("model", "large-v3")),
+                parent=self,
+            )
+        if dialog.exec():
+            self.prepare_requested.emit(
+                kind, proto, [r.path for r in self._recordings], dialog.options()
+            )
 
     def _save(self) -> None:
         proto = self.effective_protocol()

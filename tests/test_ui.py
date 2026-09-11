@@ -277,17 +277,29 @@ def test_cancel_shows_partial_results(
 
 
 def test_transcribe_only_writes_work_dir(
-    qtbot: QtBot, settings: AppSettings, recordings: Path
+    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from speechscope_app.ui.prepare_dialog import SegmentDialog, TranscribeDialog
+
     window = MainWindow(settings)
     qtbot.addWidget(window)
     page = window.batch_page
     page.set_folder(recordings)
     assert page.select_protocol("Pohádka, lingvistika")
-    page.set_language("en")
+    page.set_language("cs")
     assert page.transcribe_btn.isEnabled() and page.segment_btn.isEnabled()
+
+    seen: list[object] = []
+
+    def accept_transcribe(self):  # v dialogu přepnout jazyk na angličtinu
+        seen.append(self)
+        self.language.setCurrentIndex(self.language.findData("en"))
+        return 1
+
+    monkeypatch.setattr(TranscribeDialog, "exec", accept_transcribe)
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
         page.transcribe_btn.click()
+    assert len(seen) == 1 and "large-v3" in seen[0].form.itemAt(3).widget().text()
     state = window.run_page.runner.state
     assert state.finished and state.providers == ["transcript"] and state.n_ok == 3
     work = Path(state.out)
@@ -301,8 +313,21 @@ def test_transcribe_only_writes_work_dir(
     run_dirs = list(settings.work_root.glob("*_pohadka-lingvistika-prepis"))
     assert len(run_dirs) == 1 and (run_dirs[0] / "speechscope.log").is_file()
 
+    def accept_segment(self):  # výchozí conformer (protokol má auto), zapnout cut-audio
+        assert self.model.currentData() == "conformer"
+        assert self.model.findData("auto") == -1
+        self.cut_audio.setChecked(True)
+        return 1
+
+    monkeypatch.setattr(SegmentDialog, "exec", accept_segment)
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
         page.segment_btn.click()
     assert window.run_page.runner.state.providers == ["segments"]
     assert (work / "segments" / "p01.txt").is_file()
-    assert "--model conformer" in window.run_page.log.toPlainText().splitlines()[0]
+    first = window.run_page.log.toPlainText().splitlines()[0]
+    assert "--model conformer" in first and "--cut-audio" in first
+
+    # Zrušit v dialogu nic nespustí
+    monkeypatch.setattr(SegmentDialog, "exec", lambda self: 0)
+    page.segment_btn.click()
+    assert not window.run_page.runner.running
