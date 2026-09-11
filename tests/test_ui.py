@@ -403,10 +403,10 @@ def test_manifest_metadata_reach_results(
     assert (run_dir / "manifest.csv").is_file()
 
     page.clear_manifest()
-    assert page.manifest() is None and page.files.columnCount() == 2  # nahrávka, ruční vstupy
-    assert page.files.item(0, 1).text() == "labely, přepis"  # p01 má labely i přepis
+    assert page.manifest() is None and page.files.columnCount() == 3  # + délka, ruční vstupy
+    assert page.files.item(0, 2).text() == "labely, přepis"  # p01 má labely i přepis
     page.set_advanced(False)
-    assert page.files.columnCount() == 1
+    assert page.files.columnCount() == 2
 
 
 def test_run_asks_when_provider_not_ready(
@@ -511,3 +511,71 @@ def test_environment_warns_about_remote_desktop(qtbot: QtBot, settings: AppSetti
     env._show("0.2.0", report)
     card = env.gpu_cards["onnx"]
     assert card.pill.text() == "CPU" and "vzdálená plocha" in card.detail.text()
+
+
+def test_rerun_failed_merges_into_original_table(
+    qtbot: QtBot, settings: AppSettings, recordings: Path
+) -> None:
+    """Řádek s chybou se po „Spočítat znovu chybné“ nahradí; ostatní zůstanou."""
+    import pandas as pd
+
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.batch_page.set_folder(recordings)
+    assert window.batch_page.select_protocol("Fonace, základní")
+    with qtbot.waitSignal(window.run_page.finished, timeout=15000):
+        window.batch_page.run_btn.click()
+    run_dir = next(settings.work_root.glob("*_fonace-zakladni"))
+    csv = run_dir / "features.csv"
+    frame = pd.read_csv(csv)
+    # p01 uměle označit jako chybný: při opakování projde a řádek se doplní
+    frame.loc[frame["file"] == "p01.wav", "error"] = "výpadek"
+    value_col = [c for c in frame.columns if c.startswith("acoustic.")][0]
+    frame.loc[frame["file"] == "p01.wav", value_col] = float("nan")
+    frame.to_csv(csv, index=False)
+    results = window.results_page
+    results.load(csv)
+    assert results.rerun_btn.isVisibleTo(results)
+
+    with qtbot.waitSignal(window.run_page.finished, timeout=15000):
+        results.rerun_btn.click()
+    merged = pd.read_csv(csv)
+    assert len(merged) == 4
+    p01 = merged[merged["file"] == "p01.wav"].iloc[0]
+    assert pd.isna(p01.get("error")) and pd.notna(p01[value_col])
+    bad = merged[merged["file"] == "p02_bad.wav"].iloc[0]
+    assert bad["error"]  # opravdová chyba zůstala
+    assert "nahrazeno" in results.summary.text() and results._path == csv
+    assert window.nav.currentRow() == PAGE_RESULTS
+    assert any(d.name.endswith("-znovu") for d in settings.work_root.iterdir())
+
+
+def test_environment_cache_cleanup(qtbot: QtBot, settings: AppSettings) -> None:
+    import os
+    import time
+
+    from speechscope_app.ui.cache_dialog import CacheDialog
+
+    work = settings.work_root / "work"
+    (work / "segments").mkdir(parents=True)
+    old = work / "segments" / "p01.txt"
+    old.write_bytes(b"x" * 10)
+    stamp = time.time() - 60 * 86400
+    os.utime(old, (stamp, stamp))
+    (work / "segments" / "p02.txt").write_bytes(b"y" * 10)
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    env = window.env_page
+    env.refresh_cache()
+    assert "2 souborů, 20 B" in env.cache_detail.text() and env.cache_btn.isEnabled()
+
+    dialog = CacheDialog(work)
+    qtbot.addWidget(dialog)
+    assert dialog.older_than_days() == 30 and "1 souborů" in dialog.preview.text()
+    dialog.everything.setChecked(True)
+    assert dialog.older_than_days() is None and "2 souborů" in dialog.preview.text()
+    dialog.older.setChecked(True)
+    dialog.delete_btn.click()
+    assert dialog.removed is not None and dialog.removed.files == 1
+    env.refresh_cache()
+    assert "1 souborů, 10 B" in env.cache_detail.text() and not old.exists()

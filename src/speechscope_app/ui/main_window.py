@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 
+from pandas import errors as pd_errors
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -21,11 +22,13 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__, contract
+from ..backend.audio import duration_seconds
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
 from ..backend.diagnostics import build_bundle, default_name
 from ..backend.history import mark_orphans, write_run_file
-from ..backend.manifest import Manifest, write_normalized
+from ..backend.manifest import Manifest, read_manifest, write_normalized
 from ..backend.protocol import Protocol, all_protocols, slugify
+from ..backend.results import merge_results
 from ..backend.settings import AppSettings
 from ..i18n import tr
 from .models_dialog import ModelsDownloadDialog
@@ -54,12 +57,16 @@ class Job:
     options: dict = field(default_factory=dict)
     manifest: Manifest | None = None
     language: str = ""
+    durations: list[float | None] = field(default_factory=list)  # délky zvuku k inputs
+    merge_into: Path | None = None  # znovu chybné: tabulka, do které se řádky vrátí
 
     def title(self) -> str:
         name = self.proto.display_name
         if self.kind != "extract":
             what = contract.PROVIDER_SHORT.get(self.kind, self.kind)
             name = tr("Jen {what} · {name}").format(what=what, name=name)
+        elif self.merge_into is not None:
+            name = tr("Znovu chybné · {name}").format(name=name)
         return tr("{name} ({n} nahrávek)").format(name=name, n=len(self.inputs))
 
 
@@ -162,8 +169,11 @@ class MainWindow(QMainWindow):
         self.welcome_page.environment_requested.connect(lambda: self.nav.setCurrentRow(PAGE_ENV))
         self.env_page.report_changed.connect(self.protocols_page.set_doctor)
         self.batch_page.set_stats_lookup(self.settings.seconds_per_file)
+        self.batch_page.set_rate_lookup(self.settings.seconds_per_audio_minute)
         self.protocols_page.set_stats_lookup(self.settings.seconds_per_file)
         self.results_page.set_work_root(self.settings.work_root)
+        self.results_page.rerun_requested.connect(self.rerun_failed)
+        self.env_page.set_work_dir(self.settings.work_root / "work")
         self.run_page.set_work_root(self.settings.work_root)
         self.protocols_page.protocols_changed.connect(self.reload_protocols)
         self.batch_page.run_requested.connect(self._start_batch)
@@ -171,6 +181,7 @@ class MainWindow(QMainWindow):
         self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
         self.run_page.progress_changed.connect(self._show_progress)
+        self.run_page.file_done.connect(self._file_done)
         self.run_page.queue_remove.connect(self.remove_queued)
         self.run_page.queue_clear.connect(self.clear_queue)
 
@@ -194,6 +205,8 @@ class MainWindow(QMainWindow):
             self.results_page.refresh()
         elif index == PAGE_RUN:
             self.run_page.refresh_history()
+        elif index == PAGE_ENV:
+            self.env_page.refresh_cache()
 
     def start_page(self) -> int:
         """Kam uvítání doporučí: Analýza; bez knihovny nebo bez modelů Prostředí."""
@@ -211,6 +224,7 @@ class MainWindow(QMainWindow):
         self.batch_page.set_library(self.library)
         self.batch_page.set_advanced(self.settings.advanced)
         self.protocols_page.set_library(self.library)
+        self.results_page.set_library(self.library)
         self.protocols_page.set_advanced(self.settings.advanced)
         self.reload_protocols(self.settings.last_protocol)
         if self.settings.last_input_dir and self.settings.last_input_dir.is_dir():
@@ -224,6 +238,25 @@ class MainWindow(QMainWindow):
         self._base_title = title
         self.setWindowTitle(title)
         self.brand_sub.setText(sub)
+
+    def _file_done(self, processed: int, total: int) -> None:
+        """Počet hotových do run.json a do historie; tabulku běhu GUI nečte
+        (Windows by knihovně zablokovaly přejmenování `.part`)."""
+        run_dir = getattr(self, "_running_dir", None)
+        if run_dir is None or not run_dir.is_dir():
+            return
+        try:
+            write_run_file(
+                run_dir,
+                status="running",
+                kind=self._running_kind,
+                protocol=self._running_name,
+                processed=processed,
+                total=total,
+            )
+        except OSError:
+            return
+        self.run_page.refresh_history()
 
     def _show_progress(self, text: str) -> None:
         """Postup běhu v nabídce a v titulku, ať je vidět i z jiné stránky."""
@@ -341,6 +374,7 @@ class MainWindow(QMainWindow):
                 inputs=list(inputs),
                 manifest=self.batch_page.manifest(),
                 language=self.batch_page.language_code(),
+                durations=self.batch_page.durations_for(list(inputs)),
             )
         )
 
@@ -359,6 +393,48 @@ class MainWindow(QMainWindow):
                 language=self.batch_page.language_code(),
             )
         )
+
+    def rerun_failed(self, run_dir: Path, paths: list[Path]) -> bool:
+        """Stejný protokol jen nad nahrávkami s chybou; výsledek se vloží do původní tabulky."""
+        if self.library is None:
+            QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
+            return False
+        try:
+            proto = Protocol.load(run_dir / "protocol.yaml")
+        except Exception as exc:  # rozbitý soubor  # noqa: BLE001
+            QMessageBox.warning(
+                self,
+                tr("SpeechScope"),
+                tr("Protokol běhu nejde načíst: {error}").format(error=exc),
+            )
+            return False
+        missing = [p for p in paths if not p.is_file()]
+        inputs = [p for p in paths if p.is_file()]
+        if missing:
+            QMessageBox.information(
+                self,
+                tr("SpeechScope"),
+                tr("Tyto nahrávky už neexistují a přeskočí se:\n{names}").format(
+                    names="\n".join(str(p) for p in missing[:10])
+                ),
+            )
+        if not inputs:
+            return False
+        manifest_path = run_dir / "manifest.csv"
+        manifest = read_manifest(manifest_path) if manifest_path.is_file() else None
+        transcript = proto.config.get("transcript", {}) if isinstance(proto.config, dict) else {}
+        self._submit(
+            Job(
+                kind="extract",
+                proto=proto,
+                inputs=inputs,
+                manifest=manifest,
+                language=str(transcript.get("language") or ""),
+                durations=[duration_seconds(p) for p in inputs],
+                merge_into=run_dir / "features.csv",
+            )
+        )
+        return True
 
     def _submit(self, job: Job) -> None:
         """Spustí hned, nebo se zeptá a zařadí za běžící dávku."""
@@ -415,6 +491,9 @@ class MainWindow(QMainWindow):
         slug = proto.slug()
         label = contract.PROVIDER_SHORT.get(job.kind, job.kind)
         suffix = "" if job.kind == "extract" else f"-{slugify(label)}"
+        if job.merge_into is not None:
+            suffix = "-znovu"
+        self._running_merge = job.merge_into
         run_dir = self.settings.work_root / f"{stamp}_{slug}{suffix}"
         run_dir.mkdir(parents=True, exist_ok=True)
         work_dir = self.settings.work_root / "work"
@@ -444,6 +523,7 @@ class MainWindow(QMainWindow):
             self._running_out = req.out
             title = proto.display_name
             expected = self.settings.seconds_per_file(slug)
+            expected_total = self._expected_total(slug, job.durations, expected)
         else:
             preq = PrepareRequest(
                 inputs=inputs, work_dir=work_dir, config=config_path, log_file=log_file
@@ -468,6 +548,7 @@ class MainWindow(QMainWindow):
             self._running_out = None
             title = tr("Jen {what} · {name}").format(what=label, name=proto.display_name)
             expected = None
+            expected_total = None
 
         self._running_dir = run_dir
         self._running_kind = "extract" if job.kind == "extract" else "prepare"
@@ -482,8 +563,31 @@ class MainWindow(QMainWindow):
         )
         self.nav.setCurrentRow(PAGE_RUN)
         self.run_page.start(
-            argv, title=title, log_file=log_file, inputs=inputs, expected_seconds=expected
+            argv,
+            title=title,
+            log_file=log_file,
+            inputs=inputs,
+            expected_seconds=expected,
+            audio_seconds=job.durations,
+            expected_total=expected_total,
         )
+
+    def _expected_total(
+        self, slug: str, durations: list[float | None], per_file: float | None
+    ) -> float | None:
+        """Odhad dávky z minut zvuku (přesnější), doplněný dobou na nahrávku tam,
+        kde délka není známá. None, když chybí statistika."""
+        rate = self.settings.seconds_per_audio_minute(slug)
+        known = [d for d in durations if d]
+        if not rate or not known:
+            return None
+        total = rate / 60 * sum(known)
+        unknown = len(durations) - len(known)
+        if unknown:
+            if per_file is None:
+                return None
+            total += per_file * unknown
+        return total
 
     def _batch_finished(self, state: contract.BatchState, code: int, cancelled: bool) -> None:
         run_dir = getattr(self, "_running_dir", None)
@@ -507,14 +611,27 @@ class MainWindow(QMainWindow):
                 out=state.out,
             )
         self.run_page.refresh_history(select=run_dir)
+        merged = self._merge_rerun(state)
         per_file = self.run_page.seconds_per_file()
         if per_file is not None and not cancelled and code == 0 and self._running_slug:
             self.settings.set_seconds_per_file(self._running_slug, per_file)
+            per_minute = self.run_page.seconds_per_audio_minute()
+            if per_minute is not None:
+                self.settings.set_seconds_per_audio_minute(self._running_slug, per_minute)
             self.batch_page.refresh_summary()
         # další dávka z fronty; na Výsledky se skáče, jen když už nic nečeká
         more = bool(self._queue)
         if more:
             QTimer.singleShot(0, self._launch_next)
+        if merged is not None:
+            target, n = merged
+            self.results_page.load(
+                target,
+                note=tr("Znovu spočítané chybné nahrávky: {n} řádků nahrazeno.").format(n=n),
+            )
+            if not more:
+                self.nav.setCurrentRow(PAGE_RESULTS)
+            return
         if cancelled or code != 0:
             partial = self._running_out
             if partial is not None and partial.is_file() and state.processed:
@@ -537,6 +654,26 @@ class MainWindow(QMainWindow):
                 self.nav.setCurrentRow(PAGE_RESULTS)
         elif out.is_dir():  # jen segmentace nebo přepis: mezivýsledky v pracovní složce
             self.statusBar().showMessage(tr("Mezivýsledky jsou v {path}").format(path=out), 10000)
+
+    def _merge_rerun(self, state: contract.BatchState) -> tuple[Path, int] | None:
+        """Po běhu „znovu chybné“ vrátí řádky do původní tabulky; None jinak."""
+        target = getattr(self, "_running_merge", None)
+        self._running_merge = None
+        if target is None or not target.is_file():
+            return None
+        source = Path(state.out) if state.out else self._running_out
+        if source is None or not source.is_file():
+            return None
+        try:
+            n = merge_results(target, source)
+        except (OSError, ValueError, pd_errors.ParserError) as exc:
+            QMessageBox.warning(
+                self,
+                tr("SpeechScope"),
+                tr("Výsledky se nepodařilo vložit do původní tabulky: {error}").format(error=exc),
+            )
+            return None
+        return target, n
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.key() == Qt.Key.Key_F5:

@@ -117,6 +117,7 @@ QTableView, QTreeView, QTableWidget, QTreeWidget, QPlainTextEdit, QListWidget {{
     alternate-background-color: #fafafa;
 }}
 QTableView::item, QTreeView::item {{ padding: 4px 6px; }}
+QTableView#frozen {{ border: none; border-right: 1px solid {BORDER}; border-radius: 0; }}
 QHeaderView::section {{
     background: #f9fafb; color: {MUTED}; border: none; border-bottom: 1px solid {BORDER};
     padding: 6px 8px; font-weight: 600;

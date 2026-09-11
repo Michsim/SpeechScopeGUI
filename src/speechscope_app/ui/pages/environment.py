@@ -7,7 +7,7 @@ knihovna; nic o modelech se tu nehádá.
 
 from __future__ import annotations
 
-from pathlib import PureWindowsPath
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
@@ -29,9 +29,11 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
+from ...backend.cache import format_size, scan
 from ...backend.library import Library, LibraryError
 from ...i18n import N_, tr
 from .. import theme
+from ..cache_dialog import CacheDialog
 
 NOT_CHECKED = N_("Prostředí zatím nebylo zkontrolováno.")
 NOT_CHECKED_HINT = N_("Stiskni Zkontrolovat nebo F5.")
@@ -235,6 +237,33 @@ class EnvironmentPage(QWidget):
             self.gpu_cards[key] = card
             gpu_row.addWidget(card, 1)
         layout.addWidget(self.gpu)
+
+        # mezivýsledky knihovny (work)
+        layout.addWidget(_label(tr("Mezivýsledky"), "section"))
+        self._work_dir: Path | None = None
+        self.cache_card = Card("neutral")
+        cache_row = QHBoxLayout()
+        cache_row.setSpacing(16)
+        cache_text = QVBoxLayout()
+        cache_text.setSpacing(2)
+        self.cache_title = _label(tr("Složka work"), "card_title")
+        self.cache_detail = _label("", "muted")
+        self.cache_detail.setWordWrap(True)
+        cache_text.addWidget(self.cache_title)
+        cache_text.addWidget(self.cache_detail)
+        cache_row.addLayout(cache_text, 1)
+        self.cache_btn = QPushButton(tr("Uvolnit místo…"))
+        self.cache_btn.setToolTip(
+            tr(
+                "Smaže uložené segmentace a přepisy (všechny, nebo starší než N dní). "
+                "Výsledky běhů zůstanou; smazané mezivýsledky se příště dopočítají."
+            )
+        )
+        self.cache_btn.clicked.connect(self.cleanup_cache)
+        self.cache_btn.setEnabled(False)
+        cache_row.addWidget(self.cache_btn, 0, Qt.AlignmentFlag.AlignTop)
+        self.cache_card.body.addLayout(cache_row)
+        layout.addWidget(self.cache_card)
         layout.addStretch(1)
 
         self._clear_cards()
@@ -258,6 +287,43 @@ class EnvironmentPage(QWidget):
         else:
             self._set_status("neutral", tr(NOT_CHECKED), tr(NOT_CHECKED_HINT))
         self._clear_cards()
+
+    def set_work_dir(self, work_dir: Path) -> None:
+        self._work_dir = work_dir
+        self.refresh_cache()
+
+    def refresh_cache(self) -> None:
+        """Velikost mezivýsledků; laciné (jen průchod složkou), volá se při zobrazení."""
+        if self._work_dir is None:
+            return
+        info = scan(self._work_dir)
+        self.cache_btn.setEnabled(not info.empty)
+        self.cache_title.setText(tr("Složka work: {path}").format(path=self._work_dir))
+        if info.empty:
+            self.cache_detail.setText(tr("Žádné mezivýsledky."))
+            self.cache_card.set_role("neutral")
+            return
+        self.cache_detail.setText(
+            tr("{n} souborů, {size}, nejstarší z {date}.").format(
+                n=info.files,
+                size=format_size(info.size),
+                date=info.oldest.strftime("%d.%m.%Y") if info.oldest else "?",
+            )
+        )
+        self.cache_card.set_role("warn" if info.size >= 5_000_000_000 else "neutral")
+
+    def cleanup_cache(self) -> CacheDialog | None:
+        if self._work_dir is None:
+            return None
+        dialog = CacheDialog(self._work_dir, self)
+        if dialog.exec() == CacheDialog.DialogCode.Accepted and dialog.removed is not None:
+            self.cache_detail.setText(
+                tr("Smazáno {n} souborů, {size}.").format(
+                    n=dialog.removed.files, size=format_size(dialog.removed.size)
+                )
+            )
+            self.refresh_cache()
+        return dialog
 
     def refresh(self) -> None:
         if self._library is None:

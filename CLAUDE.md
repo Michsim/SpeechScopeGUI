@@ -68,11 +68,17 @@ z `manifest.csv` (`backend/manifest.py`, tolerantní čtení, normalizovaná
 kopie do složky běhu), úloha a jazyk, vpravo karty protokolů;
 v rozšířeném režimu souhrn feature, Upravit…, Uložit jako protokol…,
 Jen segmentace, Jen přepis; Spustit se před nepřipraveným providerem
-zeptá) · Protokoly (přibalené ke čtení, kopie, vlastní s editorem, import,
+zeptá; délka nahrávek z hlavičky WAV/FLAC (`backend/audio.py`) a odhad
+dávky podle minut zvuku, statistika `stats/<slug>/seconds_per_audio_minute`) · Protokoly (přibalené ke čtení, kopie, vlastní s editorem, import,
 export, smazání) · Výpočet (tabulka nahrávek × providerů, odhad času, Zrušit
 s potvrzením, fronta dalších dávek: Spustit během běhu zařadí, po konci
 se pustí další, `Job` v `main_window.py`) · Výsledky (historie běhů ze složek v Dokumentech přes
-`backend/history.py` a `run.json`, tabulka vybraného běhu).
+`backend/history.py` a `run.json`, tabulka vybraného běhu se zmrazeným prvním
+sloupcem (`widgets/frozen_table.py`), hledání sloupce, popis sloupce
+v tooltipu z `list --json`, detail nahrávky (`ui/recording_detail.py`),
+Spočítat znovu chybné = nová dávka `Job.merge_into`, řádky se vrátí do
+původní tabulky přes `backend/results.merge_results`) · Prostředí navíc
+Mezivýsledky (`backend/cache.py`, dialog Uvolnit místo).
 
 ## Pasti z knihovny, které GUI hlídá
 - Podproces vždy s `PYTHONUTF8=1` (`library.subprocess_env`). Bez toho
@@ -92,7 +98,12 @@ se pustí další, `Job` v `main_window.py`) · Výsledky (historie běhů ze sl
   a pyannote klinika nepotřebuje, segmentace jede přes ONNX.
 - Knihovna zapisuje `features.csv` průběžně po každé nahrávce (přes
   `.part` a přejmenování). Po Zrušit nebo chybě GUI ukáže částečnou
-  tabulku. Soubor nesmí být během běhu otevřený v Excelu.
+  tabulku. Soubor nesmí být během běhu otevřený v Excelu, **ani GUI ho
+  během běhu nesmí otvírat** (Windows odmítnou přejmenování, dokud má
+  soubor někdo otevřený, a knihovna spadne). Historie proto u běhu se
+  stavem „běží“ řádky nepočítá; počet hotových zapisuje hlavní okno do
+  `run.json` po každé nahrávce (`_file_done`) a Výsledky běžící běh
+  neotvírají.
 - Whisper: `beam_size=5` nechat, `condition_on_previous_text=false`
   (výchozí v knihovně) brání smyčkám halucinací u patologické řeči.
   Beam 1 je 5× rychlejší, ale u těžkých nahrávek kazí text. Při pádu
