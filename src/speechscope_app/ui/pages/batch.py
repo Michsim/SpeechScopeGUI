@@ -39,6 +39,7 @@ from ...backend.manifest import Manifest, find_manifest, read_manifest
 from ...backend.protocol import Protocol, card_infos, summarize
 from ...i18n import tr
 from .. import theme
+from ..file_actions import open_file, show_file_menu
 from ..pages.run import format_seconds
 from ..prepare_dialog import SegmentDialog, TranscribeDialog
 from ..protocol_dialog import SaveProtocolDialog
@@ -64,6 +65,7 @@ def _step(number: int, title: str, hint: str = "") -> tuple[QHBoxLayout, QLabel]
 
 class BatchPage(QWidget):
     run_requested = Signal(object, list)  # Protocol, list[Path]
+    notice = Signal(str)  # krátká hláška do stavového řádku hlavního okna
     save_requested = Signal(object)  # Protocol upravený v rozšířeném režimu
     # "segments" | "transcript", Protocol, cesty, volby z dialogu (model, cut_audio, language)
     prepare_requested = Signal(str, object, list, dict)
@@ -131,8 +133,12 @@ class BatchPage(QWidget):
         # neposkakuje při přeskenování (podsložky, jiná složka, metadata).
         self.files.horizontalHeader().setStretchLastSection(False)
         self.files.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.files.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.files.verticalHeader().setVisible(False)
         self.files.verticalHeader().setDefaultSectionSize(24)
+        self.files.cellDoubleClicked.connect(self.open_recording)
+        self.files.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.files.customContextMenuRequested.connect(self._files_menu)
         left_layout.addWidget(self.files, 1)
         meta_row = QHBoxLayout()
         self.manifest_label = QLabel("")
@@ -326,6 +332,33 @@ class BatchPage(QWidget):
             total += per_file * unknown
         return total
 
+    def file_for_cell(self, row: int, column: int) -> Path | None:
+        """Nahrávka na řádku; ve sloupci ruční vstupy (rozšířený režim) labely nebo přepis."""
+        if not (0 <= row < len(self._recordings)):
+            return None
+        rec = self._recordings[row]
+        if self._advanced and column == 2:
+            stem = str(rec.path.with_suffix(""))
+            for suffix, present in (
+                (contract.LABELS_SUFFIX, rec.has_labels),
+                (contract.TRANSCRIPT_SUFFIX, rec.has_transcript),
+            ):
+                if present:
+                    return Path(stem + suffix)
+        return rec.path
+
+    def open_recording(self, row: int, column: int = 0) -> bool:
+        path = self.file_for_cell(row, column)
+        return open_file(path, self.notice.emit) if path is not None else False
+
+    def _files_menu(self, pos) -> None:  # noqa: ANN001
+        item = self.files.itemAt(pos)
+        if item is None:
+            return
+        path = self.file_for_cell(item.row(), item.column())
+        if path is not None:
+            show_file_menu(self, path, self.files.viewport().mapToGlobal(pos), self.notice.emit)
+
     def _update_step1_hint(self) -> None:
         text = self.folder.text().strip()
         if not text:
@@ -462,7 +495,7 @@ class BatchPage(QWidget):
             values.extend((meta or {}).get(c, "") for c in columns)
             for c, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                item.setToolTip(str(rec.path))
+                item.setToolTip(tr("{path}\nDvojklik přehraje.").format(path=rec.path))
                 if c == 1:
                     item.setTextAlignment(
                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter

@@ -631,3 +631,44 @@ def test_default_models_dir_next_to_installed_app(
     assert s.models_dir == tmp_path / "appdata" / "models"  # starší instalace s modely
     s.models_dir = tmp_path / "jinde"
     assert s.models_dir == tmp_path / "jinde"
+
+
+def test_double_click_opens_recording(
+    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dvojklik na Analýze otevře nahrávku (nebo ruční vstup), chybějící soubor jen ohlásí."""
+    from speechscope_app.ui import file_actions
+
+    opened: list[str] = []
+    monkeypatch.setattr(
+        file_actions.QDesktopServices,
+        "openUrl",
+        lambda url: opened.append(url.toLocalFile()) or True,
+    )
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    notices: list[str] = []
+    page.notice.connect(notices.append)
+    assert page.open_recording(0)
+    assert Path(opened[-1]) == recordings / "p01.wav"
+    assert page.open_recording(0, column=2)  # rozšířený režim: sloupec ruční vstupy
+    assert Path(opened[-1]) == recordings / "p01.labels.txt"
+    page.set_advanced(False)
+    assert page.open_recording(0, column=2)
+    assert Path(opened[-1]) == recordings / "p01.wav"
+    (recordings / "p03_short.wav").unlink()
+    assert not page.open_recording(2) and "neexistuje" in notices[-1]
+    assert not page.open_recording(99)
+
+    # Výpočet: cesty řádků po startu
+    page.rescan()  # smazaná nahrávka pryč ze seznamu, jinak knihovna skončí chybou
+    assert page.select_protocol("Fonace, základní")
+    with qtbot.waitSignal(window.run_page.finished, timeout=15000):
+        page.run_btn.click()
+    run = window.run_page
+    assert run.path_for_row(0) == recordings / "p01.wav"
+    assert run.open_recording(0) and Path(opened[-1]) == recordings / "p01.wav"
+    # Výsledky: cesta z tabulky
+    assert window.results_page.path_for_row(0) == recordings / "p01.wav"

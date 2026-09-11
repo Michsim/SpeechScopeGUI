@@ -42,6 +42,7 @@ from ...backend.protocol import provider_order
 from ...backend.runner import Runner
 from ...i18n import tr
 from .. import theme
+from ..file_actions import open_file, show_file_menu
 from ..widgets.run_history import RunHistory
 
 TICK_MS = 1000
@@ -86,6 +87,7 @@ def estimate_rate(pairs: list[tuple[float, float]]) -> float | None:
 
 class RunPage(QWidget):
     finished = Signal(object, int, bool)  # BatchState, návratový kód, zrušeno
+    notice = Signal(str)  # krátká hláška do stavového řádku hlavního okna
     progress_changed = Signal(str)  # krátký text do nabídky, "" když nic neběží
     file_done = Signal(int, int)  # hotových, celkem; po každé nahrávce živého běhu
     queue_remove = Signal(int)  # vyhodit položku fronty
@@ -157,6 +159,10 @@ class RunPage(QWidget):
         self.files.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.files.verticalHeader().setVisible(False)
         self.files.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.files.cellDoubleClicked.connect(lambda row, _col: self.open_recording(row))
+        self.files.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.files.customContextMenuRequested.connect(self._files_menu)
+        self._row_paths: dict[int, Path] = {}
         self._set_columns([])
         layout.addWidget(self.files, 2)
 
@@ -291,8 +297,11 @@ class RunPage(QWidget):
     def _fill_rows(self, names: list[str]) -> None:
         self.files.clearContents()  # buňky ze startu bez sloupců providerů by zůstaly
         self.files.setRowCount(len(names))
+        self._row_paths = {
+            i: p for i, p in enumerate(self._paths) if i < len(names) and p.name == names[i]
+        }
         for row, name in enumerate(names):
-            self._set_cell(row, self.COL_FILE, name)
+            self._set_cell(row, self.COL_FILE, name, tooltip=str(self._row_paths.get(row, "")))
             self._set_cell(row, self.col_status, tr("čeká"), color=theme.MUTED)
             self._set_cell(row, self.col_note, "")
         self.files.resizeColumnsToContents()
@@ -304,9 +313,23 @@ class RunPage(QWidget):
             self.files.insertRow(row)
             self._set_cell(row, self.col_status, tr("čeká"), color=theme.MUTED)
         name = path.replace("\\", "/").rsplit("/", 1)[-1]
+        self._row_paths[index] = Path(path)
         item = self.files.item(index, self.COL_FILE)
         if item is None or item.text() != name:
             self._set_cell(index, self.COL_FILE, name, tooltip=path)
+
+    def path_for_row(self, row: int) -> Path | None:
+        return self._row_paths.get(row)
+
+    def open_recording(self, row: int) -> bool:
+        path = self.path_for_row(row)
+        return open_file(path, self.notice.emit) if path is not None else False
+
+    def _files_menu(self, pos) -> None:  # noqa: ANN001
+        item = self.files.itemAt(pos)
+        path = self.path_for_row(item.row()) if item is not None else None
+        if path is not None:
+            show_file_menu(self, path, self.files.viewport().mapToGlobal(pos), self.notice.emit)
 
     def _set_cell(
         self,

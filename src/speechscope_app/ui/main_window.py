@@ -183,6 +183,8 @@ class MainWindow(QMainWindow):
         self.batch_page.prepare_requested.connect(self._start_prepare)
         self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
+        for page in (self.batch_page, self.run_page, self.results_page):
+            page.notice.connect(lambda text: self.statusBar().showMessage(text, 6000))
         self.run_page.progress_changed.connect(self._show_progress)
         self.run_page.file_done.connect(self._file_done)
         self.run_page.queue_remove.connect(self.remove_queued)

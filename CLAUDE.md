@@ -85,7 +85,10 @@ sloupcem (`widgets/frozen_table.py`), hledání sloupce, popis sloupce
 v tooltipu z `list --json`, detail nahrávky (`ui/recording_detail.py`),
 Spočítat znovu chybné = nová dávka `Job.merge_into`, řádky se vrátí do
 původní tabulky přes `backend/results.merge_results`) · Prostředí navíc
-Mezivýsledky (`backend/cache.py`, dialog Uvolnit místo).
+Mezivýsledky (`backend/cache.py`, dialog Uvolnit místo). Dvojklik na
+nahrávku (Analýza, Výpočet) ji otevře přiřazeným programem, pravé tlačítko
+nabídne přehrát, zobrazit ve složce, kopírovat cestu (`ui/file_actions.py`);
+na Výsledcích je dvojklik detail a přehrání je v pravém tlačítku.
 
 ## Pasti z knihovny, které GUI hlídá
 - Podproces vždy s `PYTHONUTF8=1` (`library.subprocess_env`). Bez toho

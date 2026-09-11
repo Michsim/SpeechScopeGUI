@@ -33,6 +33,7 @@ from ...backend.history import RunInfo
 from ...backend.library import FeatureInfo, Library, LibraryError
 from ...backend.results import failed_paths
 from ...i18n import tr
+from ..file_actions import file_menu
 from ..recording_detail import RecordingDetailDialog, column_descriptions
 from ..widgets.frozen_table import FrozenTableView
 from ..widgets.run_history import RunHistory
@@ -83,6 +84,7 @@ class FrameModel(QAbstractTableModel):
 
 class ResultsPage(QWidget):
     rerun_requested = Signal(object, list)  # složka běhu, cesty nahrávek s chybou
+    notice = Signal(str)  # krátká hláška do stavového řádku hlavního okna
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -154,6 +156,11 @@ class ResultsPage(QWidget):
         self.table = FrozenTableView()
         self.table.setAlternatingRowColors(True)
         self.table.doubleClicked.connect(lambda index: self.show_detail(index.row()))
+        for view in (self.table, self.table.frozen):
+            view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            view.customContextMenuRequested.connect(
+                lambda pos, view=view: self._row_menu(view, pos)
+            )
         right_layout.addWidget(self.table, 1)
         self.splitter.addWidget(right)
         self.splitter.setStretchFactor(0, 0)
@@ -325,6 +332,24 @@ class ResultsPage(QWidget):
         dialog = self.make_detail(row)
         if dialog is not None:
             dialog.exec()
+
+    def path_for_row(self, row: int) -> Path | None:
+        data = self.detail_row(row)
+        if not data or not data.get("path"):
+            return None
+        return Path(str(data["path"]))
+
+    def _row_menu(self, view, pos) -> None:  # noqa: ANN001
+        index = view.indexAt(pos)
+        if not index.isValid():
+            return
+        path = self.path_for_row(index.row())
+        if path is None:
+            return
+        menu = file_menu(self, path, self.notice.emit)
+        detail = menu.addAction(tr("Detail nahrávky…"))
+        detail.triggered.connect(lambda: self.show_detail(index.row()))
+        menu.exec(view.viewport().mapToGlobal(pos))
 
     def _detail_current(self) -> None:
         rows = self.table.selectionModel().selectedRows() if self.table.model() else []
