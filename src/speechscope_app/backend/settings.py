@@ -7,6 +7,7 @@ Protokoly se drží jako soubory zvlášť (viz `protocol.py`).
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QStandardPaths
@@ -25,6 +26,31 @@ def documents_dir() -> Path:
 def app_data_dir() -> Path:
     base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation)
     return Path(base or (Path.home() / ".speechscope-app"))
+
+
+def install_dir() -> Path | None:
+    """Složka, kam je zabalená aplikace nainstalovaná (vedle SpeechScope.exe).
+
+    Instalátor ji dává do `%LOCALAPPDATA%\\Programs\\SpeechScope`, takže je
+    zapisovatelná bez správce. Při vývoji (nezabaleno) `None`.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return None
+
+
+def default_models_dir() -> Path:
+    """Návrh složky modelů: vedle nainstalované aplikace (`models`), aby ji
+    uživatel viděl a mohl přesunout; při vývoji v AppData. Starší instalace
+    s modely už v AppData je používá dál, dokud si uživatel nevybere jinak."""
+    legacy = app_data_dir() / "models"
+    base = install_dir()
+    if base is None:
+        return legacy
+    proposed = base / "models"
+    if legacy.is_dir() and any(legacy.iterdir()) and not proposed.is_dir():
+        return legacy
+    return proposed
 
 
 class AppSettings:
@@ -80,7 +106,7 @@ class AppSettings:
     @property
     def models_dir(self) -> Path:
         raw = self._q.value("library/models_dir", "")
-        return Path(raw) if raw else app_data_dir() / "models"
+        return Path(raw) if raw else default_models_dir()
 
     @models_dir.setter
     def models_dir(self, value: Path) -> None:

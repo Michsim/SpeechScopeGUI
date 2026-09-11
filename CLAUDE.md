@@ -61,7 +61,14 @@ Pořadí v nabídce: Analýza · Výpočet · Výsledky · Protokoly · Prostře
 Po startu je vždy Uvítání (`pages/welcome.py`, v zásobníku jako
 `PAGE_WELCOME`, v nabídce není): logo, dvě věty, tlačítka Začít analýzu
 a Zkontrolovat prostředí; modré je to doporučené (`start_page()`: bez
-knihovny nebo modelů Prostředí, a to se rovnou zkontroluje).
+knihovny nebo modelů Prostředí, a to se rovnou zkontroluje). Dokud chybí
+modely, je na uvítání blok První nastavení: složka modelů a výsledků
+(Změnit… = `MainWindow.change_models_dir/change_work_root`), volné místo,
+Modely ze souboru… a Stáhnout modely…. Tytéž složky jsou i v Prostředí
+(karta Složky). Výchozí složka modelů je u zabalené aplikace `{app}\models`
+vedle exe (`settings.default_models_dir`; instalátor je per-user, takže
+zapisovatelná), při vývoji AppData; starší instalace s modely v AppData
+je používá dál.
 Prostředí (doctor, modely, Diagnostika… = zip pro podporu z
 `backend/diagnostics.py`) · Analýza (dva sloupce: vlevo nahrávky s metadaty
 z `manifest.csv` (`backend/manifest.py`, tolerantní čtení, normalizovaná

@@ -165,16 +165,19 @@ class MainWindow(QMainWindow):
         self.env_page.diagnostics_requested.connect(self.save_diagnostics)
         self.env_page.report_changed.connect(self.batch_page.set_doctor)
         self.env_page.report_changed.connect(self.welcome_page.set_report)
+        self.env_page.models_dir_requested.connect(self.change_models_dir)
+        self.env_page.work_root_requested.connect(self.change_work_root)
+        self.welcome_page.models_dir_requested.connect(self.change_models_dir)
+        self.welcome_page.work_root_requested.connect(self.change_work_root)
+        self.welcome_page.install_requested.connect(self.install_models)
+        self.welcome_page.download_requested.connect(self.download_models)
         self.welcome_page.analysis_requested.connect(lambda: self.nav.setCurrentRow(PAGE_BATCH))
         self.welcome_page.environment_requested.connect(lambda: self.nav.setCurrentRow(PAGE_ENV))
         self.env_page.report_changed.connect(self.protocols_page.set_doctor)
         self.batch_page.set_stats_lookup(self.settings.seconds_per_file)
         self.batch_page.set_rate_lookup(self.settings.seconds_per_audio_minute)
         self.protocols_page.set_stats_lookup(self.settings.seconds_per_file)
-        self.results_page.set_work_root(self.settings.work_root)
         self.results_page.rerun_requested.connect(self.rerun_failed)
-        self.env_page.set_work_dir(self.settings.work_root / "work")
-        self.run_page.set_work_root(self.settings.work_root)
         self.protocols_page.protocols_changed.connect(self.reload_protocols)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.prepare_requested.connect(self._start_prepare)
@@ -225,6 +228,7 @@ class MainWindow(QMainWindow):
         self.batch_page.set_advanced(self.settings.advanced)
         self.protocols_page.set_library(self.library)
         self.results_page.set_library(self.library)
+        self._apply_folders()
         self.protocols_page.set_advanced(self.settings.advanced)
         self.reload_protocols(self.settings.last_protocol)
         if self.settings.last_input_dir and self.settings.last_input_dir.is_dir():
@@ -256,6 +260,45 @@ class MainWindow(QMainWindow):
             )
         except OSError:
             return
+        self.run_page.refresh_history()
+
+    def _apply_folders(self) -> None:
+        """Složky z nastavení do všech stránek, které je ukazují nebo používají."""
+        models_dir, work_root = self.settings.models_dir, self.settings.work_root
+        self.results_page.set_work_root(work_root)
+        self.run_page.set_work_root(work_root)
+        self.env_page.set_work_dir(work_root / "work")
+        self.env_page.set_folders(models_dir, work_root)
+        self.welcome_page.set_folders(models_dir, work_root)
+
+    def change_models_dir(self, chosen: Path | None = None) -> None:
+        """Složka modelů: dialog (nebo daná cesta v testech), uložit, znovu spojit knihovnu."""
+        if chosen is None:
+            text = QFileDialog.getExistingDirectory(
+                self, tr("Složka s modely"), str(self.settings.models_dir)
+            )
+            if not text:
+                return
+            chosen = Path(text)
+        self.settings.models_dir = chosen
+        self._apply_settings()  # knihovna dostává --models-dir, protokoly se přepočítají
+        self.welcome_page.set_state(
+            library_ok=self.library is not None, models_ok=self.start_page() != PAGE_ENV
+        )
+        if self.library is not None:
+            self.env_page.refresh()
+
+    def change_work_root(self, chosen: Path | None = None) -> None:
+        if chosen is None:
+            text = QFileDialog.getExistingDirectory(
+                self, tr("Složka výsledků"), str(self.settings.work_root)
+            )
+            if not text:
+                return
+            chosen = Path(text)
+        self.settings.work_root = chosen
+        self._apply_folders()
+        self.results_page.refresh()
         self.run_page.refresh_history()
 
     def _show_progress(self, text: str) -> None:

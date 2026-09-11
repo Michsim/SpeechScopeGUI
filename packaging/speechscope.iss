@@ -24,7 +24,8 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-; nahrávky ani modely instalátor nesahá; modely jdou do %LOCALAPPDATA%\SAMI\SpeechScopeApp\models
+; nahrávky ani modely instalátor nesahá; aplikace navrhne modely do {app}\models
+; (uživatel může změnit na uvítání nebo v Prostředí), odinstalace je nemaže
 
 [Languages]
 Name: "czech"; MessagesFile: "compiler:Languages\Czech.isl"

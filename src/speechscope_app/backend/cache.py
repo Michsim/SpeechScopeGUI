@@ -9,6 +9,7 @@ nemaže, takže za měsíce provozu narostou na gigabajty. Složky běhů
 from __future__ import annotations
 
 import os
+import shutil
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -81,6 +82,19 @@ def purge(work_dir: Path, *, older_than_days: int | None = None) -> CacheInfo:
             except OSError:
                 pass
     return CacheInfo(files, size, datetime.fromtimestamp(oldest) if oldest else None)
+
+
+def free_bytes(path: Path) -> int | None:
+    """Volné místo na disku, kde složka leží (nebo bude ležet); None, když nejde zjistit."""
+    probe = path
+    while not probe.exists():
+        if probe.parent == probe:
+            return None
+        probe = probe.parent
+    try:
+        return shutil.disk_usage(probe).free
+    except OSError:
+        return None
 
 
 def format_size(size: int) -> str:

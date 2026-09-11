@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -579,3 +580,54 @@ def test_environment_cache_cleanup(qtbot: QtBot, settings: AppSettings) -> None:
     assert dialog.removed is not None and dialog.removed.files == 1
     env.refresh_cache()
     assert "1 souborů, 10 B" in env.cache_detail.text() and not old.exists()
+
+
+def test_welcome_first_setup_block(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bez modelů: blok se složkami a instalací; složky jdou změnit; po modelech zmizí."""
+    from speechscope_app.backend.library import fake_command
+
+    settings.use_fake_library = False
+    settings.library_command = fake_command()
+    monkeypatch.setenv("SPEECHSCOPE_FAKE_DOCTOR", "missing")
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    welcome = window.welcome_page
+    assert welcome.setup.isVisibleTo(welcome) and not welcome.status.isVisibleTo(welcome)
+    assert welcome.models_row.path.toolTip() == str(settings.models_dir)
+    assert welcome.work_row.path.toolTip() == str(settings.work_root)
+    assert welcome.install_btn.isEnabled() and "Volné místo" in welcome.space.text()
+    assert window.env_page.models_path.text() == str(settings.models_dir)
+
+    new_work = tmp_path / "vysledky"
+    window.change_work_root(new_work)
+    assert settings.work_root == new_work and welcome.work_row.path.toolTip() == str(new_work)
+    assert window.env_page.work_path.text() == str(new_work)
+    new_models = tmp_path / "modely"
+    new_models.mkdir()
+    (new_models / "whisper-large-v3-ct2").mkdir()
+    monkeypatch.delenv("SPEECHSCOPE_FAKE_DOCTOR")
+    window.change_models_dir(new_models)
+    assert settings.models_dir == new_models and window.library is not None
+    assert str(new_models) in " ".join(window.library.argv([]) + [str(window.library.models_dir)])
+    assert not welcome.setup.isVisibleTo(welcome) and welcome.status.isVisibleTo(welcome)
+    assert not welcome.recommends_environment()
+
+
+def test_default_models_dir_next_to_installed_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from speechscope_app.backend import settings as settings_mod
+
+    monkeypatch.setattr(settings_mod, "app_data_dir", lambda: tmp_path / "appdata")
+    s = AppSettings(tmp_path / "s.ini")
+    assert s.models_dir == tmp_path / "appdata" / "models"  # vývoj: jako dřív
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "app" / "SpeechScope.exe"))
+    assert s.models_dir == tmp_path / "app" / "models"  # zabaleno: vedle exe
+    legacy = tmp_path / "appdata" / "models" / "stanza"
+    legacy.mkdir(parents=True)
+    assert s.models_dir == tmp_path / "appdata" / "models"  # starší instalace s modely
+    s.models_dir = tmp_path / "jinde"
+    assert s.models_dir == tmp_path / "jinde"

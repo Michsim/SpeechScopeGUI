@@ -113,6 +113,8 @@ class EnvironmentPage(QWidget):
     install_requested = Signal()  # modely ze souboru (balík z `models pack`)
     report_changed = Signal(object)  # výsledek doctor --json nebo None
     diagnostics_requested = Signal()
+    models_dir_requested = Signal()  # změnit složku modelů
+    work_root_requested = Signal()  # změnit složku výsledků
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -187,6 +189,38 @@ class EnvironmentPage(QWidget):
         row.addWidget(self.check_btn, 0, Qt.AlignmentFlag.AlignTop)
         self.status_card.body.addLayout(row)
         layout.addWidget(self.status_card)
+
+        # složky
+        layout.addWidget(_label(tr("Složky"), "section"))
+        self.folders_card = Card("neutral")
+        folders = QGridLayout()
+        folders.setHorizontalSpacing(12)
+        folders.setVerticalSpacing(6)
+        folders.setColumnStretch(1, 1)
+        self.models_path = _label("", "muted")
+        self.models_path.setWordWrap(True)
+        self.models_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.work_path = _label("", "muted")
+        self.work_path.setWordWrap(True)
+        self.work_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.models_btn = QPushButton(tr("Změnit…"))
+        self.models_btn.setToolTip(
+            tr("Kam se nainstalují modely (asi 5 GB). Návrh je složka vedle aplikace.")
+        )
+        self.models_btn.clicked.connect(self.models_dir_requested)
+        self.work_btn = QPushButton(tr("Změnit…"))
+        self.work_btn.setToolTip(
+            tr("Kam se ukládají tabulky výsledků a mezivýsledky, do složky na každý běh.")
+        )
+        self.work_btn.clicked.connect(self.work_root_requested)
+        folders.addWidget(_label(tr("Modely"), "card_title"), 0, 0)
+        folders.addWidget(self.models_path, 0, 1)
+        folders.addWidget(self.models_btn, 0, 2)
+        folders.addWidget(_label(tr("Výsledky"), "card_title"), 1, 0)
+        folders.addWidget(self.work_path, 1, 1)
+        folders.addWidget(self.work_btn, 1, 2)
+        self.folders_card.body.addLayout(folders)
+        layout.addWidget(self.folders_card)
 
         # části knihovny
         layout.addWidget(_label(tr("Části knihovny"), "section"))
@@ -291,6 +325,10 @@ class EnvironmentPage(QWidget):
     def set_work_dir(self, work_dir: Path) -> None:
         self._work_dir = work_dir
         self.refresh_cache()
+
+    def set_folders(self, models_dir: Path, work_root: Path) -> None:
+        self.models_path.setText(str(models_dir))
+        self.work_path.setText(str(work_root))
 
     def refresh_cache(self) -> None:
         """Velikost mezivýsledků; laciné (jen průchod složkou), volá se při zobrazení."""
