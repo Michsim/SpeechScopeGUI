@@ -1,5 +1,5 @@
 {
-  "speechscope": "0.1.0",
+  "speechscope": "0.2.0",
   "python": "3.11.16",
   "platform": "Windows 10",
   "models_dir": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models",
@@ -110,7 +110,9 @@
       "DmlExecutionProvider",
       "CPUExecutionProvider"
     ],
-    "onnxruntime_gpu": true
+    "onnxruntime_gpu": true,
+    "remote_session": false,
+    "onnxruntime_gpu_usable": true
   },
   "providers": {
     "transcript": {

@@ -135,7 +135,7 @@ přes Windows Update. Žádný CUDA Toolkit.
 | co | čím se řídí |
 |---|---|
 | přepis Whisperem | vlastní vrstva v ctranslate2, kartu použije sám; když kartu neunese (málo paměti, nepodporovaný typ výpočtu), dopočítá v int8 na procesoru a zapíše to do logu |
-| segmentace přes ONNX (výchozí, když jsou modely) | na Windows libovolná karta přes DirectML, jinak procesor; při pádu na kartě dopočítá na procesoru |
+| segmentace přes ONNX (výchozí, když jsou modely) | na Windows libovolná karta přes DirectML, jinak procesor; při pádu na kartě dopočítá na procesoru. Přes vzdálenou plochu DirectML k fyzické kartě nemá přístup, `doctor` to hlásí (`gpu.remote_session`, `gpu.onnxruntime_gpu_usable`) |
 | segmentace přes torch | kartu použije jen sestavení torche s CUDA |
 
 Základní instalace přináší torch bez CUDA, takže segmentace přes torch

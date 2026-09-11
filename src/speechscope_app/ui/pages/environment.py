@@ -392,14 +392,30 @@ class EnvironmentPage(QWidget):
             str(p).removesuffix("ExecutionProvider") for p in gpu.get("onnxruntime_providers") or []
         ]
         dml = bool(gpu.get("onnxruntime_gpu"))
-        self._set_accel(
-            "onnx",
-            dml,
-            "DirectML" if dml else "CPU",
-            tr("Providery: ") + ", ".join(names) + "."
-            if names
-            else tr("onnxruntime není k dispozici."),
-        )
+        usable = gpu.get("onnxruntime_gpu_usable")
+        if dml and usable is False:
+            # karta je v seznamu, ale sezení na ní nejde otevřít
+            reason = (
+                tr("DirectML nejde v této relaci použít (vzdálená plocha), ")
+                if gpu.get("remote_session")
+                else tr("DirectML se na této kartě nepodařilo otevřít, ")
+            )
+            self.gpu_cards["onnx"].set_state(
+                "warn",
+                "CPU",
+                "warn",
+                reason
+                + tr("segmentace poběží na procesoru. Přihlášení u počítače to obvykle vyřeší."),
+            )
+        else:
+            self._set_accel(
+                "onnx",
+                dml,
+                "DirectML" if dml else "CPU",
+                tr("Providery: ") + ", ".join(names) + "."
+                if names
+                else tr("onnxruntime není k dispozici."),
+            )
         torch_cuda = bool(gpu.get("torch_cuda"))
         build = str(gpu.get("torch_build") or "")
         self._set_accel(

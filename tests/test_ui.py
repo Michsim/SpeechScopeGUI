@@ -456,3 +456,18 @@ def test_runs_queue_up_and_continue(
     assert any(n.endswith("fonace-zakladni") for n in run_dirs)
     assert any(n.endswith("ddk-zakladni") for n in run_dirs)
     assert len(run_dirs) == 2
+
+
+def test_environment_warns_about_remote_desktop(qtbot: QtBot, settings: AppSettings) -> None:
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    env = window.env_page
+    env.refresh()
+    report = dict(env.report)
+    assert env.gpu_cards["onnx"].pill.text() == "DirectML"
+    gpu = dict(report["gpu"])
+    gpu.update({"remote_session": True, "onnxruntime_gpu_usable": False})
+    report["gpu"] = gpu
+    env._show("0.2.0", report)
+    card = env.gpu_cards["onnx"]
+    assert card.pill.text() == "CPU" and "vzdálená plocha" in card.detail.text()
