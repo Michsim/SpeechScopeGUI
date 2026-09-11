@@ -38,7 +38,8 @@ from .pages.results import ResultsPage
 from .pages.run import RunPage
 from .settings_dialog import SettingsDialog
 
-PAGE_ENV, PAGE_BATCH, PAGE_PROTOCOLS, PAGE_RUN, PAGE_RESULTS = range(5)
+# Pořadí v nabídce: od každodenního (analýza) k jednorázovému (prostředí).
+PAGE_BATCH, PAGE_RUN, PAGE_RESULTS, PAGE_PROTOCOLS, PAGE_ENV = range(5)
 
 
 @dataclass(slots=True)
@@ -83,21 +84,21 @@ class MainWindow(QMainWindow):
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
         self.nav_labels = (
-            tr("Prostředí"),
-            tr("Data"),
-            tr("Protokoly"),
-            tr("Běh"),
+            tr("Analýza"),
+            tr("Výpočet"),
             tr("Výsledky"),
+            tr("Protokoly"),
+            tr("Prostředí"),
         )
         for label in self.nav_labels:
             self.nav.addItem(label)
         self.pages = QStackedWidget()
         for page in (
-            self.env_page,
             self.batch_page,
-            self.protocols_page,
             self.run_page,
             self.results_page,
+            self.protocols_page,
+            self.env_page,
         ):
             self.pages.addWidget(page)
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
@@ -178,7 +179,7 @@ class MainWindow(QMainWindow):
             self.results_page.refresh()
 
     def start_page(self) -> int:
-        """Klinik začíná na Datech; bez knihovny nebo bez modelů na Prostředí."""
+        """Klinik začíná na Analýze; bez knihovny nebo bez modelů na Prostředí."""
         if self.library is None:
             return PAGE_ENV
         if not self.settings.use_fake_library and not _has_models(self.settings.models_dir):

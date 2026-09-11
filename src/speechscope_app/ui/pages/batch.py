@@ -1,4 +1,4 @@
-"""Stránka Data: složka, protokol, nalezené nahrávky, spuštění.
+"""Stránka Analýza: složka, protokol, nalezené nahrávky, spuštění.
 
 Základní režim ukazuje jen složku, protokol a nahrávky. Rozšířený režim
 přidává pod nahrávky editor protokolu (výběr feature a parametry),
@@ -79,7 +79,7 @@ class BatchPage(QWidget):
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(10)
 
-        title = QLabel(tr("Data"))
+        title = QLabel(tr("Analýza"))
         title.setObjectName("page_title")
         layout.addWidget(title)
         subtitle = QLabel(
@@ -421,7 +421,7 @@ class BatchPage(QWidget):
         paths = [rec.path for rec in self._recordings]
         matched = manifest.matched(paths)
         self.manifest_label.setText(
-            tr("Metadata {name}: {columns} · {matched} z {total} nahrávek").format(
+            tr("{name}: {columns} · {matched} z {total}").format(
                 name=manifest.path.name,
                 columns=", ".join(columns) or tr("bez sloupců"),
                 matched=matched,

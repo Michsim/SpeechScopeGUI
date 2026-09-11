@@ -159,7 +159,8 @@ def apply(app: QApplication) -> None:
     palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(CARD))
     palette.setColor(QPalette.ColorRole.ToolTipText, QColor(TEXT))
     app.setPalette(palette)
-    font = QFont("Segoe UI" if sys.platform == "win32" else app.font().family(), 10)
+    font = QFont("Segoe UI" if sys.platform == "win32" else app.font().family())
+    font.setPointSizeF(10.5)  # o půl bodu víc než výchozí, čitelnější na noteboocích
     app.setFont(font)
     app.setStyleSheet(STYLESHEET)
 

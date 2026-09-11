@@ -59,7 +59,7 @@ def test_window_runs_batch_end_to_end(
     assert run.files.rowCount() == 4
     statuses = [run.files.item(r, run.col_status).text() for r in range(4)]
     assert sorted(statuses) == ["chyba", "ok", "ok", "ok"]
-    assert window.nav.item(PAGE_RUN).text() == "Běh"
+    assert window.nav.item(PAGE_RUN).text() == "Výpočet"
     assert run.headline.text().startswith("Hotovo za")
     assert settings.seconds_per_file("fonace-zakladni") is not None
     assert window.results_page.table.model().rowCount() == 4
@@ -450,7 +450,7 @@ def test_runs_queue_up_and_continue(
     qtbot.waitUntil(lambda: len(finished) == 2, timeout=30000)
     qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=5000)
     assert not window.queued_jobs() and window.run_page.queue_box.isHidden()
-    assert window.nav.item(PAGE_RUN).text() == "Běh"
+    assert window.nav.item(PAGE_RUN).text() == "Výpočet"
     assert window.nav.currentRow() == PAGE_RESULTS  # až po poslední dávce
     run_dirs = sorted(p.name for p in settings.work_root.iterdir() if p.name != "work")
     assert any(n.endswith("fonace-zakladni") for n in run_dirs)

@@ -57,14 +57,15 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   v UI se používá `proto.display_name`, `proto.name` zůstává klíč.
 
 ## Stránky
+Pořadí v nabídce: Analýza · Výpočet · Výsledky · Protokoly · Prostředí.
 Prostředí (doctor, modely, Diagnostika… = zip pro podporu z
-`backend/diagnostics.py`) · Data (dva sloupce: vlevo nahrávky s metadaty
+`backend/diagnostics.py`) · Analýza (dva sloupce: vlevo nahrávky s metadaty
 z `manifest.csv` (`backend/manifest.py`, tolerantní čtení, normalizovaná
 kopie do složky běhu), úloha a jazyk, vpravo karty protokolů;
 v rozšířeném režimu souhrn feature, Upravit…, Uložit jako protokol…,
 Jen segmentace, Jen přepis; Spustit se před nepřipraveným providerem
 zeptá) · Protokoly (přibalené ke čtení, kopie, vlastní s editorem, import,
-export, smazání) · Běh (tabulka nahrávek × providerů, odhad času, Zrušit
+export, smazání) · Výpočet (tabulka nahrávek × providerů, odhad času, Zrušit
 s potvrzením, fronta dalších dávek: Spustit během běhu zařadí, po konci
 se pustí další, `Job` v `main_window.py`) · Výsledky (historie běhů ze složek v Dokumentech přes
 `backend/history.py` a `run.json`, tabulka vybraného běhu).
