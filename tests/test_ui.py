@@ -41,8 +41,8 @@ def test_window_runs_batch_end_to_end(
     assert window.batch_page.files.rowCount() == 4
     assert window.batch_page.run_btn.isEnabled()
 
-    idx = window.batch_page.protocol.findText("Fonace, základní")
-    window.batch_page.protocol.setCurrentIndex(idx)
+    assert window.batch_page.select_protocol("Fonace, základní")
+    assert window.batch_page.protocols.task_buttons["phonation"].isChecked()
     assert window.batch_page.editor.has_catalog()
     assert window.batch_page.editor.picker.warning.isHidden()  # doctor: všechno připravené
 
@@ -72,7 +72,7 @@ def test_save_protocol_from_advanced_mode(qtbot: QtBot, settings: AppSettings) -
     window = MainWindow(settings)
     qtbot.addWidget(window)
     page = window.batch_page
-    page.protocol.setCurrentIndex(page.protocol.findText("Fonace, základní"))
+    assert page.select_protocol("Fonace, základní")
     assert page.save_btn.isEnabled()
 
     # odškrtnout první feature a upravit parametr providera přes panel
@@ -90,7 +90,8 @@ def test_save_protocol_from_advanced_mode(qtbot: QtBot, settings: AppSettings) -
     path = window.save_protocol(proto)
     assert path.is_file() and path.parent == settings.protocols_dir()
     assert page.current_protocol().name == "Moje fonace"
-    assert page.protocol.currentText() == "Moje fonace (vlastní)"
+    assert not page.protocols._cards["Moje fonace"].modified.isVisible()
+    assert page.protocols.task_buttons["phonation"].isChecked()
     saved = page.current_protocol()
     assert saved.features == proto.features and saved.config == {"transcript": {"language": "en"}}
 

@@ -14,7 +14,6 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -30,11 +29,12 @@ from PySide6.QtWidgets import (
 
 from ... import contract
 from ...backend.discover import Recording, find_recordings
-from ...backend.library import Library
-from ...backend.protocol import Protocol
+from ...backend.library import Library, LibraryError
+from ...backend.protocol import Protocol, card_infos
 from .. import theme
 from ..protocol_dialog import SaveProtocolDialog
 from ..widgets.protocol_editor import ProtocolEditor
+from ..widgets.protocol_list import ProtocolCardInfo, ProtocolList
 
 
 class BatchPage(QWidget):
@@ -46,6 +46,7 @@ class BatchPage(QWidget):
         self._library: Library | None = None
         self._protocols: list[Protocol] = []
         self._recordings: list[Recording] = []
+        self._seconds_per_file: Callable[[str], float | None] = lambda _slug: None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -77,18 +78,12 @@ class BatchPage(QWidget):
         folder_row.addWidget(self.recursive)
         layout.addLayout(folder_row)
 
-        proto_row = QHBoxLayout()
-        self.protocol = QComboBox()
-        self.protocol.currentIndexChanged.connect(self._protocol_changed)
-        self.protocol_desc = QLabel("")
-        self.protocol_desc.setWordWrap(True)
-        proto_row.addWidget(QLabel("Protokol:"))
-        proto_row.addWidget(self.protocol, 1)
-        layout.addLayout(proto_row)
-        layout.addWidget(self.protocol_desc)
-
         self.splitter = QSplitter(Qt.Orientation.Vertical)
         layout.addWidget(self.splitter, 1)
+
+        self.protocols = ProtocolList()
+        self.protocols.current_changed.connect(self._protocol_changed)
+        self.splitter.addWidget(self.protocols)
 
         self.files = QTableWidget()
         self.files.setColumnCount(3)
@@ -101,7 +96,7 @@ class BatchPage(QWidget):
         self.advanced_box = QGroupBox("Feature a parametry")
         adv = QVBoxLayout(self.advanced_box)
         self.editor = ProtocolEditor()
-        self.editor.changed.connect(self._update_run_state)
+        self.editor.changed.connect(self._editor_changed)
         adv.addWidget(self.editor, 1)
         self.save_btn = QPushButton("Uložit jako protokol…")
         self.save_btn.setToolTip("Uloží aktuální výběr feature a parametry jako nový protokol")
@@ -109,9 +104,10 @@ class BatchPage(QWidget):
         self.save_btn.clicked.connect(self._save)
         adv.addWidget(self.save_btn, 0, Qt.AlignmentFlag.AlignRight)
         self.splitter.addWidget(self.advanced_box)
-        self.splitter.setStretchFactor(0, 1)
-        self.splitter.setStretchFactor(1, 3)
-        self.splitter.setSizes([150, 450])
+        self.splitter.setStretchFactor(0, 2)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setStretchFactor(2, 3)
+        self.splitter.setSizes([200, 140, 400])
 
         bottom = QHBoxLayout()
         self.status = QLabel("")
@@ -134,21 +130,35 @@ class BatchPage(QWidget):
         self.editor.set_doctor(report)
 
     def set_stats_lookup(self, lookup: Callable[[str], float | None]) -> None:
+        self._seconds_per_file = lookup
         self.editor.set_stats_lookup(lookup)
 
     def refresh_summary(self) -> None:
+        """Po běhu: nová doba na nahrávku do karet i do souhrnu editoru."""
         self.editor.refresh_summary()
+        self.protocols.set_protocols(
+            self._protocols, self._card_infos(), current=self.protocols.current_name()
+        )
 
     def set_protocols(self, protocols: list[Protocol], *, current: str = "") -> None:
         self._protocols = protocols
-        self.protocol.blockSignals(True)
-        self.protocol.clear()
-        for p in protocols:
-            self.protocol.addItem(p.name if p.builtin else f"{p.name} (vlastní)", p)
-        self.protocol.blockSignals(False)
-        idx = next((i for i, p in enumerate(protocols) if p.name == current), 0)
-        self.protocol.setCurrentIndex(idx)
-        self._protocol_changed()
+        self.protocols.set_protocols(protocols, self._card_infos(), current=current)
+        if self.protocols.current() is None:
+            self._protocol_changed(None)
+
+    def _card_infos(self) -> dict[str, ProtocolCardInfo]:
+        if self._library is None:
+            return {}
+        try:
+            catalog = self._library.features()
+            providers = self._library.providers()
+        except LibraryError:
+            return {}
+        raw = card_infos(self._protocols, catalog, providers, self._seconds_per_file)
+        return {name: ProtocolCardInfo(list(p), hint) for name, (p, hint) in raw.items()}
+
+    def select_protocol(self, name: str) -> bool:
+        return self.protocols.select(name)
 
     def protocol_names(self) -> set[str]:
         return {p.name for p in self._protocols}
@@ -161,7 +171,7 @@ class BatchPage(QWidget):
         self.rescan()
 
     def current_protocol(self) -> Protocol | None:
-        return self.protocol.currentData()
+        return self.protocols.current()
 
     # --- složka ---------------------------------------------------------------
 
@@ -189,10 +199,17 @@ class BatchPage(QWidget):
 
     # --- protokol -------------------------------------------------------------------
 
-    def _protocol_changed(self) -> None:
-        proto = self.current_protocol()
-        self.protocol_desc.setText(proto.description if proto else "")
+    def _protocol_changed(self, proto: Protocol | None) -> None:
         self.editor.set_protocol(proto)
+        self._update_run_state()
+
+    def _editor_changed(self) -> None:
+        proto = self.current_protocol()
+        if proto is not None:
+            edited = self.editor.result()
+            self.protocols.set_modified(
+                proto.name, edited is not None and edited.to_dict() != proto.to_dict()
+            )
         self._update_run_state()
 
     # --- spuštění -------------------------------------------------------------

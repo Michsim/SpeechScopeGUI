@@ -34,6 +34,14 @@ TASK_LABELS: dict[str, str] = {
     "reading": "Čtený text",
 }
 
+TASK_SHORT: dict[str, str] = {
+    "phonation": "Fonace",
+    "ddk": "DDK",
+    "story": "Pohádka",
+    "monologue": "Monolog",
+    "reading": "Čtení",
+}
+
 DOMAINS: tuple[str, ...] = ("acoustic", "linguistic")
 
 DOMAIN_LABELS: dict[str, str] = {

@@ -9,6 +9,7 @@ from __future__ import annotations
 import fnmatch
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
@@ -158,6 +159,27 @@ class Summary:
             if provider in self.providers:
                 return hint
         return contract.NO_MODELS_COST
+
+
+def card_infos(
+    protocols: list[Protocol],
+    catalog: list[FeatureInfo],
+    providers: list[FeatureParams] | None,
+    seconds_per_file: Callable[[str], float | None],
+) -> dict[str, tuple[list[str], str]]:
+    """Pro každý protokol providery a nápis o ceně (naposledy změřená, jinak odhad).
+
+    `catalog` je celý `list --json` bez úlohy; feature se filtrují podle
+    `tasks`, takže na všechny protokoly stačí jeden dotaz na knihovnu.
+    """
+    out: dict[str, tuple[list[str], str]] = {}
+    for proto in protocols:
+        pool = [f for f in catalog if proto.task in f.tasks]
+        summary = summarize(proto.select([f.name for f in pool]), pool, providers)
+        seconds = seconds_per_file(proto.slug())
+        hint = f"naposledy {seconds:.0f} s na nahrávku" if seconds else summary.cost_hint()
+        out[proto.name] = (summary.providers, hint)
+    return out
 
 
 def summarize(

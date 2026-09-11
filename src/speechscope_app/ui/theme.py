@@ -73,6 +73,7 @@ QFrame#card[role="ok"] {{ border-left: 4px solid {OK}; }}
 QFrame#card[role="missing"] {{ border-left: 4px solid {MISSING}; }}
 QFrame#card[role="warn"] {{ border-left: 4px solid {WARN}; }}
 QFrame#card[role="neutral"] {{ border-left: 4px solid {NEUTRAL}; }}
+QFrame#card[role="selected"] {{ border: 1px solid {ACCENT}; border-left: 4px solid {ACCENT}; }}
 
 /* štítky stavu */
 QLabel#pill {{ padding: 2px 9px; border-radius: 9px; font-size: 8.5pt; font-weight: 600; }}
