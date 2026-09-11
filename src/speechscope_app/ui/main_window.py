@@ -343,8 +343,21 @@ class MainWindow(QMainWindow):
         )
 
     def _submit(self, job: Job) -> None:
-        """Spustí hned, nebo zařadí za běžící dávku."""
+        """Spustí hned, nebo se zeptá a zařadí za běžící dávku."""
         if self.run_page.runner.running:
+            answer = QMessageBox.question(
+                self,
+                tr("Zařadit do fronty"),
+                tr(
+                    "Právě běží: {running}.\n"
+                    "Zařadit {name} do fronty? Spustí se sama, až běžící dávka skončí "
+                    "(bude {n}. v pořadí)."
+                ).format(running=self._running_name, name=job.title(), n=len(self._queue) + 1),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
             self._queue.append(job)
             self._show_queue()
             self.statusBar().showMessage(

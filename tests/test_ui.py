@@ -414,14 +414,32 @@ def test_runs_queue_up_and_continue(
         lambda state, code, cancelled: finished.append(state.out or "")
     )
 
+    from PySide6.QtWidgets import QMessageBox
+
+    asked: list[str] = []
+    answers = [
+        QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.Yes,
+        QMessageBox.StandardButton.Yes,
+    ]
+
+    def ask(parent, title, text, *args, **kwargs):
+        asked.append(text)
+        return answers.pop(0)
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(ask))
+
     assert page.select_protocol("Fonace, základní")
     page.run_btn.click()
     assert window.run_page.runner.running
     assert page.select_protocol("DDK, základní")
-    page.run_btn.click()  # běží jiná dávka: do fronty
+    page.run_btn.click()  # běží jiná dávka: dotaz, odpověď Ne
+    assert not window.queued_jobs() and "Fonace, základní" in asked[0]
+    page.run_btn.click()  # Ano
     assert page.select_protocol("Pohádka, akustika")
     page.run_btn.click()
     assert [j.proto.name for j in window.queued_jobs()] == ["DDK, základní", "Pohádka, akustika"]
+    assert "2. v pořadí" in asked[2]
     assert not window.run_page.queue_box.isHidden()
     assert window.run_page.queue_list.count() == 2
     assert "(+2)" in window.nav.item(PAGE_RUN).text()
