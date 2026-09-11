@@ -43,8 +43,8 @@ def test_window_runs_batch_end_to_end(
 
     idx = window.batch_page.protocol.findText("Fonace, základní")
     window.batch_page.protocol.setCurrentIndex(idx)
-    assert window.batch_page.picker.count() > 0
-    assert window.batch_page.picker.warning.isHidden()  # doctor: všechno připravené
+    assert window.batch_page.editor.has_catalog()
+    assert window.batch_page.editor.picker.warning.isHidden()  # doctor: všechno připravené
 
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
         window.batch_page.run_btn.click()
@@ -76,11 +76,11 @@ def test_save_protocol_from_advanced_mode(qtbot: QtBot, settings: AppSettings) -
     assert page.save_btn.isEnabled()
 
     # odškrtnout první feature a upravit parametr providera přes panel
-    first = page.picker.selected()[0]
-    page.picker.set_checked(first, False)
-    page._show_params("transcript")
-    page.params._form.set_value("language", "en")
-    assert page._overrides["transcript"] == {"language": "en"}
+    first = page.editor.selected()[0]
+    page.editor.picker.set_checked(first, False)
+    page.editor.show_params("transcript")
+    page.editor.params._form.set_value("language", "en")
+    assert page.editor.overrides()["transcript"] == {"language": "en"}
     proto = page.effective_protocol()
     assert proto is not None and first not in proto.features
     assert proto.config["transcript"] == {"language": "en"}
