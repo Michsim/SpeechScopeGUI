@@ -34,6 +34,21 @@ TASK_LABELS: dict[str, str] = {
     "reading": "Čtený text",
 }
 
+# Jazyk nahrávek: nabídka se bere z `doctor --json` (models.stanza.languages),
+# tohle je záloha pro starší knihovnu a popisky.
+DEFAULT_LANGUAGES: tuple[str, ...] = ("cs", "en")
+LANGUAGE_LABELS: dict[str, str] = {
+    "cs": "čeština",
+    "en": "angličtina",
+    "sk": "slovenština",
+    "de": "němčina",
+}
+
+
+def language_label(code: str) -> str:
+    return LANGUAGE_LABELS.get(code, code)
+
+
 TASK_SHORT: dict[str, str] = {
     "phonation": "Fonace",
     "ddk": "DDK",

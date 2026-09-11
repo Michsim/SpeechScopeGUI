@@ -92,9 +92,11 @@ class ProtocolList(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-        self.tasks_row = QHBoxLayout()
+        # Lišta úloh je vlastní widget, aby si ji stránka mohla dát jinam.
+        self.task_bar = QWidget()
+        self.tasks_row = QHBoxLayout(self.task_bar)
+        self.tasks_row.setContentsMargins(0, 0, 0, 0)
         self.tasks_row.setSpacing(6)
-        self.tasks_row.addWidget(QLabel("Úloha:"))
         self.task_group = QButtonGroup(self)
         self.task_group.setExclusive(True)
         self.task_buttons: dict[str, QPushButton] = {}
@@ -107,7 +109,7 @@ class ProtocolList(QWidget):
             self.tasks_row.addWidget(btn)
             self.task_buttons[task] = btn
         self.tasks_row.addStretch(1)
-        layout.addLayout(self.tasks_row)
+        layout.addWidget(self.task_bar)
 
         self.list = QListWidget()
         self.list.setSpacing(3)

@@ -11,16 +11,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
-    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -35,6 +35,22 @@ from .. import theme
 from ..protocol_dialog import SaveProtocolDialog
 from ..widgets.protocol_editor import ProtocolEditorDialog
 from ..widgets.protocol_list import ProtocolCardInfo, ProtocolList
+
+
+def _step(number: int, title: str, hint: str = "") -> tuple[QHBoxLayout, QLabel]:
+    """Nadpis kroku: číslo v kroužku, název, šedá nápověda vpravo."""
+    row = QHBoxLayout()
+    row.setSpacing(10)
+    no = QLabel(str(number))
+    no.setObjectName("step_no")
+    label = QLabel(title)
+    label.setObjectName("step_title")
+    hint_label = QLabel(hint)
+    hint_label.setObjectName("step_hint")
+    row.addWidget(no)
+    row.addWidget(label)
+    row.addWidget(hint_label, 1)
+    return row, hint_label
 
 
 class BatchPage(QWidget):
@@ -56,14 +72,18 @@ class BatchPage(QWidget):
         title.setObjectName("page_title")
         layout.addWidget(title)
         subtitle = QLabel(
-            "Vyber složku s nahrávkami a protokol. Do složky s nahrávkami se nic nezapisuje, "
-            "výsledky jdou do Dokumentů."
+            "Tři kroky: složka s nahrávkami, úloha a jazyk, protokol. Do složky s nahrávkami "
+            "se nic nezapisuje, výsledky jdou do Dokumentů."
         )
         subtitle.setObjectName("page_subtitle")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
 
+        # 1 · nahrávky
+        step1, self.step1_hint = _step(1, "Nahrávky", "Vyber složku s nahrávkami.")
+        layout.addLayout(step1)
         folder_row = QHBoxLayout()
+        folder_row.setContentsMargins(34, 0, 0, 0)
         self.folder = QLineEdit()
         self.folder.setPlaceholderText("Složka s nahrávkami")
         self.folder.editingFinished.connect(self.rescan)
@@ -72,29 +92,49 @@ class BatchPage(QWidget):
         self.recursive = QCheckBox("včetně podsložek")
         self.recursive.setChecked(True)
         self.recursive.toggled.connect(self.rescan)
-        folder_row.addWidget(QLabel("Nahrávky:"))
         folder_row.addWidget(self.folder, 1)
         folder_row.addWidget(browse)
         folder_row.addWidget(self.recursive)
         layout.addLayout(folder_row)
-
-        self.splitter = QSplitter(Qt.Orientation.Vertical)
-        layout.addWidget(self.splitter, 1)
-
-        self.protocols = ProtocolList()
-        self.protocols.current_changed.connect(self._protocol_changed)
-        self.splitter.addWidget(self.protocols)
-
         self.files = QTableWidget()
         self.files.setColumnCount(3)
         self.files.setHorizontalHeaderLabels(["nahrávka", "ruční labely", "ruční přepis"])
         self.files.horizontalHeader().setStretchLastSection(True)
         self.files.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.files.verticalHeader().setVisible(False)
-        self.splitter.addWidget(self.files)
+        self.files.verticalHeader().setDefaultSectionSize(24)
+        self.files.setMaximumHeight(150)
+        files_row = QHBoxLayout()
+        files_row.setContentsMargins(34, 0, 0, 0)
+        files_row.addWidget(self.files)
+        layout.addLayout(files_row)
 
-        self.splitter.setStretchFactor(0, 1)
-        self.splitter.setStretchFactor(1, 1)
+        # 2 · úloha a jazyk
+        step2, self.step2_hint = _step(2, "Úloha a jazyk", "Co pacient nahrával a v jakém jazyce.")
+        layout.addLayout(step2)
+        self.protocols = ProtocolList()
+        self.protocols.current_changed.connect(self._protocol_changed)
+        task_row = QHBoxLayout()
+        task_row.setContentsMargins(34, 0, 0, 0)
+        task_row.addWidget(self.protocols.task_bar, 1)
+        self.language = QComboBox()
+        self.language.setToolTip(
+            "Jazyk přepisu (Whisper) a jazykového rozboru (Stanza) pro tento běh. "
+            "Přebije nastavení protokolu."
+        )
+        self.language.currentIndexChanged.connect(self._language_changed)
+        self.set_languages(list(contract.DEFAULT_LANGUAGES))
+        task_row.addWidget(QLabel("Jazyk:"))
+        task_row.addWidget(self.language)
+        layout.addLayout(task_row)
+
+        # 3 · protokol
+        step3, self.step3_hint = _step(3, "Protokol", "Co se má z nahrávek spočítat.")
+        layout.addLayout(step3)
+        proto_row = QHBoxLayout()
+        proto_row.setContentsMargins(34, 0, 0, 0)
+        proto_row.addWidget(self.protocols)
+        layout.addLayout(proto_row, 1)
 
         # rozšířený režim: souhrn výběru a tlačítko do okna editoru
         self.editor_dialog = ProtocolEditorDialog(self)
@@ -136,6 +176,44 @@ class BatchPage(QWidget):
 
     def set_doctor(self, report: dict[str, Any] | None) -> None:
         self.editor.set_doctor(report)
+        stanza = ((report or {}).get("models") or {}).get("stanza") or {}
+        languages = [str(code) for code in stanza.get("languages") or []]
+        if languages:
+            self.set_languages(languages)
+
+    # --- jazyk ------------------------------------------------------------------------
+
+    def set_languages(self, codes: list[str]) -> None:
+        """Nabídka jazyků; zachová vybraný, pokud v ní zůstal."""
+        current = self.language_code()
+        self.language.blockSignals(True)
+        self.language.clear()
+        for code in codes:
+            self.language.addItem(contract.language_label(code), code)
+        idx = self.language.findData(current)
+        self.language.setCurrentIndex(idx if idx >= 0 else 0)
+        self.language.blockSignals(False)
+        if hasattr(self, "run_btn"):  # při stavbě stránky ještě tlačítka nejsou
+            self._update_run_state()
+
+    def language_code(self) -> str:
+        return str(self.language.currentData() or "")
+
+    def set_language(self, code: str) -> None:
+        idx = self.language.findData(code)
+        if idx >= 0:
+            self.language.setCurrentIndex(idx)
+
+    def _language_changed(self, _idx: int) -> None:
+        self._push_language()
+        self._update_run_state()
+
+    def _push_language(self) -> None:
+        """Jazyk z lišty do editoru, ať ho výzkumník vidí i v parametrech."""
+        code = self.language_code()
+        if code and self.editor.protocol() is not None:
+            for provider in ("transcript", "nlp"):
+                self.editor.set_override(provider, "language", code)
 
     def set_stats_lookup(self, lookup: Callable[[str], float | None]) -> None:
         self._seconds_per_file = lookup
@@ -194,6 +272,12 @@ class BatchPage(QWidget):
         self._recordings = (
             find_recordings(Path(text), recursive=self.recursive.isChecked()) if text else []
         )
+        n = len(self._recordings)
+        self.step1_hint.setText(
+            "Vyber složku s nahrávkami."
+            if not text
+            else f"{n} nahrávek" + (", žádná nenalezena" if n == 0 else "")
+        )
         self.files.setRowCount(len(self._recordings))
         for r, rec in enumerate(self._recordings):
             for c, value in enumerate(
@@ -209,6 +293,7 @@ class BatchPage(QWidget):
 
     def _protocol_changed(self, proto: Protocol | None) -> None:
         self.editor.set_protocol(proto)
+        self._push_language()
         self._update_run_state()
 
     def _editor_changed(self) -> None:
@@ -244,31 +329,47 @@ class BatchPage(QWidget):
         self.save_btn.setEnabled(proto is not None and self.editor.has_catalog())
         self.edit_btn.setEnabled(proto is not None and self.editor.has_catalog())
         self._update_editor_summary()
+        self.step2_hint.setText(
+            f"{contract.TASK_LABELS.get(proto.task, proto.task)} · "
+            f"{contract.language_label(self.language_code())}"
+            if proto is not None
+            else "Co pacient nahrával a v jakém jazyce."
+        )
+        self.step3_hint.setText(proto.name if proto is not None else "Co se má spočítat.")
         if not self._recordings:
             self.status.setText("Vyber složku s nahrávkami.")
         elif proto is None:
             self.status.setText("Vyber protokol.")
         else:
             self.status.setText(
-                f"{len(self._recordings)} nahrávek, úloha {contract.TASK_LABELS[proto.task]}."
+                f"{len(self._recordings)} nahrávek · {contract.TASK_LABELS[proto.task]} · "
+                f"{contract.language_label(self.language_code())} · {proto.name}"
             )
 
     def effective_protocol(self) -> Protocol | None:
-        """Protokol tak, jak ho uživatel upravil v rozšířeném režimu."""
+        """Protokol pro běh: úpravy z rozšířeného režimu a jazyk z lišty."""
         if not self.advanced_box.isHidden():
-            return self.editor.result()
-        base = self.current_protocol()
-        if base is None:
+            proto = self.editor.result()
+        else:
+            base = self.current_protocol()
+            if base is None:
+                return None
+            proto = Protocol(
+                name=base.name,
+                task=base.task,
+                description=base.description,
+                features=list(base.features),
+                domain=base.domain,
+                vad=base.vad,
+                config={k: dict(v) for k, v in base.config.items()},
+            )
+        if proto is None:
             return None
-        return Protocol(
-            name=base.name,
-            task=base.task,
-            description=base.description,
-            features=list(base.features),
-            domain=base.domain,
-            vad=base.vad,
-            config={k: dict(v) for k, v in base.config.items()},
-        )
+        language = self.language_code()
+        if language:
+            for provider in ("transcript", "nlp"):
+                proto.config.setdefault(provider, {})["language"] = language
+        return proto
 
     def _run(self) -> None:
         proto = self.effective_protocol()

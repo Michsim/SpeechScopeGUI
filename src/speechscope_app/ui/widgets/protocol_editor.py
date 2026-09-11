@@ -295,6 +295,17 @@ class ProtocolEditor(QWidget):
         self.picker.set_overridden(self._overridden_names())
         self.changed.emit()
 
+    def set_override(self, name: str, param: str, value: Any) -> None:
+        """Nastaví jeden parametr zvenku (jazyk z lišty na Datech), i do formuláře."""
+        self._overrides.setdefault(name, {})[param] = value
+        form = self._param_forms.get(name)
+        if form is not None and param in form._params:
+            form.blockSignals(True)
+            form.set_value(param, value)
+            form.blockSignals(False)
+            self._overrides[name] = form.overrides()
+        self.picker.set_overridden(self._overridden_names())
+
 
 class ProtocolEditorDialog(QDialog):
     """Okno s editorem přes většinu obrazovky; Použít nebo Zrušit.

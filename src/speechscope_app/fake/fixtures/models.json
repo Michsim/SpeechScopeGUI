@@ -7,6 +7,7 @@
       "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\whisper-large-v3-ct2",
       "present": true,
       "size_mb": 3000,
+      "languages": [],
       "used_by": "provider transcript"
     },
     {
@@ -15,6 +16,7 @@
       "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\wavlm-base",
       "present": true,
       "size_mb": 380,
+      "languages": [],
       "used_by": "segmentace conformer"
     },
     {
@@ -23,6 +25,7 @@
       "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\pyannote_segmentation.bin",
       "present": true,
       "size_mb": 17,
+      "languages": [],
       "used_by": "segmentace pyannote"
     },
     {
@@ -31,6 +34,10 @@
       "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\stanza",
       "present": true,
       "size_mb": 900,
+      "languages": [
+        "cs",
+        "en"
+      ],
       "used_by": "provider nlp, lingvistika"
     },
     {
@@ -39,6 +46,7 @@
       "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\phnrec",
       "present": true,
       "size_mb": 40,
+      "languages": [],
       "used_by": "provider phonemes, artikulace samohlásek"
     },
     {
@@ -47,6 +55,7 @@
       "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\segmentation-onnx",
       "present": true,
       "size_mb": 500,
+      "languages": [],
       "used_by": "provider segments bez torche, i na grafické kartě přes DirectML"
     }
   ]

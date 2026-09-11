@@ -61,6 +61,12 @@ QListWidget#nav::item:selected {{ background: {ACCENT}; color: white; }}
 QLabel#page_title {{ font-size: 17pt; font-weight: 600; }}
 QLabel#page_subtitle {{ color: {MUTED}; }}
 QLabel#section {{ font-size: 10.5pt; font-weight: 600; color: {TEXT}; margin-top: 6px; }}
+QLabel#step_no {{
+    background: {ACCENT}; color: white; border-radius: 12px; min-width: 24px; max-width: 24px;
+    min-height: 24px; max-height: 24px; font-weight: 700; qproperty-alignment: AlignCenter;
+}}
+QLabel#step_title {{ font-size: 12pt; font-weight: 600; color: {TEXT}; }}
+QLabel#step_hint {{ color: {MUTED}; }}
 QLabel#muted {{ color: {MUTED}; }}
 QLabel#headline {{ font-size: 13pt; font-weight: 600; }}
 QLabel#card_title {{ font-weight: 600; }}

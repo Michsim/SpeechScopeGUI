@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
         self.reload_protocols(self.settings.last_protocol)
         if self.settings.last_input_dir and self.settings.last_input_dir.is_dir():
             self.batch_page.set_folder(self.settings.last_input_dir)
+        self.batch_page.set_language(self.settings.last_language)
         title = "SpeechScope"
         sub = f"aplikace {__version__}"
         if self.settings.use_fake_library:
@@ -251,6 +252,7 @@ class MainWindow(QMainWindow):
         argv = self.library.argv(extract_args(req, models_dir=self.settings.models_dir))
 
         self.settings.last_protocol = proto.name
+        self.settings.last_language = self.batch_page.language_code()
         if inputs:
             self.settings.last_input_dir = inputs[0].parent
         self.nav.setCurrentRow(PAGE_RUN)

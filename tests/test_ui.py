@@ -77,11 +77,12 @@ def test_save_protocol_from_advanced_mode(qtbot: QtBot, settings: AppSettings) -
     assert page.select_protocol("Fonace, základní")
     assert page.save_btn.isEnabled()
 
-    # odškrtnout první feature a upravit parametr providera přes panel
+    # odškrtnout první feature; jazyk z lišty se promítne i do parametrů providera
     first = page.editor.selected()[0]
     page.editor.picker.set_checked(first, False)
     page.editor.show_params("transcript")
-    page.editor.params._form.set_value("language", "en")
+    page.set_language("en")
+    assert page.editor.params._form.value("language") == "en"
     assert page.editor.overrides()["transcript"] == {"language": "en"}
     proto = page.effective_protocol()
     assert proto is not None and first not in proto.features
@@ -95,7 +96,8 @@ def test_save_protocol_from_advanced_mode(qtbot: QtBot, settings: AppSettings) -
     assert not page.protocols._cards["Moje fonace"].modified.isVisible()
     assert page.protocols.task_buttons["phonation"].isChecked()
     saved = page.current_protocol()
-    assert saved.features == proto.features and saved.config == {"transcript": {"language": "en"}}
+    assert saved.features == proto.features
+    assert saved.config == {"transcript": {"language": "en"}, "nlp": {"language": "en"}}
 
     # stejné jméno podruhé přepíše soubor, nevznikne druhý
     again = window.save_protocol(proto)
@@ -226,3 +228,22 @@ def test_editor_dialog_cancel_restores(qtbot: QtBot, settings: AppSettings, monk
     page.open_editor()
     assert before[0] not in page.editor.selected()
     assert before[0] not in page.effective_protocol().features
+
+
+def test_language_from_doctor_goes_to_run(qtbot: QtBot, settings: AppSettings) -> None:
+    settings.last_language = "en"
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    window.env_page.refresh()  # doctor: Stanza (cs, en)
+    codes = [page.language.itemData(i) for i in range(page.language.count())]
+    assert codes == ["cs", "en"]
+    assert page.language_code() == "en"  # z nastavení, zachováno po načtení nabídky
+    assert page.select_protocol("Pohádka, lingvistika")
+    proto = page.effective_protocol()
+    assert proto is not None
+    assert proto.config["transcript"]["language"] == "en"
+    assert proto.config["nlp"]["language"] == "en"
+    assert "angličtina" in page.step2_hint.text()
+    page.set_language("cs")
+    assert page.effective_protocol().config["transcript"]["language"] == "cs"

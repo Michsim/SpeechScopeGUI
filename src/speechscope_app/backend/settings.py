@@ -108,6 +108,14 @@ class AppSettings:
         self._q.setValue("work/last_input", str(value))
 
     @property
+    def last_language(self) -> str:
+        return str(self._q.value("work/last_language", "cs"))
+
+    @last_language.setter
+    def last_language(self, value: str) -> None:
+        self._q.setValue("work/last_language", value)
+
+    @property
     def last_protocol(self) -> str:
         return str(self._q.value("work/last_protocol", ""))
 
