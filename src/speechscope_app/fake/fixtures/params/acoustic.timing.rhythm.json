@@ -1,6 +1,6 @@
 {
   "kind": "feature",
-  "name": "acoustic.timing.segmentation",
+  "name": "acoustic.timing.rhythm",
   "version": "1.0",
   "tasks": [
     "monologue",
@@ -21,8 +21,6 @@
   },
   "description": "",
   "outputs": {
-    "dpi": "Medián délky pauz, DPI (ms)",
-    "dbi": "Medián délky nádechů, DBI (ms)",
     "vsdr": "Podíl znělé řeči na celkové řeči, VSDR (-)",
     "ste": "Entropie časování řeči ze zastoupení čtyř tříd, STE (bit)",
     "ssr_change": "Změna počtu řečových segmentů za minutu, poslední třetina nahrávky minus první, ΔSSR (seg/min)"

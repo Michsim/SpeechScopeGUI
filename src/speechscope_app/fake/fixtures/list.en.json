@@ -319,8 +319,41 @@
     ]
   },
   {
+    "name": "acoustic.timing.breaths",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "segments"
+    ],
+    "description": "",
+    "outputs": {
+      "count": "Number of breaths (-)",
+      "per_minute": "Breaths per minute of recording (1/min)",
+      "ratio": "Share of breath time in the recording length (%)",
+      "median": "Median breath duration (ms)",
+      "mean": "Mean breath duration (ms)",
+      "std": "Standard deviation of breath duration (ms)",
+      "long_count": "Number of breaths of at least long_pause (-)",
+      "long_median": "Median duration of breaths of at least long_pause (ms); NaN when there is none"
+    },
+    "columns": [
+      "acoustic.timing.breaths.count",
+      "acoustic.timing.breaths.per_minute",
+      "acoustic.timing.breaths.ratio",
+      "acoustic.timing.breaths.median",
+      "acoustic.timing.breaths.mean",
+      "acoustic.timing.breaths.std",
+      "acoustic.timing.breaths.long_count",
+      "acoustic.timing.breaths.long_median"
+    ]
+  },
+  {
     "name": "acoustic.timing.pauses",
-    "version": "1.1",
+    "version": "1.2",
     "tasks": [
       "monologue",
       "reading",
@@ -337,7 +370,8 @@
       "median": "Median pause duration (ms)",
       "mean": "Mean pause duration (ms)",
       "std": "Standard deviation of pause duration (ms)",
-      "breath_ratio": "Share of breath time (label pb) in the recording length (%); NaN when the segmentation does not mark breaths"
+      "long_count": "Number of pauses of at least long_pause (-)",
+      "long_median": "Median duration of pauses of at least long_pause (ms); NaN when there is none"
     },
     "columns": [
       "acoustic.timing.pauses.count",
@@ -346,11 +380,12 @@
       "acoustic.timing.pauses.median",
       "acoustic.timing.pauses.mean",
       "acoustic.timing.pauses.std",
-      "acoustic.timing.pauses.breath_ratio"
+      "acoustic.timing.pauses.long_count",
+      "acoustic.timing.pauses.long_median"
     ]
   },
   {
-    "name": "acoustic.timing.segmentation",
+    "name": "acoustic.timing.rhythm",
     "version": "1.0",
     "tasks": [
       "monologue",
@@ -362,18 +397,47 @@
     ],
     "description": "",
     "outputs": {
-      "dpi": "Median pause duration, DPI (ms)",
-      "dbi": "Median breath duration, DBI (ms)",
       "vsdr": "Share of voiced speech in total speech, VSDR (-)",
       "ste": "Speech timing entropy from the proportions of the four classes, STE (bit)",
       "ssr_change": "Change in the number of speech segments per minute, last third of the recording minus the first, ΔSSR (seg/min)"
     },
     "columns": [
-      "acoustic.timing.segmentation.dpi",
-      "acoustic.timing.segmentation.dbi",
-      "acoustic.timing.segmentation.vsdr",
-      "acoustic.timing.segmentation.ste",
-      "acoustic.timing.segmentation.ssr_change"
+      "acoustic.timing.rhythm.vsdr",
+      "acoustic.timing.rhythm.ste",
+      "acoustic.timing.rhythm.ssr_change"
+    ]
+  },
+  {
+    "name": "acoustic.timing.silences",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "segments"
+    ],
+    "description": "",
+    "outputs": {
+      "count": "Number of silent pauses (-)",
+      "per_minute": "Silent pauses per minute of recording (1/min)",
+      "ratio": "Share of silent pause time in the recording length (%)",
+      "median": "Median silent pause duration (ms)",
+      "mean": "Mean silent pause duration (ms)",
+      "std": "Standard deviation of silent pause duration (ms)",
+      "long_count": "Number of silent pauses of at least long_pause (-)",
+      "long_median": "Median duration of silent pauses of at least long_pause (ms); NaN when there is none"
+    },
+    "columns": [
+      "acoustic.timing.silences.count",
+      "acoustic.timing.silences.per_minute",
+      "acoustic.timing.silences.ratio",
+      "acoustic.timing.silences.median",
+      "acoustic.timing.silences.mean",
+      "acoustic.timing.silences.std",
+      "acoustic.timing.silences.long_count",
+      "acoustic.timing.silences.long_median"
     ]
   },
   {

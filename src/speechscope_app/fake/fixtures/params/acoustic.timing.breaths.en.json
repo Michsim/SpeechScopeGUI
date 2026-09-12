@@ -1,7 +1,7 @@
 {
   "kind": "feature",
-  "name": "acoustic.timing.pauses",
-  "version": "1.2",
+  "name": "acoustic.timing.breaths",
+  "version": "1.0",
   "tasks": [
     "monologue",
     "reading",
@@ -21,14 +21,14 @@
   },
   "description": "",
   "outputs": {
-    "count": "Number of pauses (-)",
-    "per_minute": "Pauses per minute of recording (1/min)",
-    "ratio": "Share of pause time in the recording length (%)",
-    "median": "Median pause duration (ms)",
-    "mean": "Mean pause duration (ms)",
-    "std": "Standard deviation of pause duration (ms)",
-    "long_count": "Number of pauses of at least long_pause (-)",
-    "long_median": "Median duration of pauses of at least long_pause (ms); NaN when there is none"
+    "count": "Number of breaths (-)",
+    "per_minute": "Breaths per minute of recording (1/min)",
+    "ratio": "Share of breath time in the recording length (%)",
+    "median": "Median breath duration (ms)",
+    "mean": "Mean breath duration (ms)",
+    "std": "Standard deviation of breath duration (ms)",
+    "long_count": "Number of breaths of at least long_pause (-)",
+    "long_median": "Median duration of breaths of at least long_pause (ms); NaN when there is none"
   },
   "params": {
     "merge_adjacent": {

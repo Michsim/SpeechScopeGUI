@@ -1,7 +1,7 @@
 {
   "kind": "feature",
-  "name": "acoustic.timing.pauses",
-  "version": "1.2",
+  "name": "acoustic.timing.silences",
+  "version": "1.0",
   "tasks": [
     "monologue",
     "reading",
@@ -21,14 +21,14 @@
   },
   "description": "",
   "outputs": {
-    "count": "Number of pauses (-)",
-    "per_minute": "Pauses per minute of recording (1/min)",
-    "ratio": "Share of pause time in the recording length (%)",
-    "median": "Median pause duration (ms)",
-    "mean": "Mean pause duration (ms)",
-    "std": "Standard deviation of pause duration (ms)",
-    "long_count": "Number of pauses of at least long_pause (-)",
-    "long_median": "Median duration of pauses of at least long_pause (ms); NaN when there is none"
+    "count": "Number of silent pauses (-)",
+    "per_minute": "Silent pauses per minute of recording (1/min)",
+    "ratio": "Share of silent pause time in the recording length (%)",
+    "median": "Median silent pause duration (ms)",
+    "mean": "Mean silent pause duration (ms)",
+    "std": "Standard deviation of silent pause duration (ms)",
+    "long_count": "Number of silent pauses of at least long_pause (-)",
+    "long_median": "Median duration of silent pauses of at least long_pause (ms); NaN when there is none"
   },
   "params": {
     "merge_adjacent": {

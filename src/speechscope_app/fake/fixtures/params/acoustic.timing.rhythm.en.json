@@ -1,6 +1,6 @@
 {
   "kind": "feature",
-  "name": "acoustic.timing.segmentation",
+  "name": "acoustic.timing.rhythm",
   "version": "1.0",
   "tasks": [
     "monologue",
@@ -21,8 +21,6 @@
   },
   "description": "",
   "outputs": {
-    "dpi": "Median pause duration, DPI (ms)",
-    "dbi": "Median breath duration, DBI (ms)",
     "vsdr": "Share of voiced speech in total speech, VSDR (-)",
     "ste": "Speech timing entropy from the proportions of the four classes, STE (bit)",
     "ssr_change": "Change in the number of speech segments per minute, last third of the recording minus the first, ΔSSR (seg/min)"

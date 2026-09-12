@@ -319,8 +319,41 @@
     ]
   },
   {
+    "name": "acoustic.timing.breaths",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "segments"
+    ],
+    "description": "",
+    "outputs": {
+      "count": "Počet nádechů (-)",
+      "per_minute": "Nádechy za minutu nahrávky (1/min)",
+      "ratio": "Podíl času nádechů na délce nahrávky (%)",
+      "median": "Medián délky nádechů (ms)",
+      "mean": "Průměr délky nádechů (ms)",
+      "std": "Směrodatná odchylka délky nádechů (ms)",
+      "long_count": "Počet nádechů od long_pause (-)",
+      "long_median": "Medián délky nádechů od long_pause (ms); NaN, když žádná není"
+    },
+    "columns": [
+      "acoustic.timing.breaths.count",
+      "acoustic.timing.breaths.per_minute",
+      "acoustic.timing.breaths.ratio",
+      "acoustic.timing.breaths.median",
+      "acoustic.timing.breaths.mean",
+      "acoustic.timing.breaths.std",
+      "acoustic.timing.breaths.long_count",
+      "acoustic.timing.breaths.long_median"
+    ]
+  },
+  {
     "name": "acoustic.timing.pauses",
-    "version": "1.1",
+    "version": "1.2",
     "tasks": [
       "monologue",
       "reading",
@@ -337,7 +370,8 @@
       "median": "Medián délky pauz (ms)",
       "mean": "Průměr délky pauz (ms)",
       "std": "Směrodatná odchylka délky pauz (ms)",
-      "breath_ratio": "Podíl času nádechů (popisek pb) na délce nahrávky (%); NaN, když segmentace nádechy nerozlišuje"
+      "long_count": "Počet pauz od long_pause (-)",
+      "long_median": "Medián délky pauz od long_pause (ms); NaN, když žádná není"
     },
     "columns": [
       "acoustic.timing.pauses.count",
@@ -346,11 +380,12 @@
       "acoustic.timing.pauses.median",
       "acoustic.timing.pauses.mean",
       "acoustic.timing.pauses.std",
-      "acoustic.timing.pauses.breath_ratio"
+      "acoustic.timing.pauses.long_count",
+      "acoustic.timing.pauses.long_median"
     ]
   },
   {
-    "name": "acoustic.timing.segmentation",
+    "name": "acoustic.timing.rhythm",
     "version": "1.0",
     "tasks": [
       "monologue",
@@ -362,18 +397,47 @@
     ],
     "description": "",
     "outputs": {
-      "dpi": "Medián délky pauz, DPI (ms)",
-      "dbi": "Medián délky nádechů, DBI (ms)",
       "vsdr": "Podíl znělé řeči na celkové řeči, VSDR (-)",
       "ste": "Entropie časování řeči ze zastoupení čtyř tříd, STE (bit)",
       "ssr_change": "Změna počtu řečových segmentů za minutu, poslední třetina nahrávky minus první, ΔSSR (seg/min)"
     },
     "columns": [
-      "acoustic.timing.segmentation.dpi",
-      "acoustic.timing.segmentation.dbi",
-      "acoustic.timing.segmentation.vsdr",
-      "acoustic.timing.segmentation.ste",
-      "acoustic.timing.segmentation.ssr_change"
+      "acoustic.timing.rhythm.vsdr",
+      "acoustic.timing.rhythm.ste",
+      "acoustic.timing.rhythm.ssr_change"
+    ]
+  },
+  {
+    "name": "acoustic.timing.silences",
+    "version": "1.0",
+    "tasks": [
+      "monologue",
+      "reading",
+      "story"
+    ],
+    "requires": [
+      "segments"
+    ],
+    "description": "",
+    "outputs": {
+      "count": "Počet tichých pauz (-)",
+      "per_minute": "Tiché pauzy za minutu nahrávky (1/min)",
+      "ratio": "Podíl času tichých pauz na délce nahrávky (%)",
+      "median": "Medián délky tichých pauz (ms)",
+      "mean": "Průměr délky tichých pauz (ms)",
+      "std": "Směrodatná odchylka délky tichých pauz (ms)",
+      "long_count": "Počet tichých pauz od long_pause (-)",
+      "long_median": "Medián délky tichých pauz od long_pause (ms); NaN, když žádná není"
+    },
+    "columns": [
+      "acoustic.timing.silences.count",
+      "acoustic.timing.silences.per_minute",
+      "acoustic.timing.silences.ratio",
+      "acoustic.timing.silences.median",
+      "acoustic.timing.silences.mean",
+      "acoustic.timing.silences.std",
+      "acoustic.timing.silences.long_count",
+      "acoustic.timing.silences.long_median"
     ]
   },
   {

@@ -2,7 +2,7 @@
   "speechscope": "0.2.0",
   "python": "3.11.16",
   "platform": "Windows 10",
-  "models_dir": "..\\SpeechScope\\SpeechScope\\models",
+  "models_dir": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models",
   "models_dir_exists": true,
   "models_dir_source": "SPEECHSCOPE_MODELS",
   "packages": {
@@ -59,28 +59,28 @@
     "whisper": {
       "name": "Whisper large-v3 (CTranslate2)",
       "present": true,
-      "path": "..\\SpeechScope\\SpeechScope\\models\\whisper-large-v3-ct2",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\whisper-large-v3-ct2",
       "used_by": "provider transcript",
       "languages": []
     },
     "wavlm": {
       "name": "WavLM base",
       "present": true,
-      "path": "..\\SpeechScope\\SpeechScope\\models\\wavlm-base",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\wavlm-base",
       "used_by": "segmentace conformer",
       "languages": []
     },
     "pyannote": {
       "name": "pyannote/segmentation",
       "present": true,
-      "path": "..\\SpeechScope\\SpeechScope\\models\\pyannote_segmentation.bin",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\pyannote_segmentation.bin",
       "used_by": "segmentace pyannote",
       "languages": []
     },
     "stanza": {
       "name": "Stanza (cs, en)",
       "present": true,
-      "path": "..\\SpeechScope\\SpeechScope\\models\\stanza",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\stanza",
       "used_by": "provider nlp, lingvistika",
       "languages": [
         "cs",
@@ -90,14 +90,14 @@
     "phnrec": {
       "name": "phnrec, rozpoznávač fonémů (čeština)",
       "present": true,
-      "path": "..\\SpeechScope\\SpeechScope\\models\\phnrec",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\phnrec",
       "used_by": "provider phonemes, artikulace samohlásek",
       "languages": []
     },
     "onnx": {
       "name": "segmentace v ONNX (WavLM, conformer, pyannote)",
       "present": true,
-      "path": "..\\SpeechScope\\SpeechScope\\models\\segmentation-onnx",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\segmentation-onnx",
       "used_by": "provider segments bez torche, i na grafické kartě přes DirectML",
       "languages": []
     }

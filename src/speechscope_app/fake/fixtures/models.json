@@ -1,10 +1,10 @@
 {
-  "dir": "..\\SpeechScope\\SpeechScope\\models",
+  "dir": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models",
   "models": [
     {
       "key": "whisper",
       "name": "Whisper large-v3 (CTranslate2)",
-      "path": "..\\SpeechScope\\SpeechScope\\models\\whisper-large-v3-ct2",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\whisper-large-v3-ct2",
       "present": true,
       "size_mb": 3000,
       "languages": [],
@@ -13,7 +13,7 @@
     {
       "key": "wavlm",
       "name": "WavLM base",
-      "path": "..\\SpeechScope\\SpeechScope\\models\\wavlm-base",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\wavlm-base",
       "present": true,
       "size_mb": 380,
       "languages": [],
@@ -22,7 +22,7 @@
     {
       "key": "pyannote",
       "name": "pyannote/segmentation",
-      "path": "..\\SpeechScope\\SpeechScope\\models\\pyannote_segmentation.bin",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\pyannote_segmentation.bin",
       "present": true,
       "size_mb": 17,
       "languages": [],
@@ -31,7 +31,7 @@
     {
       "key": "stanza",
       "name": "Stanza (cs, en)",
-      "path": "..\\SpeechScope\\SpeechScope\\models\\stanza",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\stanza",
       "present": true,
       "size_mb": 900,
       "languages": [
@@ -43,7 +43,7 @@
     {
       "key": "phnrec",
       "name": "phnrec, rozpoznávač fonémů (čeština)",
-      "path": "..\\SpeechScope\\SpeechScope\\models\\phnrec",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\phnrec",
       "present": true,
       "size_mb": 40,
       "languages": [],
@@ -52,7 +52,7 @@
     {
       "key": "onnx",
       "name": "segmentace v ONNX (WavLM, conformer, pyannote)",
-      "path": "..\\SpeechScope\\SpeechScope\\models\\segmentation-onnx",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\segmentation-onnx",
       "present": true,
       "size_mb": 500,
       "languages": [],

@@ -1,7 +1,7 @@
 {
   "kind": "feature",
-  "name": "acoustic.timing.pauses",
-  "version": "1.2",
+  "name": "acoustic.timing.silences",
+  "version": "1.0",
   "tasks": [
     "monologue",
     "reading",
@@ -21,14 +21,14 @@
   },
   "description": "",
   "outputs": {
-    "count": "Počet pauz (-)",
-    "per_minute": "Pauzy za minutu nahrávky (1/min)",
-    "ratio": "Podíl času pauz na délce nahrávky (%)",
-    "median": "Medián délky pauz (ms)",
-    "mean": "Průměr délky pauz (ms)",
-    "std": "Směrodatná odchylka délky pauz (ms)",
-    "long_count": "Počet pauz od long_pause (-)",
-    "long_median": "Medián délky pauz od long_pause (ms); NaN, když žádná není"
+    "count": "Počet tichých pauz (-)",
+    "per_minute": "Tiché pauzy za minutu nahrávky (1/min)",
+    "ratio": "Podíl času tichých pauz na délce nahrávky (%)",
+    "median": "Medián délky tichých pauz (ms)",
+    "mean": "Průměr délky tichých pauz (ms)",
+    "std": "Směrodatná odchylka délky tichých pauz (ms)",
+    "long_count": "Počet tichých pauz od long_pause (-)",
+    "long_median": "Medián délky tichých pauz od long_pause (ms); NaN, když žádná není"
   },
   "params": {
     "merge_adjacent": {
