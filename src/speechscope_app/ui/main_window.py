@@ -435,10 +435,11 @@ class MainWindow(QMainWindow):
     def save_protocol(self, proto: Protocol) -> Path:
         """Uloží protokol mezi uživatelské a znovu načte nabídku."""
         folder = self.settings.protocols_dir()
-        path = folder / f"{proto.slug()}.yaml"
+        path = proto.path or folder / f"{proto.slug()}.yaml"
         existing = {p.name: p for p in all_protocols(folder) if not p.builtin}
-        if proto.name in existing and existing[proto.name].path is not None:
+        if proto.path is None and proto.name in existing and existing[proto.name].path:
             path = existing[proto.name].path  # přepis stejného jména, ne druhý soubor
+        proto.path = None  # do YAML nepatří
         proto.save(path)
         self.settings.last_protocol = proto.name
         self.reload_protocols(proto.name)

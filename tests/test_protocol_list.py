@@ -40,9 +40,13 @@ def test_tasks_and_selection(qtbot: QtBot) -> None:
     widget._task_clicked("story")
     assert widget.current_name() == "Pohádka A"  # první k úloze
     card = widget._cards["Moje pohádka"]
-    assert card.modified.isHidden()
-    widget.set_modified("Moje pohádka", True)
-    assert not card.modified.isHidden()
+    assert card.edit_btn.isHidden()  # základní režim bez Upravit…
+    widget.set_advanced(True)
+    assert not card.edit_btn.isHidden()
+    asked: list[str] = []
+    widget.edit_requested.connect(lambda p: asked.append(p.name))
+    card.edit_btn.click()
+    assert asked == ["Moje pohádka"]
 
 
 def test_empty_list(qtbot: QtBot) -> None:

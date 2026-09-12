@@ -1,0 +1,68 @@
+{
+  "kind": "feature",
+  "name": "acoustic.timing.speech_rate",
+  "version": "1.1",
+  "tasks": [
+    "monologue",
+    "reading",
+    "story"
+  ],
+  "requires": [
+    "transcript",
+    "segments"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "monologue": false,
+      "reading": false,
+      "story": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "speech_rate": "Syllables per second from the first to the last word (syll/s)",
+    "articulation_rate": "Syllables per second relative to speech time (syll/s)",
+    "speech_rate_variability": "Standard deviation of the rate across windows (syll/s)",
+    "word_count": "Number of recognised words (-)"
+  },
+  "params": {
+    "syllable_method": {
+      "default": "nuclei",
+      "type": "str",
+      "description": "Syllable counting: nuclei (vowel nuclei, diphthongs, syllabic r/l) or pyphen (hyphenation dictionary as in the legacy script)",
+      "choices": [
+        "nuclei",
+        "pyphen"
+      ]
+    },
+    "speech_time": {
+      "default": "words",
+      "type": "str",
+      "description": "Speech time for the articulation rate: words (sum of word durations from Whisper as in the legacy script), segments_in_words (segmentation speech only inside word intervals, i.e. the segmentation cuts out pauses that Whisper absorbed into a word) or segments (all speech from the segmentation)",
+      "choices": [
+        "words",
+        "segments_in_words",
+        "segments"
+      ]
+    },
+    "language": {
+      "default": "",
+      "type": "str",
+      "description": "Language for pyphen syllabification; empty = take it from the transcript"
+    },
+    "frame_length": {
+      "default": 2.0,
+      "type": "float",
+      "description": "Window length for rate variability (s)",
+      "gt": 0
+    },
+    "frame_step": {
+      "default": 1.9,
+      "type": "float",
+      "description": "Window step for rate variability (s)",
+      "gt": 0
+    }
+  }
+}

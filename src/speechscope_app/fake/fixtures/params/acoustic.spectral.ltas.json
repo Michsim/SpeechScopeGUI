@@ -1,0 +1,52 @@
+{
+  "kind": "feature",
+  "name": "acoustic.spectral.ltas",
+  "version": "1.2",
+  "tasks": [
+    "ddk",
+    "monologue",
+    "phonation",
+    "reading",
+    "story"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": true,
+    "required": false,
+    "default": {
+      "ddk": false,
+      "monologue": true,
+      "phonation": false,
+      "reading": true,
+      "story": true
+    }
+  },
+  "description": "",
+  "outputs": {
+    "mean": "Těžiště LTAS, spektrální centroid (Hz)",
+    "std": "Rozptyl LTAS kolem těžiště, spektrální šířka (Hz)",
+    "skew": "Šikmost LTAS (-)",
+    "kurt": "Špičatost LTAS (-)"
+  },
+  "params": {
+    "window_length": {
+      "default": 0.05,
+      "type": "float",
+      "description": "Délka okna (s)",
+      "gt": 0
+    },
+    "window_overlap": {
+      "default": 50.0,
+      "type": "float",
+      "description": "Překryv oken (%)",
+      "ge": 0,
+      "lt": 100
+    },
+    "analysis_fs": {
+      "default": 16000,
+      "type": "int",
+      "description": "Pracovní vzorkovací frekvence (Hz); nahrávka se na ni převzorkuje, aby momenty spektra nezávisely na frekvenci nahrávky",
+      "gt": 0
+    }
+  }
+}

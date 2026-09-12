@@ -34,7 +34,9 @@ nezávisle.
   varování ve vzdálené ploše), složky modelů a výsledků, stažení modelů
   nebo instalace z balíku, úklid mezivýsledků, diagnostický zip pro
   podporu.
-- Česky a anglicky (Nastavení), rozšířený režim pro výzkumníky.
+- Anglicky (výchozí) a česky, volba v Nastavení; popisy feature
+  a parametrů jdou z knihovny ve zvoleném jazyce. Rozšířený režim pro
+  výzkumníky.
 
 ## Vývoj
 
@@ -55,7 +57,7 @@ uv run speechscope-app --fake
 
 Falešná knihovna (`speechscope-fake`, modul `speechscope_app.fake`) přijímá
 stejné příkazy jako skutečné CLI a vrací zachycené výstupy skutečné
-knihovny. Nahrávka se jménem obsahujícím `bad` skončí chybou, jméno
+knihovny (po změně knihovny `uv run python packaging/capture_fixtures.py`). Nahrávka se jménem obsahujícím `bad` skončí chybou, jméno
 se `short` dostane poznámku. Rychlost řídí `SPEECHSCOPE_FAKE_DELAY`,
 `SPEECHSCOPE_FAKE_DOCTOR=missing` předstírá chybějící modely. Přepínač
 `--fake` platí jen pro daný běh, do nastavení se neukládá.

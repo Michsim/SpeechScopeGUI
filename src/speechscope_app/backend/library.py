@@ -170,11 +170,14 @@ class FeatureParams:
 class Library:
     """Jedna nakonfigurovaná cesta ke knihovně."""
 
-    def __init__(self, command: list[str], *, models_dir: Path | None = None) -> None:
+    def __init__(
+        self, command: list[str], *, models_dir: Path | None = None, lang: str | None = None
+    ) -> None:
         if not command:
             raise ValueError("prázdný příkaz knihovny")
         self.command = list(command)
         self.models_dir = models_dir
+        self.lang = lang  # jazyk popisů z `list`; None = čeština knihovny
         self._features: dict[str | None, list[FeatureInfo]] = {}
         self._params: dict[str, FeatureParams] = {}
         self._providers: list[FeatureParams] | None = None
@@ -231,28 +234,36 @@ class Library:
 
     def doctor(self) -> dict[str, Any]:
         """`doctor --json`; kód 1 znamená jen "něco chybí", ne chybu."""
-        return self.run_json(command.doctor_args(models_dir=self.models_dir), ok_codes=(0, 1))
+        return self.run_json(
+            command.doctor_args(models_dir=self.models_dir, lang=self.lang), ok_codes=(0, 1)
+        )
 
     def models(self) -> dict[str, Any]:
-        return self.run_json(command.models_list_args(models_dir=self.models_dir))
+        return self.run_json(command.models_list_args(models_dir=self.models_dir, lang=self.lang))
 
     def features(self, task: str | None = None) -> list[FeatureInfo]:
         if task not in self._features:
-            payload = self.run_json(command.list_args(task=task, models_dir=self.models_dir))
+            payload = self.run_json(
+                command.list_args(task=task, models_dir=self.models_dir, lang=self.lang)
+            )
             self._features[task] = [FeatureInfo.from_json(item) for item in payload]
         return list(self._features[task])
 
     def params(self, name: str) -> FeatureParams:
         """Parametry feature nebo providera; jméno providera je `segments` apod."""
         if name not in self._params:
-            payload = self.run_json(command.params_args(name, models_dir=self.models_dir))
+            payload = self.run_json(
+                command.params_args(name, models_dir=self.models_dir, lang=self.lang)
+            )
             self._params[name] = FeatureParams.from_json(payload)
         return self._params[name]
 
     def providers(self) -> list[FeatureParams]:
         """Všechny providery i s parametry, jedním dotazem."""
         if self._providers is None:
-            payload = self.run_json(command.providers_args(models_dir=self.models_dir))
+            payload = self.run_json(
+                command.providers_args(models_dir=self.models_dir, lang=self.lang)
+            )
             found = [FeatureParams.from_json({"kind": "provider", **item}) for item in payload]
             for fp in found:
                 self._params.setdefault(fp.name, fp)

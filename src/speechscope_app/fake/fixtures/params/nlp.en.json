@@ -1,0 +1,21 @@
+{
+  "kind": "provider",
+  "name": "nlp",
+  "version": "1.0",
+  "requires": [
+    "transcript"
+  ],
+  "params": {
+    "language": {
+      "default": "",
+      "type": "str",
+      "description": "Analysis language; empty = take it from the transcript"
+    },
+    "mattr_window": {
+      "default": 50,
+      "type": "int",
+      "description": "Moving window width for MATTR and PMI (words). The legacy script derived it from the shortest transcript in the batch",
+      "ge": 2
+    }
+  }
+}

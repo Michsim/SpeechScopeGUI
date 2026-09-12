@@ -12,17 +12,17 @@
     ],
     "description": "",
     "outputs": {
-      "f1a": "F1 samohlásky /a/, střed shluku (Hz)",
-      "f2a": "F2 samohlásky /a/, střed shluku (Hz)",
-      "f1i": "F1 samohlásky /i/, střed shluku (Hz)",
-      "f2i": "F2 samohlásky /i/, střed shluku (Hz)",
-      "f1u": "F1 samohlásky /u/, střed shluku (Hz)",
-      "f2u": "F2 samohlásky /u/, střed shluku (Hz)",
-      "VSA": "Plocha samohláskového prostoru (Hz²)",
-      "VAI": "Index artikulace samohlásek (-)",
-      "IU": "Poměr F2 mezi /i/ a /u/ (-)",
-      "FRI": "Index poměru formantů (-)",
-      "SFRI": "Index poměru druhých formantů (-)"
+      "f1a": "F1 of vowel /a/, cluster centre (Hz)",
+      "f2a": "F2 of vowel /a/, cluster centre (Hz)",
+      "f1i": "F1 of vowel /i/, cluster centre (Hz)",
+      "f2i": "F2 of vowel /i/, cluster centre (Hz)",
+      "f1u": "F1 of vowel /u/, cluster centre (Hz)",
+      "f2u": "F2 of vowel /u/, cluster centre (Hz)",
+      "VSA": "Vowel space area (Hz²)",
+      "VAI": "Vowel articulation index (-)",
+      "IU": "F2 ratio between /i/ and /u/ (-)",
+      "FRI": "Formant ratio index (-)",
+      "SFRI": "Second formant ratio index (-)"
     },
     "columns": [
       "acoustic.articulation.vowels.f1a",
@@ -49,10 +49,10 @@
     "requires": [],
     "description": "",
     "outputs": {
-      "median": "Medián relativní intenzity v řeči (dB)",
-      "mean": "Průměr relativní intenzity v řeči (dB)",
-      "std": "Směrodatná odchylka relativní intenzity v řeči (dB)",
-      "kurt": "Špičatost relativní intenzity v řeči (-)"
+      "median": "Median of relative intensity in speech (dB)",
+      "mean": "Mean of relative intensity in speech (dB)",
+      "std": "Standard deviation of relative intensity in speech (dB)",
+      "kurt": "Kurtosis of relative intensity in speech (-)"
     },
     "columns": [
       "acoustic.intensity.stats.median",
@@ -74,15 +74,15 @@
     "requires": [],
     "description": "",
     "outputs": {
-      "std": "Směrodatná odchylka kontury F0 (půltóny)",
-      "median": "Medián kontury F0 (půltóny)",
-      "mean": "Průměr kontury F0 (půltóny)",
-      "max": "Maximum kontury F0 (půltóny)",
-      "min": "Minimum kontury F0 (půltóny)",
-      "median_hz": "Medián kontury F0 (Hz)",
-      "mean_hz": "Průměr kontury F0 (Hz)",
-      "range": "Rozsah F0, 95. minus 5. percentil (půltóny)",
-      "voiced_fraction": "Podíl znělých rámců na všech rámcích kontury (0 až 1)"
+      "std": "Standard deviation of the F0 contour (semitones)",
+      "median": "Median of the F0 contour (semitones)",
+      "mean": "Mean of the F0 contour (semitones)",
+      "max": "Maximum of the F0 contour (semitones)",
+      "min": "Minimum of the F0 contour (semitones)",
+      "median_hz": "Median of the F0 contour (Hz)",
+      "mean_hz": "Mean of the F0 contour (Hz)",
+      "range": "F0 range, 95th minus 5th percentile (semitones)",
+      "voiced_fraction": "Fraction of voiced frames among all contour frames (0 to 1)"
     },
     "columns": [
       "acoustic.pitch.f0.std",
@@ -109,8 +109,8 @@
     "requires": [],
     "description": "",
     "outputs": {
-      "cpp": "Cepstral peak prominence (dB) - breathness",
-      "cpps": "Cepstral peak prominence smoothed (dB) - breathness"
+      "cpp": "Cepstral peak prominence (dB)",
+      "cpps": "Cepstral peak prominence smoothed (dB)"
     },
     "columns": [
       "acoustic.quality.cpp.cpp",
@@ -132,7 +132,7 @@
       "shimmer_local": "Shimmer local (%)",
       "shimmer_apq3": "Shimmer APQ3, three-point amplitude perturbation quotient (%)",
       "shimmer_apq11": "Shimmer APQ11, eleven-point amplitude perturbation quotient (%)",
-      "hnr": "Průměrný poměr harmonických k šumu, HNR (dB)"
+      "hnr": "Mean harmonics-to-noise ratio, HNR (dB)"
     },
     "columns": [
       "acoustic.quality.perturbation.jitter_local",
@@ -157,10 +157,10 @@
     "requires": [],
     "description": "",
     "outputs": {
-      "mean": "Těžiště LTAS, spektrální centroid (Hz)",
-      "std": "Rozptyl LTAS kolem těžiště, spektrální šířka (Hz)",
-      "skew": "Šikmost LTAS (-)",
-      "kurt": "Špičatost LTAS (-)"
+      "mean": "LTAS centre of gravity, spectral centroid (Hz)",
+      "std": "LTAS spread around the centroid, spectral bandwidth (Hz)",
+      "skew": "LTAS skewness (-)",
+      "kurt": "LTAS kurtosis (-)"
     },
     "columns": [
       "acoustic.spectral.ltas.mean",
@@ -182,72 +182,72 @@
     "requires": [],
     "description": "",
     "outputs": {
-      "mean_c1": "Průměr koeficientu c1",
-      "mean_c2": "Průměr koeficientu c2",
-      "mean_c3": "Průměr koeficientu c3",
-      "mean_c4": "Průměr koeficientu c4",
-      "mean_c5": "Průměr koeficientu c5",
-      "mean_c6": "Průměr koeficientu c6",
-      "mean_c7": "Průměr koeficientu c7",
-      "mean_c8": "Průměr koeficientu c8",
-      "mean_c9": "Průměr koeficientu c9",
-      "mean_c10": "Průměr koeficientu c10",
-      "mean_c11": "Průměr koeficientu c11",
-      "mean_c12": "Průměr koeficientu c12",
-      "mean_c13": "Průměr koeficientu c13",
-      "mean_c14": "Průměr koeficientu c14",
-      "mean_c15": "Průměr koeficientu c15",
-      "mean_c16": "Průměr koeficientu c16",
-      "std_c1": "Směrodatná odchylka koeficientu c1",
-      "std_c2": "Směrodatná odchylka koeficientu c2",
-      "std_c3": "Směrodatná odchylka koeficientu c3",
-      "std_c4": "Směrodatná odchylka koeficientu c4",
-      "std_c5": "Směrodatná odchylka koeficientu c5",
-      "std_c6": "Směrodatná odchylka koeficientu c6",
-      "std_c7": "Směrodatná odchylka koeficientu c7",
-      "std_c8": "Směrodatná odchylka koeficientu c8",
-      "std_c9": "Směrodatná odchylka koeficientu c9",
-      "std_c10": "Směrodatná odchylka koeficientu c10",
-      "std_c11": "Směrodatná odchylka koeficientu c11",
-      "std_c12": "Směrodatná odchylka koeficientu c12",
-      "std_c13": "Směrodatná odchylka koeficientu c13",
-      "std_c14": "Směrodatná odchylka koeficientu c14",
-      "std_c15": "Směrodatná odchylka koeficientu c15",
-      "std_c16": "Směrodatná odchylka koeficientu c16",
-      "meanDelta_c1": "Průměr delty koeficientu c1",
-      "meanDelta_c2": "Průměr delty koeficientu c2",
-      "meanDelta_c3": "Průměr delty koeficientu c3",
-      "meanDelta_c4": "Průměr delty koeficientu c4",
-      "meanDelta_c5": "Průměr delty koeficientu c5",
-      "meanDelta_c6": "Průměr delty koeficientu c6",
-      "meanDelta_c7": "Průměr delty koeficientu c7",
-      "meanDelta_c8": "Průměr delty koeficientu c8",
-      "meanDelta_c9": "Průměr delty koeficientu c9",
-      "meanDelta_c10": "Průměr delty koeficientu c10",
-      "meanDelta_c11": "Průměr delty koeficientu c11",
-      "meanDelta_c12": "Průměr delty koeficientu c12",
-      "meanDelta_c13": "Průměr delty koeficientu c13",
-      "meanDelta_c14": "Průměr delty koeficientu c14",
-      "meanDelta_c15": "Průměr delty koeficientu c15",
-      "meanDelta_c16": "Průměr delty koeficientu c16",
-      "stdDelta_c1": "Směrodatná odchylka delty koeficientu c1",
-      "stdDelta_c2": "Směrodatná odchylka delty koeficientu c2",
-      "stdDelta_c3": "Směrodatná odchylka delty koeficientu c3",
-      "stdDelta_c4": "Směrodatná odchylka delty koeficientu c4",
-      "stdDelta_c5": "Směrodatná odchylka delty koeficientu c5",
-      "stdDelta_c6": "Směrodatná odchylka delty koeficientu c6",
-      "stdDelta_c7": "Směrodatná odchylka delty koeficientu c7",
-      "stdDelta_c8": "Směrodatná odchylka delty koeficientu c8",
-      "stdDelta_c9": "Směrodatná odchylka delty koeficientu c9",
-      "stdDelta_c10": "Směrodatná odchylka delty koeficientu c10",
-      "stdDelta_c11": "Směrodatná odchylka delty koeficientu c11",
-      "stdDelta_c12": "Směrodatná odchylka delty koeficientu c12",
-      "stdDelta_c13": "Směrodatná odchylka delty koeficientu c13",
-      "stdDelta_c14": "Směrodatná odchylka delty koeficientu c14",
-      "stdDelta_c15": "Směrodatná odchylka delty koeficientu c15",
-      "stdDelta_c16": "Směrodatná odchylka delty koeficientu c16",
-      "global_c1_16": "Průměr směrodatných odchylek c1 až c16",
-      "global_delta_c1_16": "Průměr směrodatných odchylek delt c1 až c16"
+      "mean_c1": "Mean of coefficient c1",
+      "mean_c2": "Mean of coefficient c2",
+      "mean_c3": "Mean of coefficient c3",
+      "mean_c4": "Mean of coefficient c4",
+      "mean_c5": "Mean of coefficient c5",
+      "mean_c6": "Mean of coefficient c6",
+      "mean_c7": "Mean of coefficient c7",
+      "mean_c8": "Mean of coefficient c8",
+      "mean_c9": "Mean of coefficient c9",
+      "mean_c10": "Mean of coefficient c10",
+      "mean_c11": "Mean of coefficient c11",
+      "mean_c12": "Mean of coefficient c12",
+      "mean_c13": "Mean of coefficient c13",
+      "mean_c14": "Mean of coefficient c14",
+      "mean_c15": "Mean of coefficient c15",
+      "mean_c16": "Mean of coefficient c16",
+      "std_c1": "Standard deviation of coefficient c1",
+      "std_c2": "Standard deviation of coefficient c2",
+      "std_c3": "Standard deviation of coefficient c3",
+      "std_c4": "Standard deviation of coefficient c4",
+      "std_c5": "Standard deviation of coefficient c5",
+      "std_c6": "Standard deviation of coefficient c6",
+      "std_c7": "Standard deviation of coefficient c7",
+      "std_c8": "Standard deviation of coefficient c8",
+      "std_c9": "Standard deviation of coefficient c9",
+      "std_c10": "Standard deviation of coefficient c10",
+      "std_c11": "Standard deviation of coefficient c11",
+      "std_c12": "Standard deviation of coefficient c12",
+      "std_c13": "Standard deviation of coefficient c13",
+      "std_c14": "Standard deviation of coefficient c14",
+      "std_c15": "Standard deviation of coefficient c15",
+      "std_c16": "Standard deviation of coefficient c16",
+      "meanDelta_c1": "Mean of the delta of coefficient c1",
+      "meanDelta_c2": "Mean of the delta of coefficient c2",
+      "meanDelta_c3": "Mean of the delta of coefficient c3",
+      "meanDelta_c4": "Mean of the delta of coefficient c4",
+      "meanDelta_c5": "Mean of the delta of coefficient c5",
+      "meanDelta_c6": "Mean of the delta of coefficient c6",
+      "meanDelta_c7": "Mean of the delta of coefficient c7",
+      "meanDelta_c8": "Mean of the delta of coefficient c8",
+      "meanDelta_c9": "Mean of the delta of coefficient c9",
+      "meanDelta_c10": "Mean of the delta of coefficient c10",
+      "meanDelta_c11": "Mean of the delta of coefficient c11",
+      "meanDelta_c12": "Mean of the delta of coefficient c12",
+      "meanDelta_c13": "Mean of the delta of coefficient c13",
+      "meanDelta_c14": "Mean of the delta of coefficient c14",
+      "meanDelta_c15": "Mean of the delta of coefficient c15",
+      "meanDelta_c16": "Mean of the delta of coefficient c16",
+      "stdDelta_c1": "Standard deviation of the delta of coefficient c1",
+      "stdDelta_c2": "Standard deviation of the delta of coefficient c2",
+      "stdDelta_c3": "Standard deviation of the delta of coefficient c3",
+      "stdDelta_c4": "Standard deviation of the delta of coefficient c4",
+      "stdDelta_c5": "Standard deviation of the delta of coefficient c5",
+      "stdDelta_c6": "Standard deviation of the delta of coefficient c6",
+      "stdDelta_c7": "Standard deviation of the delta of coefficient c7",
+      "stdDelta_c8": "Standard deviation of the delta of coefficient c8",
+      "stdDelta_c9": "Standard deviation of the delta of coefficient c9",
+      "stdDelta_c10": "Standard deviation of the delta of coefficient c10",
+      "stdDelta_c11": "Standard deviation of the delta of coefficient c11",
+      "stdDelta_c12": "Standard deviation of the delta of coefficient c12",
+      "stdDelta_c13": "Standard deviation of the delta of coefficient c13",
+      "stdDelta_c14": "Standard deviation of the delta of coefficient c14",
+      "stdDelta_c15": "Standard deviation of the delta of coefficient c15",
+      "stdDelta_c16": "Standard deviation of the delta of coefficient c16",
+      "global_c1_16": "Mean of the standard deviations of c1 to c16",
+      "global_delta_c1_16": "Mean of the standard deviations of the deltas of c1 to c16"
     },
     "columns": [
       "acoustic.spectral.mfcc.mean_c1",
@@ -331,13 +331,13 @@
     ],
     "description": "",
     "outputs": {
-      "count": "Počet pauz (-)",
-      "per_minute": "Pauzy za minutu nahrávky (1/min)",
-      "ratio": "Podíl času pauz na délce nahrávky (%)",
-      "median": "Medián délky pauz (ms)",
-      "mean": "Průměr délky pauz (ms)",
-      "std": "Směrodatná odchylka délky pauz (ms)",
-      "breath_ratio": "Podíl času nádechů (popisek pb) na délce nahrávky (%); NaN, když segmentace nádechy nerozlišuje"
+      "count": "Number of pauses (-)",
+      "per_minute": "Pauses per minute of recording (1/min)",
+      "ratio": "Share of pause time in the recording length (%)",
+      "median": "Median pause duration (ms)",
+      "mean": "Mean pause duration (ms)",
+      "std": "Standard deviation of pause duration (ms)",
+      "breath_ratio": "Share of breath time (label pb) in the recording length (%); NaN when the segmentation does not mark breaths"
     },
     "columns": [
       "acoustic.timing.pauses.count",
@@ -362,11 +362,11 @@
     ],
     "description": "",
     "outputs": {
-      "dpi": "Medián délky pauz, DPI (ms)",
-      "dbi": "Medián délky nádechů, DBI (ms)",
-      "vsdr": "Podíl znělé řeči na celkové řeči, VSDR (-)",
-      "ste": "Entropie časování řeči ze zastoupení čtyř tříd, STE (bit)",
-      "ssr_change": "Změna počtu řečových segmentů za minutu, poslední třetina nahrávky minus první, ΔSSR (seg/min)"
+      "dpi": "Median pause duration, DPI (ms)",
+      "dbi": "Median breath duration, DBI (ms)",
+      "vsdr": "Share of voiced speech in total speech, VSDR (-)",
+      "ste": "Speech timing entropy from the proportions of the four classes, STE (bit)",
+      "ssr_change": "Change in the number of speech segments per minute, last third of the recording minus the first, ΔSSR (seg/min)"
     },
     "columns": [
       "acoustic.timing.segmentation.dpi",
@@ -390,10 +390,10 @@
     ],
     "description": "",
     "outputs": {
-      "speech_rate": "Slabiky za sekundu od prvního do posledního slova (slab/s)",
-      "articulation_rate": "Slabiky za sekundu vztažené k času řeči (slab/s)",
-      "speech_rate_variability": "Směrodatná odchylka tempa přes okna (slab/s)",
-      "word_count": "Počet rozpoznaných slov (-)"
+      "speech_rate": "Syllables per second from the first to the last word (syll/s)",
+      "articulation_rate": "Syllables per second relative to speech time (syll/s)",
+      "speech_rate_variability": "Standard deviation of the rate across windows (syll/s)",
+      "word_count": "Number of recognised words (-)"
     },
     "columns": [
       "acoustic.timing.speech_rate.speech_rate",
@@ -413,7 +413,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Hustota obsahu, poměr plnovýznamových slov k gramatickým (-)",
+    "description": "Content density, ratio of open-class to closed-class words (-)",
     "outputs": {},
     "columns": [
       "linguistic.lexical.content_density"
@@ -430,7 +430,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Podíl plnovýznamových slov na všech slovech (-)",
+    "description": "Share of content words among all words (-)",
     "outputs": {},
     "columns": [
       "linguistic.lexical.content_words"
@@ -447,7 +447,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Podíl gramatických slov na všech slovech (-)",
+    "description": "Share of function words among all words (-)",
     "outputs": {},
     "columns": [
       "linguistic.lexical.function_words"
@@ -464,7 +464,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Klouzavý poměr různých slov ke všem slovům, šířka okna nlp.mattr_window (-)",
+    "description": "Moving-average type-token ratio, window width nlp.mattr_window (-)",
     "outputs": {},
     "columns": [
       "linguistic.lexical.mattr"
@@ -481,7 +481,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Opakování frází: součet četností osmi nejčastějších 2- až 5-gramů na slovo (-)",
+    "description": "Phrase repetition: sum of the counts of the eight most frequent 2- to 5-grams per word (-)",
     "outputs": {},
     "columns": [
       "linguistic.lexical.ngrams"
@@ -498,7 +498,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Průměrná bodová vzájemná informace (PMI) bigramů v klouzavém okně šířky nlp.mattr_window (bit)",
+    "description": "Mean pointwise mutual information (PMI) of bigrams in a moving window of width nlp.mattr_window (bit)",
     "outputs": {},
     "columns": [
       "linguistic.lexical.pmi"
@@ -515,7 +515,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Poměr podstatných jmen ke slovesům (-)",
+    "description": "Noun-to-verb ratio (-)",
     "outputs": {},
     "columns": [
       "linguistic.lexical.rrtr"
@@ -532,7 +532,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Shannonova entropie rozložení slov (bit)",
+    "description": "Shannon entropy of the word distribution (bit)",
     "outputs": {},
     "columns": [
       "linguistic.lexical.word_entropy"
@@ -549,7 +549,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Souřadné věty na jednu výpověď (-)",
+    "description": "Coordinate clauses per utterance (-)",
     "outputs": {},
     "columns": [
       "linguistic.syntactic.ccsr"
@@ -566,7 +566,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Souřadné a podřadné věty dohromady na jednu výpověď (-)",
+    "description": "Coordinate and subordinate clauses together per utterance (-)",
     "outputs": {},
     "columns": [
       "linguistic.syntactic.csr"
@@ -583,7 +583,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Průměrná délka výpovědi ve slovech (slova/věta)",
+    "description": "Mean length of utterance in words (words/sentence)",
     "outputs": {},
     "columns": [
       "linguistic.syntactic.mlu"
@@ -600,7 +600,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Podřadné věty na jednu výpověď (-)",
+    "description": "Subordinate clauses per utterance (-)",
     "outputs": {},
     "columns": [
       "linguistic.syntactic.scsr"
@@ -617,7 +617,7 @@
     "requires": [
       "nlp"
     ],
-    "description": "Průměrná vzdálenost mezi řídícím a závislým slovem (slova)",
+    "description": "Mean distance between a head and its dependent word (words)",
     "outputs": {},
     "columns": [
       "linguistic.syntactic.sdl"

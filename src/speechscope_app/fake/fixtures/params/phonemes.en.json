@@ -1,0 +1,25 @@
+{
+  "kind": "provider",
+  "name": "phonemes",
+  "version": "1.1",
+  "requires": [],
+  "params": {
+    "phnrec_dir": {
+      "default": "",
+      "type": "str",
+      "description": "Folder with phnrec.exe and its model; empty = the model store"
+    },
+    "min_phones": {
+      "default": 5,
+      "type": "int",
+      "description": "Below this many recognised phonemes the output is discarded as unreliable",
+      "ge": 1
+    },
+    "timeout": {
+      "default": 600.0,
+      "type": "float",
+      "description": "Longest allowed recogniser run (s)",
+      "gt": 0
+    }
+  }
+}

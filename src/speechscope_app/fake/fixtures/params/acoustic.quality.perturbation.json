@@ -1,0 +1,90 @@
+{
+  "kind": "feature",
+  "name": "acoustic.quality.perturbation",
+  "version": "1.0",
+  "tasks": [
+    "phonation"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": true,
+    "required": false,
+    "default": {
+      "phonation": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "jitter_local": "Jitter local (%)",
+    "jitter_rap": "Jitter RAP, relative average perturbation (%)",
+    "jitter_ppq5": "Jitter PPQ5, five-point period perturbation quotient (%)",
+    "shimmer_local": "Shimmer local (%)",
+    "shimmer_apq3": "Shimmer APQ3, three-point amplitude perturbation quotient (%)",
+    "shimmer_apq11": "Shimmer APQ11, eleven-point amplitude perturbation quotient (%)",
+    "hnr": "Průměrný poměr harmonických k šumu, HNR (dB)"
+  },
+  "params": {
+    "keep_middle": {
+      "default": 0.6666666666666666,
+      "type": "float",
+      "description": "Podíl délky nahrávky uprostřed, ze kterého se počítá; zbytek se zahodí rovným dílem ze začátku a z konce. 1 = celá nahrávka",
+      "gt": 0,
+      "le": 1
+    },
+    "f0_min": {
+      "default": 60.0,
+      "type": "float",
+      "description": "Nejnižší hledaná F0 pro pulzy a HNR (Hz)",
+      "gt": 0
+    },
+    "f0_max": {
+      "default": 400.0,
+      "type": "float",
+      "description": "Nejvyšší hledaná F0 pro pulzy (Hz)",
+      "gt": 0
+    },
+    "period_floor": {
+      "default": 0.0001,
+      "type": "float",
+      "description": "Nejkratší uznaná perioda (s)",
+      "gt": 0
+    },
+    "period_ceiling": {
+      "default": 0.02,
+      "type": "float",
+      "description": "Nejdelší uznaná perioda (s)",
+      "gt": 0
+    },
+    "max_period_factor": {
+      "default": 1.3,
+      "type": "float",
+      "description": "Největší poměr sousedních period, jinak se dvojice přeskočí",
+      "gt": 1
+    },
+    "max_amplitude_factor": {
+      "default": 1.6,
+      "type": "float",
+      "description": "Největší poměr sousedních amplitud, jinak se dvojice přeskočí",
+      "gt": 1
+    },
+    "hnr_time_step": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Krok analýzy HNR (s)",
+      "gt": 0
+    },
+    "silence_threshold": {
+      "default": 0.1,
+      "type": "float",
+      "description": "Práh ticha pro HNR, podíl z globální špičky",
+      "ge": 0,
+      "le": 1
+    },
+    "periods_per_window": {
+      "default": 1.0,
+      "type": "float",
+      "description": "Počet period v okně HNR",
+      "gt": 0
+    }
+  }
+}

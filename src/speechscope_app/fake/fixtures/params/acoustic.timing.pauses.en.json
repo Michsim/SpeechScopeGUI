@@ -1,0 +1,50 @@
+{
+  "kind": "feature",
+  "name": "acoustic.timing.pauses",
+  "version": "1.1",
+  "tasks": [
+    "monologue",
+    "reading",
+    "story"
+  ],
+  "requires": [
+    "segments"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "monologue": false,
+      "reading": false,
+      "story": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "count": "Number of pauses (-)",
+    "per_minute": "Pauses per minute of recording (1/min)",
+    "ratio": "Share of pause time in the recording length (%)",
+    "median": "Median pause duration (ms)",
+    "mean": "Mean pause duration (ms)",
+    "std": "Standard deviation of pause duration (ms)",
+    "breath_ratio": "Share of breath time (label pb) in the recording length (%); NaN when the segmentation does not mark breaths"
+  },
+  "params": {
+    "merge_adjacent": {
+      "default": false,
+      "type": "bool",
+      "description": "Merge adjacent non-speech segments (silence and breath) into one pause; default False = every segment separately as in the legacy module"
+    },
+    "trim_edges": {
+      "default": true,
+      "type": "bool",
+      "description": "Ignore silence before the first speech and after the last; the recording length used for shares and pauses per minute is shortened accordingly. False = as in the legacy module"
+    },
+    "min_pause": {
+      "default": 0.0,
+      "type": "float",
+      "description": "Shortest pause that is counted (s); default 0 = all",
+      "ge": 0
+    }
+  }
+}

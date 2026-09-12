@@ -3,9 +3,12 @@
 Přijímá stejné příkazy a volby jako skutečné CLI a vrací JSON ve stejném
 tvaru, včetně událostí `--progress-json` smlouvy verze 2 (`begin`,
 `stage`). Fixtury v `fixtures/` jsou zachycené výstupy skutečné knihovny
-(knihovna 0.2.0, fixtury z 11. 9. 2026). Když se knihovna změní, zachytí se znovu:
+(knihovna 0.2.0, fixtury z 12. 9. 2026). Když se knihovna změní, zachytí se znovu
+skriptem `packaging/capture_fixtures.py` (spouští `speechscope.exe` z repa
+knihovny, česky i anglicky), nebo ručně:
 
     uv run speechscope list --json                > fixtures/list.json
+    uv run speechscope --lang en list --json      > fixtures/list.en.json
     uv run speechscope list --providers --json    > fixtures/providers.json
     uv run speechscope doctor --json              > fixtures/doctor.json
     uv run speechscope models list --json         > fixtures/models.json
@@ -13,6 +16,8 @@ tvaru, včetně událostí `--progress-json` smlouvy verze 2 (`begin`,
 
 `NAME` je feature i provider (`segments`, `transcript`, `nlp`, `phonemes`).
 Feature bez vlastního souboru v `params/` dostane prázdné parametry.
+Anglické popisy jsou v `*.en.json` vedle českých; `--lang en` (nebo
+`SPEECHSCOPE_LANG=en`) je vybere, jiný jazyk spadne na češtinu.
 
 Chování se řídí proměnnými prostředí:
 

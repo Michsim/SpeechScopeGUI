@@ -21,17 +21,17 @@
   },
   "description": "",
   "outputs": {
-    "dpi": "Medián délky pauz, DPI (ms)",
-    "dbi": "Medián délky nádechů, DBI (ms)",
-    "vsdr": "Podíl znělé řeči na celkové řeči, VSDR (-)",
-    "ste": "Entropie časování řeči ze zastoupení čtyř tříd, STE (bit)",
-    "ssr_change": "Změna počtu řečových segmentů za minutu, poslední třetina nahrávky minus první, ΔSSR (seg/min)"
+    "dpi": "Median pause duration, DPI (ms)",
+    "dbi": "Median breath duration, DBI (ms)",
+    "vsdr": "Share of voiced speech in total speech, VSDR (-)",
+    "ste": "Speech timing entropy from the proportions of the four classes, STE (bit)",
+    "ssr_change": "Change in the number of speech segments per minute, last third of the recording minus the first, ΔSSR (seg/min)"
   },
   "params": {
     "min_segments": {
       "default": 6,
       "type": "int",
-      "description": "Nejméně segmentů, aby se počítala změna tempa (ssr_change)",
+      "description": "Minimum number of segments for the rate change (ssr_change) to be computed",
       "ge": 2
     }
   }

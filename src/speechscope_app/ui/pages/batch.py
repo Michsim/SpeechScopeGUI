@@ -43,7 +43,6 @@ from ..file_actions import open_file, show_file_menu
 from ..pages.run import format_seconds
 from ..prepare_dialog import SegmentDialog, TranscribeDialog
 from ..protocol_detail import ProtocolDetailDialog
-from ..protocol_dialog import SaveProtocolDialog
 from ..widgets.elided_label import ElidedLabel
 from ..widgets.protocol_editor import ProtocolEditorDialog
 from ..widgets.protocol_list import ProtocolCardInfo, ProtocolList
@@ -68,7 +67,7 @@ def _step(number: int, title: str, hint: str = "") -> tuple[QHBoxLayout, QLabel]
 class BatchPage(QWidget):
     run_requested = Signal(object, list)  # Protocol, list[Path]
     notice = Signal(str)  # krátká hláška do stavového řádku hlavního okna
-    save_requested = Signal(object)  # Protocol upravený v rozšířeném režimu
+    save_requested = Signal(object)  # Protocol k uložení (úprava, kopie, nový)
     # "segments" | "transcript", Protocol, cesty, volby z dialogu (model, cut_audio, language)
     prepare_requested = Signal(str, object, list, dict)
 
@@ -169,6 +168,7 @@ class BatchPage(QWidget):
         self.protocols = ProtocolList()
         self.protocols.current_changed.connect(self._protocol_changed)
         self.protocols.details_requested.connect(self.show_protocol_detail)
+        self.protocols.edit_requested.connect(self.edit_protocol)
         left_layout.addWidget(self.protocols.task_bar)
         lang_row = QHBoxLayout()
         self.language = QComboBox()
@@ -196,10 +196,10 @@ class BatchPage(QWidget):
         right_layout.addLayout(step3)
         right_layout.addWidget(self.protocols, 1)
 
-        # rozšířený režim: souhrn výběru a tlačítko do okna editoru
+        # rozšířený režim: souhrn výběru; úpravy jdou přes Upravit… na kartě
+        # a Nový protokol…, každá změna se uloží do protokolu
         self.editor_dialog = ProtocolEditorDialog(self)
         self.editor = self.editor_dialog.editor
-        self.editor.changed.connect(self._editor_changed)
         self.advanced_box = QGroupBox(tr("Feature a parametry"))
         adv = QVBoxLayout(self.advanced_box)
         self.editor_summary = QLabel("")
@@ -227,16 +227,13 @@ class BatchPage(QWidget):
         self.transcribe_btn.clicked.connect(lambda: self._prepare("transcript"))
         adv_buttons.addWidget(self.transcribe_btn)
         adv_buttons.addStretch(1)
-        self.edit_btn = QPushButton(tr("Upravit…"))
-        self.edit_btn.setToolTip(tr("Výběr feature a parametry jen pro tento běh"))
-        self.edit_btn.setEnabled(False)
-        self.edit_btn.clicked.connect(self.open_editor)
-        adv_buttons.addWidget(self.edit_btn)
-        self.save_btn = QPushButton(tr("Uložit jako protokol…"))
-        self.save_btn.setToolTip(tr("Uloží aktuální výběr feature a parametry jako nový protokol"))
-        self.save_btn.setEnabled(False)
-        self.save_btn.clicked.connect(self._save)
-        adv_buttons.addWidget(self.save_btn)
+        self.new_btn = QPushButton(tr("Nový protokol…"))
+        self.new_btn.setToolTip(
+            tr("Nový vlastní protokol: jméno, popis, úloha, výběr feature a parametry.")
+        )
+        self.new_btn.setEnabled(False)
+        self.new_btn.clicked.connect(self.new_protocol)
+        adv_buttons.addWidget(self.new_btn)
         adv.addLayout(adv_buttons)
         right_layout.addWidget(self.advanced_box)
 
@@ -289,15 +286,7 @@ class BatchPage(QWidget):
             self.language.setCurrentIndex(idx)
 
     def _language_changed(self, _idx: int) -> None:
-        self._push_language()
         self._update_run_state()
-
-    def _push_language(self) -> None:
-        """Jazyk z lišty do editoru, ať ho výzkumník vidí i v parametrech."""
-        code = self.language_code()
-        if code and self.editor.protocol() is not None:
-            for provider in ("transcript", "nlp"):
-                self.editor.set_override(provider, "language", code)
 
     def set_stats_lookup(self, lookup: Callable[[str], float | None]) -> None:
         self._seconds_per_file = lookup
@@ -440,6 +429,7 @@ class BatchPage(QWidget):
     def set_advanced(self, advanced: bool) -> None:
         self._advanced = advanced
         self.advanced_box.setVisible(advanced)
+        self.protocols.set_advanced(advanced)
         self._fill_files()
 
     def set_folder(self, folder: Path) -> None:
@@ -571,27 +561,33 @@ class BatchPage(QWidget):
     # --- protokol -------------------------------------------------------------------
 
     def _protocol_changed(self, proto: Protocol | None) -> None:
-        self.editor.set_protocol(proto)
-        self._push_language()
+        self.editor.set_protocol(proto)  # kvůli souhrnu v rámečku
         self._update_run_state()
 
-    def _editor_changed(self) -> None:
-        proto = self.current_protocol()
-        if proto is not None:
-            edited = self.editor.result()
-            self.protocols.set_modified(
-                proto.name, edited is not None and edited.to_dict() != proto.to_dict()
-            )
-        self._update_run_state()
+    def edit_protocol(self, proto: Protocol | None) -> Protocol | None:
+        """Upravit… na kartě: vlastní protokol se uloží, přibalený jako kopie."""
+        if proto is None or not self.editor.has_catalog():
+            return None
+        mode = "copy" if proto.builtin else "edit"
+        taken = self.protocol_names() - ({proto.name} if mode == "edit" else set())
+        result = self.editor_dialog.edit(proto, mode=mode, taken=taken)
+        self.editor.set_protocol(self.current_protocol())  # souhrn zpět na vybraný
+        if result is not None:
+            self.save_requested.emit(result)
+        return result
 
-    def open_editor(self) -> None:
-        proto = self.current_protocol()
-        if proto is None:
-            return
-        self.editor_dialog.open_for(
-            tr("{name} · úprava jen pro tento běh").format(name=proto.display_name)
+    def new_protocol(self) -> Protocol | None:
+        """Nový protokol…: prázdný pro aktuální úlohu, se všemi feature k ní."""
+        if not self.editor.has_catalog():
+            return None
+        task = self.protocols.current_task() or contract.TASKS[0]
+        result = self.editor_dialog.edit(
+            Protocol(name="", task=task), mode="new", taken=self.protocol_names()
         )
-        self._editor_changed()
+        self.editor.set_protocol(self.current_protocol())
+        if result is not None:
+            self.save_requested.emit(result)
+        return result
 
     def _update_editor_summary(self) -> None:
         """Krátký souhrn výběru do rámečku na Datech (celý je v okně editoru)."""
@@ -609,8 +605,7 @@ class BatchPage(QWidget):
         self.run_btn.setEnabled(ok)
         self.segment_btn.setEnabled(ok)
         self.transcribe_btn.setEnabled(ok)
-        self.save_btn.setEnabled(proto is not None and self.editor.has_catalog())
-        self.edit_btn.setEnabled(proto is not None and self.editor.has_catalog())
+        self.new_btn.setEnabled(self.editor.has_catalog())
         self._update_editor_summary()
         self._update_step1_hint()
         self.step2_hint.setText(
@@ -634,24 +629,21 @@ class BatchPage(QWidget):
             )
 
     def effective_protocol(self) -> Protocol | None:
-        """Protokol pro běh: úpravy z rozšířeného režimu a jazyk z lišty."""
-        if not self.advanced_box.isHidden():
-            proto = self.editor.result()
-        else:
-            base = self.current_protocol()
-            if base is None:
-                return None
-            proto = Protocol(
-                name=base.name,
-                task=base.task,
-                description=base.description,
-                features=list(base.features),
-                domain=base.domain,
-                vad=base.vad,
-                config={k: dict(v) for k, v in base.config.items()},
-            )
-        if proto is None:
+        """Protokol pro běh: vybraný protokol tak, jak je uložený, plus jazyk z lišty."""
+        base = self.current_protocol()
+        if base is None:
             return None
+        proto = Protocol(
+            name=base.name,
+            task=base.task,
+            description=base.description,
+            features=list(base.features),
+            domain=base.domain,
+            vad=base.vad,
+            config={k: dict(v) for k, v in base.config.items()},
+            names=dict(base.names),
+            descriptions=dict(base.descriptions),
+        )
         language = self.language_code()
         if language:
             for provider in ("transcript", "nlp"):
@@ -734,12 +726,3 @@ class BatchPage(QWidget):
             self.prepare_requested.emit(
                 kind, proto, [r.path for r in self._recordings], dialog.options()
             )
-
-    def _save(self) -> None:
-        proto = self.effective_protocol()
-        if proto is None:
-            return
-        builtin = {p.name for p in self._protocols if p.builtin}
-        dialog = SaveProtocolDialog(proto, self.protocol_names() - builtin, self)
-        if dialog.exec():
-            self.save_requested.emit(dialog.result_protocol())

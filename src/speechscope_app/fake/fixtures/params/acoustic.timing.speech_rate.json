@@ -1,0 +1,68 @@
+{
+  "kind": "feature",
+  "name": "acoustic.timing.speech_rate",
+  "version": "1.1",
+  "tasks": [
+    "monologue",
+    "reading",
+    "story"
+  ],
+  "requires": [
+    "transcript",
+    "segments"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "monologue": false,
+      "reading": false,
+      "story": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "speech_rate": "Slabiky za sekundu od prvního do posledního slova (slab/s)",
+    "articulation_rate": "Slabiky za sekundu vztažené k času řeči (slab/s)",
+    "speech_rate_variability": "Směrodatná odchylka tempa přes okna (slab/s)",
+    "word_count": "Počet rozpoznaných slov (-)"
+  },
+  "params": {
+    "syllable_method": {
+      "default": "nuclei",
+      "type": "str",
+      "description": "Počítání slabik: nuclei (samohlásková jádra, dvojhlásky, slabikotvorné r/l) nebo pyphen (slovník dělení slov jako starý skript)",
+      "choices": [
+        "nuclei",
+        "pyphen"
+      ]
+    },
+    "speech_time": {
+      "default": "words",
+      "type": "str",
+      "description": "Řečový čas pro artikulační tempo: words (součet trvání slov z Whisperu jako starý skript), segments_in_words (řeč ze segmentace jen uvnitř intervalů slov, tedy segmentace vyřízne pauzy, které Whisper zabalil do slova) nebo segments (celá řeč ze segmentace)",
+      "choices": [
+        "words",
+        "segments_in_words",
+        "segments"
+      ]
+    },
+    "language": {
+      "default": "",
+      "type": "str",
+      "description": "Jazyk pro dělení na slabiky metodou pyphen; prázdné = vzít z přepisu"
+    },
+    "frame_length": {
+      "default": 2.0,
+      "type": "float",
+      "description": "Délka okna pro kolísání tempa (s)",
+      "gt": 0
+    },
+    "frame_step": {
+      "default": 1.9,
+      "type": "float",
+      "description": "Krok okna pro kolísání tempa (s)",
+      "gt": 0
+    }
+  }
+}

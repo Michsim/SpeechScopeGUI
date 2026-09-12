@@ -1,0 +1,50 @@
+{
+  "kind": "feature",
+  "name": "acoustic.timing.pauses",
+  "version": "1.1",
+  "tasks": [
+    "monologue",
+    "reading",
+    "story"
+  ],
+  "requires": [
+    "segments"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "monologue": false,
+      "reading": false,
+      "story": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "count": "Počet pauz (-)",
+    "per_minute": "Pauzy za minutu nahrávky (1/min)",
+    "ratio": "Podíl času pauz na délce nahrávky (%)",
+    "median": "Medián délky pauz (ms)",
+    "mean": "Průměr délky pauz (ms)",
+    "std": "Směrodatná odchylka délky pauz (ms)",
+    "breath_ratio": "Podíl času nádechů (popisek pb) na délce nahrávky (%); NaN, když segmentace nádechy nerozlišuje"
+  },
+  "params": {
+    "merge_adjacent": {
+      "default": false,
+      "type": "bool",
+      "description": "Sousední neřečové úseky (ticho a nádech) sloučit do jedné pauzy; výchozí False = každý úsek zvlášť jako starý modul"
+    },
+    "trim_edges": {
+      "default": true,
+      "type": "bool",
+      "description": "Nepočítat ticho před první řečí a za poslední; délka nahrávky pro podíly a pauzy za minutu se o ně zkrátí. False = jako starý modul"
+    },
+    "min_pause": {
+      "default": 0.0,
+      "type": "float",
+      "description": "Nejkratší pauza, která se počítá (s); výchozí 0 = všechny",
+      "ge": 0
+    }
+  }
+}

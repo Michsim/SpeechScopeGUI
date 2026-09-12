@@ -23,69 +23,69 @@
   },
   "description": "",
   "outputs": {
-    "cpp": "Cepstral peak prominence (dB) - breathness",
-    "cpps": "Cepstral peak prominence smoothed (dB) - breathness"
+    "cpp": "Cepstral peak prominence (dB)",
+    "cpps": "Cepstral peak prominence smoothed (dB)"
   },
   "params": {
     "window_length": {
       "default": 0.041,
       "type": "float",
-      "description": "Délka okna (s)",
+      "description": "Window length (s)",
       "gt": 0
     },
     "window_overlap": {
       "default": 90.0,
       "type": "float",
-      "description": "Překryv oken (%)",
+      "description": "Window overlap (%)",
       "ge": 0,
       "lt": 100
     },
     "time_smoothing": {
       "default": 10,
       "type": "int",
-      "description": "Řád filtru pro časové průměrování cepster (jen CPPS)",
+      "description": "Filter order for averaging cepstra over time (CPPS only)",
       "ge": 1
     },
     "quefrency_smoothing": {
       "default": 5,
       "type": "int",
-      "description": "Řád filtru pro vyhlazení v kvefrenci (jen CPPS)",
+      "description": "Filter order for smoothing along quefrency (CPPS only)",
       "ge": 1
     },
     "f0_min": {
       "default": 60.0,
       "type": "float",
-      "description": "Nejnižší hledaná F0 (Hz), horní mez kvefrence; legacy 55",
+      "description": "Lowest F0 searched (Hz), upper quefrency bound; legacy 55",
       "gt": 0
     },
     "f0_max": {
       "default": 333.0,
       "type": "float",
-      "description": "Nejvyšší hledaná F0 (Hz), dolní mez kvefrence; legacy 500",
+      "description": "Highest F0 searched (Hz), lower quefrency bound; legacy 500",
       "gt": 0
     },
     "search_offset": {
       "default": 0.0,
       "type": "float",
-      "description": "Posun začátku hledání vrcholu za dolní mez kvefrence (s); legacy 0.001",
+      "description": "Offset of the peak search start past the lower quefrency bound (s); legacy 0.001",
       "ge": 0
     },
     "trend_min_q": {
       "default": 0.001,
       "type": "float",
-      "description": "Začátek oblasti pro regresní přímku trendu (s kvefrence); 0 = oblast hledání",
+      "description": "Start of the trend-line regression range (s of quefrency); 0 = the search range",
       "ge": 0
     },
     "trend_max_q": {
       "default": 0.05,
       "type": "float",
-      "description": "Konec oblasti pro regresní přímku trendu (s kvefrence); 0 = oblast hledání",
+      "description": "End of the trend-line regression range (s of quefrency); 0 = the search range",
       "ge": 0
     },
     "aggregate": {
       "default": "median",
       "type": "str",
-      "description": "Souhrn přes rámce: median jako starý skript, mean jako Praat a Hillenbrand (srovnatelné s normami v literatuře)",
+      "description": "Summary across frames: median as in the legacy script, mean as in Praat and Hillenbrand (comparable with published norms)",
       "choices": [
         "mean",
         "median"

@@ -1,0 +1,52 @@
+{
+  "kind": "feature",
+  "name": "acoustic.spectral.ltas",
+  "version": "1.2",
+  "tasks": [
+    "ddk",
+    "monologue",
+    "phonation",
+    "reading",
+    "story"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": true,
+    "required": false,
+    "default": {
+      "ddk": false,
+      "monologue": true,
+      "phonation": false,
+      "reading": true,
+      "story": true
+    }
+  },
+  "description": "",
+  "outputs": {
+    "mean": "LTAS centre of gravity, spectral centroid (Hz)",
+    "std": "LTAS spread around the centroid, spectral bandwidth (Hz)",
+    "skew": "LTAS skewness (-)",
+    "kurt": "LTAS kurtosis (-)"
+  },
+  "params": {
+    "window_length": {
+      "default": 0.05,
+      "type": "float",
+      "description": "Window length (s)",
+      "gt": 0
+    },
+    "window_overlap": {
+      "default": 50.0,
+      "type": "float",
+      "description": "Window overlap (%)",
+      "ge": 0,
+      "lt": 100
+    },
+    "analysis_fs": {
+      "default": 16000,
+      "type": "int",
+      "description": "Working sampling rate (Hz); the recording is resampled to it so that the spectral moments do not depend on the recording's sampling rate",
+      "gt": 0
+    }
+  }
+}

@@ -33,13 +33,28 @@ def _load(name: str) -> Any:
     return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
 
+def _lang() -> str:
+    return os.environ.get("SPEECHSCOPE_LANG", "cs") or "cs"
+
+
+def _localized(name: str) -> str:
+    """`list.json` → `list.en.json`, když je jazyk angličtina a soubor existuje."""
+    lang = _lang()
+    if lang != "cs":
+        stem, dot, ext = name.rpartition(".")
+        candidate = f"{stem}.{lang}{dot}{ext}"
+        if (FIXTURES / candidate).is_file():
+            return candidate
+    return name
+
+
 def _features() -> list[dict[str, Any]]:
-    return _load("list.json")
+    return _load(_localized("list.json"))
 
 
 def _params_of(name: str) -> dict[str, Any] | None:
     """Parametry feature nebo providera, jako `list --params NAME --json`."""
-    path = FIXTURES / "params" / f"{name}.json"
+    path = FIXTURES / _localized(f"params/{name}.json")
     if path.is_file():
         return json.loads(path.read_text(encoding="utf-8"))
     spec = next((f for f in _features() if f["name"] == name), None)
@@ -187,7 +202,7 @@ def cmd_list(ns: argparse.Namespace) -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
     if ns.providers:
-        payload = _load("providers.json")
+        payload = _load(_localized("providers.json"))
         if ns.json:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
@@ -512,6 +527,7 @@ def _add_batch_options(p: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="speechscope", description="Falešná knihovna SpeechScope")
     parser.add_argument("--models-dir")
+    parser.add_argument("--lang")  # jako knihovna: nastaví SPEECHSCOPE_LANG pro popisy
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("version").set_defaults(func=cmd_version)
@@ -575,6 +591,8 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
     ns = build_parser().parse_args(argv)
+    if ns.lang:
+        os.environ["SPEECHSCOPE_LANG"] = ns.lang
     try:
         return int(ns.func(ns))
     except Fail as exc:

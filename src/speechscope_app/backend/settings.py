@@ -12,6 +12,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings, QStandardPaths
 
+from .. import i18n
 from . import library
 
 ORG = "SAMI"
@@ -153,8 +154,13 @@ class AppSettings:
 
     @property
     def ui_language(self) -> str:
-        """Jazyk aplikace: kód (`cs`, `en`), prázdné = podle systému."""
-        return str(self._q.value("ui/language", ""))
+        """Jazyk aplikace: kód (`cs`, `en`), prázdné = podle systému.
+
+        Bez uložené volby angličtina: klinika mimo Česko ji čeká a Čech
+        si češtinu přepne v Nastavení jednou.
+        """
+        raw = self._q.value("ui/language", None)
+        return "en" if raw is None else str(raw)
 
     @ui_language.setter
     def ui_language(self, value: str) -> None:
@@ -203,4 +209,4 @@ class AppSettings:
         cmd = self.effective_command()
         if not cmd:
             return None
-        return library.Library(cmd, models_dir=self.models_dir)
+        return library.Library(cmd, models_dir=self.models_dir, lang=i18n.language())

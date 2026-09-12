@@ -1,0 +1,35 @@
+{
+  "kind": "feature",
+  "name": "acoustic.intensity.stats",
+  "version": "1.0",
+  "tasks": [
+    "monologue",
+    "reading",
+    "story"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": true,
+    "required": true,
+    "default": {
+      "monologue": true,
+      "reading": true,
+      "story": true
+    }
+  },
+  "description": "",
+  "outputs": {
+    "median": "Median of relative intensity in speech (dB)",
+    "mean": "Mean of relative intensity in speech (dB)",
+    "std": "Standard deviation of relative intensity in speech (dB)",
+    "kurt": "Kurtosis of relative intensity in speech (-)"
+  },
+  "params": {
+    "window_duration": {
+      "default": 0.112,
+      "type": "float",
+      "description": "Intensity envelope window length (s)",
+      "gt": 0
+    }
+  }
+}

@@ -11,13 +11,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-def _common(models_dir: Path | None) -> list[str]:
+def _common(models_dir: Path | None, lang: str | None = None) -> list[str]:
     """Globální volby, které jdou před jméno příkazu.
 
     `--models-dir` se posílá vždycky, když ho známe. Bez něj knihovna hledá
     modely v aktuálním adresáři, což u GUI spuštěného odkudkoli selže.
+    `--lang` je jazyk popisů feature a parametrů (`list`), jinak knihovna
+    vrací češtinu.
     """
-    return ["--models-dir", str(models_dir)] if models_dir else []
+    args = ["--models-dir", str(models_dir)] if models_dir else []
+    if lang:
+        args += ["--lang", lang]
+    return args
 
 
 def _paths(paths: list[Path]) -> list[str]:
@@ -47,9 +52,11 @@ class ExtractRequest:
             raise ValueError("zadej úlohu, nebo manifest")
 
 
-def extract_args(req: ExtractRequest, *, models_dir: Path | None = None) -> list[str]:
+def extract_args(
+    req: ExtractRequest, *, models_dir: Path | None = None, lang: str | None = None
+) -> list[str]:
     req.validate()
-    args = [*_common(models_dir), "extract", *_paths(req.inputs)]
+    args = [*_common(models_dir, lang), "extract", *_paths(req.inputs)]
     if req.task:
         args += ["--task", req.task]
     if req.features:
@@ -116,8 +123,9 @@ def segment_args(
     model: str = "conformer",
     cut_audio: bool = False,
     models_dir: Path | None = None,
+    lang: str | None = None,
 ) -> list[str]:
-    args = [*_common(models_dir), "segment", *_paths(req.inputs), "--model", model]
+    args = [*_common(models_dir, lang), "segment", *_paths(req.inputs), "--model", model]
     if cut_audio:
         args.append("--cut-audio")
     return args + _prepare_tail(req)
@@ -129,9 +137,10 @@ def transcribe_args(
     language: str = "cs",
     model: str = "large-v3",
     models_dir: Path | None = None,
+    lang: str | None = None,
 ) -> list[str]:
     args = [
-        *_common(models_dir),
+        *_common(models_dir, lang),
         "transcribe",
         *_paths(req.inputs),
         "--language",
@@ -143,9 +152,13 @@ def transcribe_args(
 
 
 def list_args(
-    *, task: str | None = None, domain: str | None = None, models_dir: Path | None = None
+    *,
+    task: str | None = None,
+    domain: str | None = None,
+    models_dir: Path | None = None,
+    lang: str | None = None,
 ) -> list[str]:
-    args = [*_common(models_dir), "list"]
+    args = [*_common(models_dir, lang), "list"]
     if task:
         args += ["--task", task]
     if domain:
@@ -153,35 +166,40 @@ def list_args(
     return args + ["--json"]
 
 
-def params_args(name: str, *, models_dir: Path | None = None) -> list[str]:
+def params_args(name: str, *, models_dir: Path | None = None, lang: str | None = None) -> list[str]:
     """Parametry jedné feature nebo providera (`segments`, `transcript`, ...)."""
-    return [*_common(models_dir), "list", "--params", name, "--json"]
+    return [*_common(models_dir, lang), "list", "--params", name, "--json"]
 
 
-def providers_args(*, models_dir: Path | None = None) -> list[str]:
-    return [*_common(models_dir), "list", "--providers", "--json"]
+def providers_args(*, models_dir: Path | None = None, lang: str | None = None) -> list[str]:
+    return [*_common(models_dir, lang), "list", "--providers", "--json"]
 
 
-def doctor_args(*, models_dir: Path | None = None) -> list[str]:
-    return [*_common(models_dir), "doctor", "--json"]
+def doctor_args(*, models_dir: Path | None = None, lang: str | None = None) -> list[str]:
+    return [*_common(models_dir, lang), "doctor", "--json"]
 
 
-def models_list_args(*, models_dir: Path | None = None) -> list[str]:
-    return [*_common(models_dir), "models", "list", "--json"]
+def models_list_args(*, models_dir: Path | None = None, lang: str | None = None) -> list[str]:
+    return [*_common(models_dir, lang), "models", "list", "--json"]
 
 
 def models_download_args(
-    *, only: list[str] | None = None, models_dir: Path | None = None
+    *,
+    only: list[str] | None = None,
+    models_dir: Path | None = None,
+    lang: str | None = None,
 ) -> list[str]:
-    args = [*_common(models_dir), "models", "download"]
+    args = [*_common(models_dir, lang), "models", "download"]
     if only:
         args += ["--only", ",".join(only)]
     return args
 
 
-def models_unpack_args(archive: Path, *, models_dir: Path | None = None) -> list[str]:
+def models_unpack_args(
+    archive: Path, *, models_dir: Path | None = None, lang: str | None = None
+) -> list[str]:
     """Instalace modelů z balíku (`models pack`), ověřuje se otisk každého souboru."""
-    return [*_common(models_dir), "models", "unpack", str(archive)]
+    return [*_common(models_dir, lang), "models", "unpack", str(archive)]
 
 
 def version_args() -> list[str]:

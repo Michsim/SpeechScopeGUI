@@ -32,14 +32,27 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   a `card_infos`; doba na nahrávku z minulého běhu je v nastavení
   (`stats/<slug>/seconds_per_file`).
 - **Editor feature a parametrů je jedno okno** (`ProtocolEditorDialog`
-  se `ProtocolEditor`), používají ho Data i Protokoly. Na stránkách je jen
-  souhrn a tlačítko Upravit. Uživatel výslovně nechce editor vestavěný do
-  stránky.
+  se `ProtocolEditor`), používají ho Analýza i Protokoly. Uživatel výslovně
+  nechce editor vestavěný do stránky. Na Analýze v rozšířeném režimu má
+  každá karta Upravit… (`dialog.edit(proto, mode="edit"|"copy")`: vlastní
+  protokol se přepíše na místě, přibalený se uloží jako kopie) a rámeček
+  Feature a parametry má Nový protokol… (`mode="new"`, jméno, popis, úloha,
+  výběr feature). Dočasné neuložené úpravy pro jeden běh neexistují:
+  `effective_protocol()` je vždy uložený protokol plus jazyk nahrávek
+  z lišty. Stránka Protokoly používá `dialog.open_for` bez jména a popisu.
 - **Falešná knihovna** `speechscope_app.fake` má stejné příkazy a kódy jako
   skutečné CLI a vrací zachycené fixtury. Testy GUI běží jen proti ní.
-  Při změně knihovny se fixtury zachytí znovu (návod v `fake/__init__.py`);
-  `--models-dir` je globální volba a patří PŘED podpříkaz
-  (`speechscope --models-dir M doctor --json`).
+  Při změně knihovny se fixtury zachytí znovu:
+  `uv run python packaging/capture_fixtures.py` (česky i anglicky,
+  `*.en.json`, doctor se složkou modelů repa knihovny). `--models-dir`
+  a `--lang` jsou globální volby a patří PŘED podpříkaz
+  (`speechscope --models-dir M --lang en list --json`).
+- **Popisy feature a parametrů jdou z knihovny v jazyce GUI**: `command._common`
+  posílá `--lang` (jazyk z `i18n.language()` při vytvoření `Library`
+  v `settings.make_library`), knihovna překládá `description`, `outputs`
+  a popisy parametrů (`translations/en.yaml` v repu knihovny), jména
+  sloupců a `notes` zůstávají. Názvy skupin (`GROUP_LABELS`) a providerů
+  dělá GUI samo.
 
 ## Jazyky GUI
 - Zdrojové texty jsou české a jsou zároveň klíče. Každý text pro uživatele
@@ -51,10 +64,11 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   `uv run python packaging/extract_strings.py` a doplnit překlad;
   `tests/test_i18n.py` hlídá, že nic nechybí a že sedí zástupné symboly.
   Nový jazyk = nový JSON + název v `i18n.LANGUAGE_NAMES`.
-- Jazyk se volí v Nastavení (`ui/language`, prázdné = systém), platí po
-  restartu. Texty z knihovny (popisy feature, parametrů, log) zůstávají
-  české. Přibalené protokoly mají `name_en`/`description_en`;
-  v UI se používá `proto.display_name`, `proto.name` zůstává klíč.
+- Jazyk se volí v Nastavení (`ui/language`, prázdné = systém; bez uložené
+  volby angličtina), po uložení se nabídne restart. Popisy z knihovny
+  jdou přes `--lang` (viz výše), log knihovny je anglicky natvrdo.
+  Přibalené protokoly mají `name_en`/`description_en`; v UI se používá
+  `proto.display_name`, `proto.name` zůstává klíč.
 
 ## Stránky
 Pořadí v nabídce: Analýza · Výpočet · Výsledky · Protokoly · Prostředí.

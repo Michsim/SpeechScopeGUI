@@ -1,0 +1,113 @@
+{
+  "kind": "provider",
+  "name": "segments",
+  "version": "2.1",
+  "requires": [],
+  "params": {
+    "model": {
+      "default": "auto",
+      "type": "str",
+      "description": "Segmentation source: auto (whatever is at hand), labels (finished labels only), pyannote, conformer",
+      "choices": [
+        "auto",
+        "labels",
+        "pyannote",
+        "conformer"
+      ]
+    },
+    "labels_dir": {
+      "default": "",
+      "type": "str",
+      "description": "Folder with finished labels; empty = look next to the recording"
+    },
+    "labels_suffix": {
+      "default": ".labels.txt",
+      "type": "str",
+      "description": "Suffix of the label file"
+    },
+    "speech_labels": {
+      "default": "speech,sv,su",
+      "type": "str",
+      "description": "Labels treated as speech, comma-separated"
+    },
+    "cut_audio": {
+      "default": false,
+      "type": "bool",
+      "description": "Also save the cut-out speech as wav into the work folder"
+    },
+    "model_path": {
+      "default": "",
+      "type": "str",
+      "description": "Path to the model file; empty = weights shipped with the library (conformer) or a download from Hugging Face (pyannote)"
+    },
+    "hf_token": {
+      "default": "",
+      "type": "str",
+      "description": "Hugging Face token for pyannote; empty = from the HF_TOKEN variable"
+    },
+    "onset": {
+      "default": 0.7,
+      "type": "float",
+      "description": "Onset threshold of the pyannote binarisation",
+      "ge": 0,
+      "le": 1
+    },
+    "offset": {
+      "default": 0.7,
+      "type": "float",
+      "description": "Offset threshold of the pyannote binarisation",
+      "ge": 0,
+      "le": 1
+    },
+    "min_duration_on": {
+      "default": 0.0,
+      "type": "float",
+      "description": "Shortest speech segment (s)",
+      "ge": 0
+    },
+    "min_duration_off": {
+      "default": 0.1,
+      "type": "float",
+      "description": "Shortest pause (s)",
+      "ge": 0
+    },
+    "min_breath_duration": {
+      "default": 0.15,
+      "type": "float",
+      "description": "A shorter breath is relabelled as silence by the conformer model (s)",
+      "ge": 0
+    },
+    "chunk_seconds": {
+      "default": 30.0,
+      "type": "float",
+      "description": "The conformer runs in windows of this length (s); 0 = the whole recording at once, memory then grows with the square of the length",
+      "ge": 0
+    },
+    "chunk_overlap": {
+      "default": 5.0,
+      "type": "float",
+      "description": "Overlap of neighbouring conformer windows (s)",
+      "ge": 0
+    },
+    "runtime": {
+      "default": "auto",
+      "type": "str",
+      "description": "What runs the models: auto (ONNX when exported, otherwise torch), onnx (without torch), torch",
+      "choices": [
+        "auto",
+        "onnx",
+        "torch"
+      ]
+    },
+    "onnx_device": {
+      "default": "auto",
+      "type": "str",
+      "description": "Device for onnxruntime: auto (GPU when possible, otherwise CPU), cpu, gpu or gpu:N"
+    },
+    "onnx_dir": {
+      "default": "",
+      "type": "str",
+      "description": "Folder with the ONNX models; empty = segmentation-onnx in the model store"
+    }
+  }
+}

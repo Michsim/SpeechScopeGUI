@@ -1,0 +1,124 @@
+{
+  "kind": "feature",
+  "name": "acoustic.articulation.vowels",
+  "version": "2.1",
+  "tasks": [
+    "monologue",
+    "reading",
+    "story"
+  ],
+  "requires": [
+    "phonemes"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "monologue": false,
+      "reading": false,
+      "story": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "f1a": "F1 of vowel /a/, cluster centre (Hz)",
+    "f2a": "F2 of vowel /a/, cluster centre (Hz)",
+    "f1i": "F1 of vowel /i/, cluster centre (Hz)",
+    "f2i": "F2 of vowel /i/, cluster centre (Hz)",
+    "f1u": "F1 of vowel /u/, cluster centre (Hz)",
+    "f2u": "F2 of vowel /u/, cluster centre (Hz)",
+    "VSA": "Vowel space area (Hz²)",
+    "VAI": "Vowel articulation index (-)",
+    "IU": "F2 ratio between /i/ and /u/ (-)",
+    "FRI": "Formant ratio index (-)",
+    "SFRI": "Second formant ratio index (-)"
+  },
+  "params": {
+    "time_step": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Formant analysis step (s); legacy script 0.02",
+      "gt": 0
+    },
+    "vowel_quantity": {
+      "default": "short",
+      "type": "str",
+      "description": "Vowel quantity used for the corners f1a to f2u and the ratios IU, FRI, SFRI: short (short a, i, u as in the legacy script), long (a:, i:, u:) or both",
+      "choices": [
+        "short",
+        "long",
+        "both"
+      ]
+    },
+    "area_quantity": {
+      "default": "both",
+      "type": "str",
+      "description": "Vowel quantity used for VSA and VAI: short (as in the legacy script), long or both (short and long pooled)",
+      "choices": [
+        "short",
+        "long",
+        "both"
+      ]
+    },
+    "max_formant": {
+      "default": 5250.0,
+      "type": "float",
+      "description": "Formant search ceiling (Hz): 5000 for men, 5500 for women; the GUI sets it by sex, 5250 is a compromise for unknown sex",
+      "gt": 0
+    },
+    "center_method": {
+      "default": "median",
+      "type": "str",
+      "description": "Vowel centre: median (median of tokens by phoneme label) or kmeans (quantiles and k-means as in the legacy script)",
+      "choices": [
+        "median",
+        "kmeans"
+      ]
+    },
+    "vowel_portion": {
+      "default": "middle_third",
+      "type": "str",
+      "description": "Part of the token used for formants: middle_third (middle third, otherwise the frame closest to the midpoint) or full (whole duration as in the legacy script)",
+      "choices": [
+        "middle_third",
+        "full"
+      ]
+    },
+    "window_length": {
+      "default": 0.05,
+      "type": "float",
+      "description": "Burg method window length (s)",
+      "gt": 0
+    },
+    "pre_emphasis": {
+      "default": 50.0,
+      "type": "float",
+      "description": "Pre-emphasis from frequency (Hz)",
+      "ge": 0
+    },
+    "remove_initial_outliers": {
+      "default": true,
+      "type": "bool",
+      "description": "Remove outliers from the formant trajectory within a vowel"
+    },
+    "initial_outliers_param": {
+      "default": 0.8,
+      "type": "float",
+      "description": "Chi-square quantile for trajectory outliers",
+      "gt": 0,
+      "lt": 1
+    },
+    "remove_median_outliers": {
+      "default": true,
+      "type": "bool",
+      "description": "Remove outlying medians across vowel tokens"
+    },
+    "median_outliers_param": {
+      "default": 0.5,
+      "type": "float",
+      "description": "Chi-square quantile for outlying medians",
+      "gt": 0,
+      "lt": 1
+    }
+  }
+}

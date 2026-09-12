@@ -54,7 +54,7 @@ def test_window_runs_batch_end_to_end(
     assert window.batch_page.select_protocol("Fonace, základní")
     assert window.batch_page.protocols.task_buttons["phonation"].isChecked()
     assert window.batch_page.editor.has_catalog()
-    assert window.batch_page.edit_btn.isEnabled()
+    assert window.batch_page.new_btn.isEnabled()
     assert not window.batch_page.editor.picker.warning.text()  # doctor: všechno připravené
     assert "Bez modelů" in window.batch_page.editor_summary.text()
 
@@ -101,38 +101,96 @@ def test_window_runs_batch_end_to_end(
     assert "hotovo" in run.summary.text() and run.log.toPlainText()
 
 
-def test_save_protocol_from_advanced_mode(qtbot: QtBot, settings: AppSettings) -> None:
+def test_edit_builtin_saves_copy_and_edit_own_overwrites(
+    qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Upravit… na kartě: přibalený → kopie, vlastní → přepis souboru; jazyk z lišty jde do běhu."""
+    from PySide6.QtWidgets import QDialog
+
     window = MainWindow(settings)
     qtbot.addWidget(window)
     page = window.batch_page
     assert page.select_protocol("Fonace, základní")
-    assert page.save_btn.isEnabled()
+    card = page.protocols._cards["Fonace, základní"]
+    assert card.edit_btn.isVisibleTo(card) and page.new_btn.isEnabled()
+    dialog = page.editor_dialog
 
-    # odškrtnout první feature; jazyk z lišty se promítne i do parametrů providera
-    first = page.editor.selected()[0]
-    page.editor.picker.set_checked(first, False)
-    page.editor.show_params("transcript")
-    page.set_language("en")
-    assert page.editor.params._form.value("language") == "en"
-    assert page.editor.overrides()["transcript"] == {"language": "en"}
-    proto = page.effective_protocol()
-    assert proto is not None and first not in proto.features
-    assert proto.config["transcript"] == {"language": "en"}
-    proto.name = "Moje fonace"
-    proto.description = "jen test"
+    def edit_and_accept(self):  # uživatel odškrtne první feature a uloží
+        first = page.editor.selected()[0]
+        page.editor.picker.set_checked(first, False)
+        self._removed = first
+        return QDialog.DialogCode.Accepted
 
-    path = window.save_protocol(proto)
-    assert path.is_file() and path.parent == settings.protocols_dir()
-    assert page.current_protocol().name == "Moje fonace"
-    assert not page.protocols._cards["Moje fonace"].modified.isVisible()
-    assert page.protocols.task_buttons["phonation"].isChecked()
+    monkeypatch.setattr(type(dialog), "exec", edit_and_accept)
+    result = page.edit_protocol(page.current_protocol())
+    assert result is not None and result.name == "Fonace, základní (kopie)" and not result.builtin
+    assert dialog._removed not in result.features
     saved = page.current_protocol()
-    assert saved.features == proto.features
-    assert saved.config == {"transcript": {"language": "en"}, "nlp": {"language": "en"}}
+    assert saved.name == "Fonace, základní (kopie)" and saved.path is not None
+    assert saved.path.parent == settings.protocols_dir() and dialog._removed not in saved.features
+    assert page.protocols.task_buttons["phonation"].isChecked()
 
-    # stejné jméno podruhé přepíše soubor, nevznikne druhý
-    again = window.save_protocol(proto)
-    assert again == path and len(list(settings.protocols_dir().glob("*.yaml"))) == 1
+    # vlastní: úprava přepíše stejný soubor, i s novým jménem
+    def rename_and_accept(self):
+        self.name.setText("Moje fonace")
+        self.description.setText("jen test")
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(type(dialog), "exec", rename_and_accept)
+    path_before = saved.path
+    result = page.edit_protocol(saved)
+    assert result is not None and result.path == path_before
+    renamed = page.current_protocol()
+    assert renamed.name == "Moje fonace" and renamed.description == "jen test"
+    assert renamed.path == path_before
+    assert len(list(settings.protocols_dir().glob("*.yaml"))) == 1
+    # jazyk z lišty se do uloženého protokolu nepíše, do běhu ano
+    page.set_language("en")
+    assert "transcript" not in page.current_protocol().config
+    assert page.effective_protocol().config["transcript"] == {"language": "en"}
+
+    # Zrušit nic neuloží ani nezmění
+    monkeypatch.setattr(type(dialog), "exec", lambda self: QDialog.DialogCode.Rejected)
+    assert page.edit_protocol(page.current_protocol()) is None
+    assert page.current_protocol().name == "Moje fonace"
+    assert len(list(settings.protocols_dir().glob("*.yaml"))) == 1
+
+
+def test_new_protocol_from_analysis(
+    qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QDialog
+
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    assert page.select_protocol("Pohádka, akustika")
+    dialog = page.editor_dialog
+
+    def fill_and_accept(self):
+        assert self.task.isVisibleTo(self) and self.task.currentData() == "story"
+        self.task.setCurrentIndex(self.task.findData("monologue"))
+        assert page.editor.protocol().task == "monologue"
+        self.name.setText("Můj monolog")
+        self.description.setText("popis")
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(type(dialog), "exec", fill_and_accept)
+    result = page.new_protocol()
+    assert result is not None and result.task == "monologue" and result.features
+    created = page.current_protocol()
+    assert created.name == "Můj monolog" and created.task == "monologue"
+    assert page.protocols.task_buttons["monologue"].isChecked()
+    assert created.path is not None and created.path.parent == settings.protocols_dir()
+
+    # jméno, které už existuje, okno nepustí
+    dialog._mode = "new"
+    dialog._taken = page.protocol_names()
+    dialog.name.setText("Můj monolog")
+    dialog._validate()
+    assert not dialog.apply_btn.isEnabled() and "existuje" in dialog.note.text()
+    dialog.name.setText("Jiný")
+    assert dialog.apply_btn.isEnabled()
 
 
 def test_start_page_depends_on_models(settings: AppSettings, qtbot: QtBot) -> None:
@@ -246,35 +304,6 @@ def test_models_install_dialog_unpacks_bundle(
     empty = ModelsInstallDialog(library, settings.models_dir)
     qtbot.addWidget(empty)
     assert not empty.start_btn.isEnabled()
-
-
-def test_editor_dialog_cancel_restores(qtbot: QtBot, settings: AppSettings, monkeypatch) -> None:
-    from PySide6.QtWidgets import QDialog
-
-    window = MainWindow(settings)
-    qtbot.addWidget(window)
-    page = window.batch_page
-    assert page.select_protocol("Pohádka, akustika")
-    before = page.editor.selected()
-    assert page.edit_btn.isEnabled()
-
-    def fake_exec(self):  # uživatel v okně odškrtne feature a dá Zrušit
-        page.editor.picker.set_checked(before[0], False)
-        return QDialog.DialogCode.Rejected
-
-    monkeypatch.setattr(type(page.editor_dialog), "exec", fake_exec)
-    page.open_editor()
-    assert page.editor.selected() == before
-    assert not page.protocols._cards["Pohádka, akustika"].modified.isVisible()
-
-    def fake_exec_ok(self):
-        page.editor.picker.set_checked(before[0], False)
-        return QDialog.DialogCode.Accepted
-
-    monkeypatch.setattr(type(page.editor_dialog), "exec", fake_exec_ok)
-    page.open_editor()
-    assert before[0] not in page.editor.selected()
-    assert before[0] not in page.effective_protocol().features
 
 
 def test_language_from_doctor_goes_to_run(qtbot: QtBot, settings: AppSettings) -> None:

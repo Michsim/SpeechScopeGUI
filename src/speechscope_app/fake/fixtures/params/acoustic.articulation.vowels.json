@@ -1,0 +1,124 @@
+{
+  "kind": "feature",
+  "name": "acoustic.articulation.vowels",
+  "version": "2.1",
+  "tasks": [
+    "monologue",
+    "reading",
+    "story"
+  ],
+  "requires": [
+    "phonemes"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "monologue": false,
+      "reading": false,
+      "story": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "f1a": "F1 samohlásky /a/, střed shluku (Hz)",
+    "f2a": "F2 samohlásky /a/, střed shluku (Hz)",
+    "f1i": "F1 samohlásky /i/, střed shluku (Hz)",
+    "f2i": "F2 samohlásky /i/, střed shluku (Hz)",
+    "f1u": "F1 samohlásky /u/, střed shluku (Hz)",
+    "f2u": "F2 samohlásky /u/, střed shluku (Hz)",
+    "VSA": "Plocha samohláskového prostoru (Hz²)",
+    "VAI": "Index artikulace samohlásek (-)",
+    "IU": "Poměr F2 mezi /i/ a /u/ (-)",
+    "FRI": "Index poměru formantů (-)",
+    "SFRI": "Index poměru druhých formantů (-)"
+  },
+  "params": {
+    "time_step": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Krok formantové analýzy (s); starý skript 0.02",
+      "gt": 0
+    },
+    "vowel_quantity": {
+      "default": "short",
+      "type": "str",
+      "description": "Kvantita tokenů pro vrcholy f1a až f2u a poměry IU, FRI, SFRI: short (krátké a, i, u jako starý skript), long (a:, i:, u:) nebo both",
+      "choices": [
+        "short",
+        "long",
+        "both"
+      ]
+    },
+    "area_quantity": {
+      "default": "both",
+      "type": "str",
+      "description": "Kvantita tokenů pro VSA a VAI: short (jako starý skript), long nebo both (krátké i dlouhé dohromady)",
+      "choices": [
+        "short",
+        "long",
+        "both"
+      ]
+    },
+    "max_formant": {
+      "default": 5250.0,
+      "type": "float",
+      "description": "Strop pro hledání formantů (Hz): 5000 muži, 5500 ženy; GUI nastavuje podle pohlaví, 5250 je kompromis pro neznámé",
+      "gt": 0
+    },
+    "center_method": {
+      "default": "median",
+      "type": "str",
+      "description": "Střed samohlásky: median (medián tokenů podle fonémových popisků) nebo kmeans (kvantily a k-means jako starý skript)",
+      "choices": [
+        "median",
+        "kmeans"
+      ]
+    },
+    "vowel_portion": {
+      "default": "middle_third",
+      "type": "str",
+      "description": "Část tokenu pro formanty: middle_third (prostřední třetina, jinak rámec nejblíž středu) nebo full (celé trvání jako starý skript)",
+      "choices": [
+        "middle_third",
+        "full"
+      ]
+    },
+    "window_length": {
+      "default": 0.05,
+      "type": "float",
+      "description": "Délka okna Burgovy metody (s)",
+      "gt": 0
+    },
+    "pre_emphasis": {
+      "default": 50.0,
+      "type": "float",
+      "description": "Preemfáze od frekvence (Hz)",
+      "ge": 0
+    },
+    "remove_initial_outliers": {
+      "default": true,
+      "type": "bool",
+      "description": "Odstranit odlehlé hodnoty v průběhu formantu uvnitř samohlásky"
+    },
+    "initial_outliers_param": {
+      "default": 0.8,
+      "type": "float",
+      "description": "Kvantil chí kvadrát pro odlehlé hodnoty v průběhu",
+      "gt": 0,
+      "lt": 1
+    },
+    "remove_median_outliers": {
+      "default": true,
+      "type": "bool",
+      "description": "Odstranit odlehlé mediány mezi samohláskami"
+    },
+    "median_outliers_param": {
+      "default": 0.5,
+      "type": "float",
+      "description": "Kvantil chí kvadrát pro odlehlé mediány",
+      "gt": 0,
+      "lt": 1
+    }
+  }
+}

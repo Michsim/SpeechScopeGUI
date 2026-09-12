@@ -47,6 +47,7 @@ def _pill(text: str, role: str) -> QLabel:
 
 class ProtocolCard(QFrame):
     details_requested = Signal()  # odkaz „co se počítá“
+    edit_requested = Signal()  # Upravit… (jen rozšířený režim)
 
     def __init__(self, proto: Protocol, info: ProtocolCardInfo, parent: QWidget | None = None):
         super().__init__(parent)
@@ -62,9 +63,6 @@ class ProtocolCard(QFrame):
         head.addWidget(name)
         if not proto.builtin:
             head.addWidget(_pill(tr("vlastní"), "accent"))
-        self.modified = _pill(tr("upraveno"), "warn")
-        self.modified.setVisible(False)
-        head.addWidget(self.modified)
         head.addStretch(1)
         hint = QLabel(info.hint)
         hint.setObjectName("muted")
@@ -88,11 +86,25 @@ class ProtocolCard(QFrame):
         self.details.linkActivated.connect(lambda _href: self.details_requested.emit())
         foot.addWidget(self.details)
         layout.addLayout(foot)
+        # Upravit… na vlastním řádku, ať se na užší kartě netlačí se štítky
+        actions = QHBoxLayout()
+        actions.addStretch(1)
+        self.edit_btn = QPushButton(tr("Upravit…"))
+        self.edit_btn.setToolTip(
+            tr("Vlastní protokol se uloží; přibalený se uloží jako kopie.")
+            if proto.builtin
+            else tr("Upraví a uloží tento protokol.")
+        )
+        self.edit_btn.clicked.connect(self.edit_requested)
+        self.edit_btn.hide()
+        actions.addWidget(self.edit_btn)
+        layout.addLayout(actions)
 
 
 class ProtocolList(QWidget):
     current_changed = Signal(object)  # Protocol | None
     details_requested = Signal(object)  # Protocol: dvojklik na kartu nebo odkaz
+    edit_requested = Signal(object)  # Protocol: Upravit… na kartě
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -100,6 +112,7 @@ class ProtocolList(QWidget):
         self._infos: dict[str, ProtocolCardInfo] = {}
         self._cards: dict[str, ProtocolCard] = {}
         self._task = ""
+        self._advanced = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -180,10 +193,14 @@ class ProtocolList(QWidget):
         if name in self._cards:
             self._show_task(self._task, select=self.current_name())
 
-    def set_modified(self, name: str, modified: bool) -> None:
-        card = self._cards.get(name)
-        if card is not None:
-            card.modified.setVisible(modified)
+    def set_advanced(self, advanced: bool) -> None:
+        """Upravit… na kartách jen v rozšířeném režimu."""
+        self._advanced = advanced
+        for card in self._cards.values():
+            card.edit_btn.setVisible(advanced)
+
+    def current_task(self) -> str:
+        return self._task
 
     def names(self) -> list[str]:
         return [p.name for p in self._protocols]
@@ -233,6 +250,8 @@ class ProtocolList(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, proto)
             card = ProtocolCard(proto, self._infos.get(proto.name, ProtocolCardInfo()))
             card.details_requested.connect(lambda p=proto: self.details_requested.emit(p))
+            card.edit_requested.connect(lambda p=proto: self.edit_requested.emit(p))
+            card.edit_btn.setVisible(self._advanced)
             item.setSizeHint(card.sizeHint())
             self.list.addItem(item)
             self.list.setItemWidget(item, card)

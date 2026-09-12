@@ -23,46 +23,46 @@
   },
   "description": "",
   "outputs": {
-    "std": "Směrodatná odchylka kontury F0 (půltóny)",
-    "median": "Medián kontury F0 (půltóny)",
-    "mean": "Průměr kontury F0 (půltóny)",
-    "max": "Maximum kontury F0 (půltóny)",
-    "min": "Minimum kontury F0 (půltóny)",
-    "median_hz": "Medián kontury F0 (Hz)",
-    "mean_hz": "Průměr kontury F0 (Hz)",
-    "range": "Rozsah F0, 95. minus 5. percentil (půltóny)",
-    "voiced_fraction": "Podíl znělých rámců na všech rámcích kontury (0 až 1)"
+    "std": "Standard deviation of the F0 contour (semitones)",
+    "median": "Median of the F0 contour (semitones)",
+    "mean": "Mean of the F0 contour (semitones)",
+    "max": "Maximum of the F0 contour (semitones)",
+    "min": "Minimum of the F0 contour (semitones)",
+    "median_hz": "Median of the F0 contour (Hz)",
+    "mean_hz": "Mean of the F0 contour (Hz)",
+    "range": "F0 range, 95th minus 5th percentile (semitones)",
+    "voiced_fraction": "Fraction of voiced frames among all contour frames (0 to 1)"
   },
   "params": {
     "f_min": {
       "default": 60.0,
       "type": "float",
-      "description": "Nejnižší povolená hodnota F0 (Hz)",
+      "description": "Lowest allowed F0 (Hz)",
       "gt": 0
     },
     "f_max": {
       "default": 400.0,
       "type": "float",
-      "description": "Nejvyšší povolená hodnota F0 (Hz)",
+      "description": "Highest allowed F0 (Hz)",
       "gt": 0
     },
     "timestep": {
       "default": 0.01,
       "type": "float",
-      "description": "Krok analyzačního okna (s)",
+      "description": "Analysis window step (s)",
       "gt": 0
     },
     "strength_threshold": {
       "default": 0.3,
       "type": "float",
-      "description": "Minimální síla tónu, pod kterou je rámec neznělý",
+      "description": "Minimum pitch strength below which a frame is unvoiced",
       "ge": 0,
       "le": 1
     },
     "semitone_ref_mode": {
       "default": "fmin",
       "type": "str",
-      "description": "Reference půltónů: fmin (jako starý skript), fixed (pevná Hz), median (medián mluvčího)",
+      "description": "Semitone reference: fmin (as in the legacy script), fixed (fixed Hz), median (speaker median)",
       "choices": [
         "fmin",
         "fixed",
@@ -72,18 +72,18 @@
     "semitone_ref_hz": {
       "default": 100.0,
       "type": "float",
-      "description": "Referenční frekvence pro režim fixed (Hz)",
+      "description": "Reference frequency for the fixed mode (Hz)",
       "gt": 0
     },
     "drop_bounds": {
       "default": true,
       "type": "bool",
-      "description": "Vyhodit rámce, kde SWIPE narazil na f_min nebo f_max (artefakt na tichu a šumu); False = jako starý skript"
+      "description": "Drop frames where SWIPE hit f_min or f_max (artefact on silence and noise); False = as in the legacy script"
     },
     "outlier_semitones": {
       "default": 12.0,
       "type": "float",
-      "description": "Rámce dál než tolik půltónů od mediánu kontury se vyhodí; 0 = nečistit",
+      "description": "Frames farther than this many semitones from the contour median are dropped; 0 = no cleaning",
       "ge": 0
     }
   }

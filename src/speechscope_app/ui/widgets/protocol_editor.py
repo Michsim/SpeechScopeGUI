@@ -14,10 +14,13 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -307,10 +310,12 @@ class ProtocolEditor(QWidget):
 
 
 class ProtocolEditorDialog(QDialog):
-    """Okno s editorem přes většinu obrazovky; Použít nebo Zrušit.
+    """Okno s editorem přes většinu obrazovky.
 
     Editor v něm žije trvale (drží načtené parametry), okno se jen ukazuje.
-    Při Zrušit se editor vrátí na stav před otevřením.
+    Dva způsoby použití: `open_for` (jen feature a parametry, Použít/Zrušit,
+    stránka Protokoly) a `edit` (i jméno, popis a u nového protokolu úloha;
+    výsledek se ukládá jako protokol, Analýza v rozšířeném režimu).
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -318,12 +323,36 @@ class ProtocolEditorDialog(QDialog):
         self.setWindowTitle(tr("Feature a parametry"))
         self.setModal(True)
         self.editor = ProtocolEditor()
+        self._mode = "apply"
+        self._taken: set[str] = set()
+        self._base: Protocol | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
         self.heading = QLabel("")
         self.heading.setObjectName("headline")
         layout.addWidget(self.heading)
+
+        self.form_box = QWidget()
+        form = QFormLayout(self.form_box)
+        form.setContentsMargins(0, 0, 0, 0)
+        self.name = QLineEdit()
+        self.name.textChanged.connect(self._validate)
+        form.addRow(tr("Jméno:"), self.name)
+        self.description = QLineEdit()
+        form.addRow(tr("Popis:"), self.description)
+        self.task = QComboBox()
+        for code in contract.TASKS:
+            self.task.addItem(contract.TASK_LABELS.get(code, code), code)
+        self.task.currentIndexChanged.connect(self._task_changed)
+        self.task_label = QLabel(tr("Úloha:"))
+        form.addRow(self.task_label, self.task)
+        layout.addWidget(self.form_box)
+        self.form_box.hide()
+
         layout.addWidget(self.editor, 1)
+        self.note = QLabel("")
+        self.note.setObjectName("muted")
+        layout.addWidget(self.note)
         self.buttons = QDialogButtonBox()
         self.apply_btn = self.buttons.addButton(
             tr("Použít"), QDialogButtonBox.ButtonRole.AcceptRole
@@ -340,7 +369,13 @@ class ProtocolEditorDialog(QDialog):
             self.resize(1200, 760)
 
     def open_for(self, title: str) -> bool:
-        """Ukáže okno; vrací True po Použít. Po Zrušit vrátí editor zpět."""
+        """Ukáže okno jen s feature a parametry; vrací True po Použít.
+        Po Zrušit vrátí editor zpět."""
+        self._mode = "apply"
+        self.form_box.hide()
+        self.note.setText("")
+        self.apply_btn.setText(tr("Použít"))
+        self.apply_btn.setEnabled(True)
         snapshot = self.editor.result()
         self.heading.setText(title)
         if self.exec() == QDialog.DialogCode.Accepted:
@@ -348,3 +383,76 @@ class ProtocolEditorDialog(QDialog):
         if snapshot is not None:
             self.editor.set_protocol(snapshot)
         return False
+
+    def edit(self, proto: Protocol, *, mode: str, taken: set[str]) -> Protocol | None:
+        """Úprava (`edit`), kopie předlohy (`copy`) nebo nový protokol (`new`).
+
+        Vrací protokol k uložení, nebo None po Zrušit. U `edit` nese `path`
+        původního souboru, kopie a nový protokol jsou bez cesty.
+        """
+        self._mode = mode
+        self._taken = set(taken)
+        self._base = proto
+        self.form_box.show()
+        self.task_label.setVisible(mode == "new")
+        self.task.setVisible(mode == "new")
+        self.task.blockSignals(True)
+        self.task.setCurrentIndex(max(0, self.task.findData(proto.task)))
+        self.task.blockSignals(False)
+        self.editor.set_protocol(proto)
+        if mode == "edit":
+            self.name.setText(proto.name)
+            self.heading.setText(tr("Úprava protokolu {name}").format(name=proto.display_name))
+            self.apply_btn.setText(tr("Uložit"))
+        elif mode == "copy":
+            self.name.setText(tr("{name} (kopie)").format(name=proto.display_name))
+            self.heading.setText(
+                tr("Kopie protokolu {name} (přibalený se nemění)").format(name=proto.display_name)
+            )
+            self.apply_btn.setText(tr("Uložit jako kopii"))
+        else:
+            self.name.setText("")
+            self.heading.setText(tr("Nový protokol"))
+            self.apply_btn.setText(tr("Vytvořit"))
+        self.description.setText(proto.display_description if mode != "new" else "")
+        self._validate()
+        self.name.setFocus()
+        self.name.selectAll()
+        if self.exec() != QDialog.DialogCode.Accepted:
+            return None
+        result = self.editor.result() or Protocol(
+            name=proto.name,
+            task=proto.task,
+            features=list(proto.features),
+            domain=proto.domain,
+            vad=proto.vad,
+            config={k: dict(v) for k, v in proto.config.items()},
+        )
+        result.name = self.name.text().strip()
+        result.description = self.description.text().strip()
+        result.builtin = False
+        result.path = proto.path if mode == "edit" and not proto.builtin else None
+        result.names = {}
+        result.descriptions = {}
+        return result
+
+    def _task_changed(self, _index: int) -> None:
+        if self._mode != "new":
+            return
+        code = str(self.task.currentData() or contract.TASKS[0])
+        self.editor.set_protocol(Protocol(name="", task=code))
+
+    def _validate(self) -> None:
+        if self._mode == "apply":
+            return
+        name = self.name.text().strip()
+        if not name:
+            self.note.setText(tr("Zadej jméno."))
+            ok = False
+        elif name in self._taken:
+            self.note.setText(tr("Protokol „{name}“ už existuje.").format(name=name))
+            ok = False
+        else:
+            self.note.setText("")
+            ok = True
+        self.apply_btn.setEnabled(ok)

@@ -1,0 +1,72 @@
+{
+  "kind": "provider",
+  "name": "transcript",
+  "version": "1.0",
+  "requires": [],
+  "params": {
+    "language": {
+      "default": "cs",
+      "type": "str",
+      "description": "Language code of the recording; empty = let the model decide"
+    },
+    "model": {
+      "default": "large-v3",
+      "type": "str",
+      "description": "Whisper model, name or path"
+    },
+    "device": {
+      "default": "auto",
+      "type": "str",
+      "description": "Where to compute",
+      "choices": [
+        "auto",
+        "cpu",
+        "cuda"
+      ]
+    },
+    "compute_type": {
+      "default": "auto",
+      "type": "str",
+      "description": "Computation precision; auto picks the fastest one the device supports. Manual choices are e.g. float16, int8_float16 or int8"
+    },
+    "beam_size": {
+      "default": 5,
+      "type": "int",
+      "description": "Beam width during decoding",
+      "ge": 1
+    },
+    "condition_on_previous_text": {
+      "default": false,
+      "type": "bool",
+      "description": "Give the model the previous text as context. Off prevents hallucination loops in pathological speech and is faster; on keeps coherence in clean long speech"
+    },
+    "word_timestamps": {
+      "default": true,
+      "type": "bool",
+      "description": "Also return timestamps of individual words (needed for speech rate)"
+    },
+    "drop_repetitions": {
+      "default": true,
+      "type": "bool",
+      "description": "Drop repeated phrases, a typical sign of Whisper hallucination"
+    },
+    "repetition_min_length": {
+      "default": 2,
+      "type": "int",
+      "description": "Shortest phrase checked for repetition (words)",
+      "ge": 1
+    },
+    "repetition_max_length": {
+      "default": 10,
+      "type": "int",
+      "description": "Longest phrase checked for repetition (words)",
+      "ge": 1
+    },
+    "repetition_min_count": {
+      "default": 4,
+      "type": "int",
+      "description": "How many times a phrase must repeat to be shortened",
+      "ge": 2
+    }
+  }
+}
