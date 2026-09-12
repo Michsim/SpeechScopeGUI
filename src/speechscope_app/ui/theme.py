@@ -159,7 +159,8 @@ QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color
 
 
 BASE_PT = 11.0  # výchozí velikost textu; „větší“ a „největší“ jsou násobky
-FONT_SCALES: dict[str, float] = {"normal": 1.0, "large": 1.15, "largest": 1.3}
+# „small“ je původní velikost aplikace (10 bodů)
+FONT_SCALES: dict[str, float] = {"small": 10 / 11, "normal": 1.0, "large": 1.15, "largest": 1.3}
 
 
 def _pt(value: float) -> str:

@@ -66,6 +66,7 @@ class SettingsDialog(QDialog):
 
         self.font_scale = QComboBox()
         for key, label in (
+            ("small", tr("malé")),
             ("normal", tr("normální")),
             ("large", tr("větší")),
             ("largest", tr("největší")),

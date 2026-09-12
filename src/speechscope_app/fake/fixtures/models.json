@@ -30,13 +30,17 @@
     },
     {
       "key": "stanza",
-      "name": "Stanza (cs, en)",
+      "name": "Stanza (cs, en, de, it, es, fr)",
       "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\stanza",
       "present": true,
-      "size_mb": 900,
+      "size_mb": 1800,
       "languages": [
         "cs",
-        "en"
+        "en",
+        "de",
+        "it",
+        "es",
+        "fr"
       ],
       "used_by": "provider nlp, lingvistika"
     },

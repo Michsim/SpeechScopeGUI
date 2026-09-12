@@ -21,7 +21,10 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   i 1), popisky domén, skupin a providerů, orientační ceny, záložní seznam
   jazyků. Seznam feature, providerů i jejich parametry se nikdy neopisují,
   berou se z `list --json`, `list --providers --json` a `list --params`.
-  Jazyky nahrávek se berou z `doctor --json` (`models.stanza.languages`).
+  Jazyky nahrávek se berou z `doctor --json` (`models.stanza.languages`,
+  od 12. 9. 2026 cs, en, de, it, es, fr); GUI k nim má jen popisky
+  v `LANGUAGE_LABELS`, nový jazyk knihovny se ukáže i bez popisku (kódem).
+  Artikulace (phnrec) zůstává jen česká, to hlídá knihovna.
 - **Události smlouvy 2**: `start` → pro každou nahrávku `begin`, `stage`
   (provider: running, pak done/cached/error se `seconds`) a `file` →
   `done` → `saved`. `BatchState` v `contract.py` z nich skládá stav.
@@ -66,7 +69,7 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   Nový jazyk = nový JSON + název v `i18n.LANGUAGE_NAMES`.
 - Jazyk se volí v Nastavení (`ui/language`, prázdné = systém; bez uložené
   volby angličtina), po uložení se nabídne restart. Velikost písma
-  (`ui/font_scale`: normal, large, largest) násobí všechny velikosti
+  (`ui/font_scale`: small = původních 10 bodů, normal, large, largest) násobí všechny velikosti
   v `theme.stylesheet(scale)` (základ 11 bodů) a platí hned
   (`theme.apply_scale`); dlouhé popisky, které nesmí roztahovat layout,
   jsou `widgets/elided_label.py`. Popisy z knihovny

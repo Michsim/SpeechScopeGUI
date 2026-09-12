@@ -31,7 +31,7 @@
     "syllable_method": {
       "default": "nuclei",
       "type": "str",
-      "description": "Počítání slabik: nuclei (samohlásková jádra, dvojhlásky, slabikotvorné r/l) nebo pyphen (slovník dělení slov jako starý skript)",
+      "description": "Počítání slabik: nuclei (samohlásková jádra podle pravidel jazyka: cs, de, it, es, fr; jiný jazyk spadne na pyphen) nebo pyphen (slovník dělení slov jako starý skript, kterýkoli jazyk se slovníkem Pyphen)",
       "choices": [
         "nuclei",
         "pyphen"
@@ -50,7 +50,7 @@
     "language": {
       "default": "",
       "type": "str",
-      "description": "Jazyk pro dělení na slabiky metodou pyphen; prázdné = vzít z přepisu"
+      "description": "Jazyk pro počítání slabik; prázdné = vzít z přepisu"
     },
     "frame_length": {
       "default": 2.0,

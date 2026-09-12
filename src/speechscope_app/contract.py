@@ -47,6 +47,10 @@ LANGUAGE_LABELS = Labels(
         "en": N_("angličtina"),
         "sk": N_("slovenština"),
         "de": N_("němčina"),
+        "it": N_("italština"),
+        "es": N_("španělština"),
+        "fr": N_("francouzština"),
+        "pl": N_("polština"),
     }
 )
 

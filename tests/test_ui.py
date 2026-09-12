@@ -327,7 +327,9 @@ def test_language_from_doctor_goes_to_run(qtbot: QtBot, settings: AppSettings) -
     page = window.batch_page
     window.env_page.refresh()  # doctor: Stanza (cs, en)
     codes = [page.language.itemData(i) for i in range(page.language.count())]
-    assert codes == ["cs", "en"]
+    assert codes == ["cs", "en", "de", "it", "es", "fr"]  # Stanza z doctor, v pořadí knihovny
+    labels = [page.language.itemText(i) for i in range(page.language.count())]
+    assert labels[2:] == ["němčina", "italština", "španělština", "francouzština"]
     assert page.language_code() == "en"  # z nastavení, zachováno po načtení nabídky
     assert page.select_protocol("Pohádka, lingvistika")
     proto = page.effective_protocol()
@@ -820,6 +822,7 @@ def test_font_scale_setting_changes_stylesheet(qtbot: QtBot, settings: AppSettin
     assert settings.font_scale == "normal"
     assert "font-size: 11pt;" in theme.stylesheet(1.0)
     assert "font-size: 14.3pt;" in theme.stylesheet(1.3)
+    assert "font-size: 10pt;" in theme.stylesheet(theme.FONT_SCALES["small"])  # původní velikost
     window = MainWindow(settings)
     qtbot.addWidget(window)
     dialog = SettingsDialog(settings, window)

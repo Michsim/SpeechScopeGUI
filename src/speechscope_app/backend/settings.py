@@ -168,9 +168,9 @@ class AppSettings:
 
     @property
     def font_scale(self) -> str:
-        """Velikost písma: `normal`, `large`, `largest` (násobky v `theme.FONT_SCALES`)."""
+        """Velikost písma: `small`, `normal`, `large`, `largest` (násobky v `theme.FONT_SCALES`)."""
         raw = str(self._q.value("ui/font_scale", "normal") or "normal")
-        return raw if raw in ("normal", "large", "largest") else "normal"
+        return raw if raw in ("small", "normal", "large", "largest") else "normal"
 
     @font_scale.setter
     def font_scale(self, value: str) -> None:

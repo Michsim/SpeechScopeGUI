@@ -31,7 +31,7 @@
     "syllable_method": {
       "default": "nuclei",
       "type": "str",
-      "description": "Syllable counting: nuclei (vowel nuclei, diphthongs, syllabic r/l) or pyphen (hyphenation dictionary as in the legacy script)",
+      "description": "Syllable counting: nuclei (vowel nuclei by language rules: cs, de, it, es, fr; other languages fall back to pyphen) or pyphen (hyphenation dictionary as in the legacy script, any language with a Pyphen dictionary)",
       "choices": [
         "nuclei",
         "pyphen"
@@ -50,7 +50,7 @@
     "language": {
       "default": "",
       "type": "str",
-      "description": "Language for pyphen syllabification; empty = take it from the transcript"
+      "description": "Language for syllable counting; empty = take it from the transcript"
     },
     "frame_length": {
       "default": 2.0,

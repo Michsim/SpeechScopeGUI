@@ -78,13 +78,17 @@
       "languages": []
     },
     "stanza": {
-      "name": "Stanza (cs, en)",
+      "name": "Stanza (cs, en, de, it, es, fr)",
       "present": true,
       "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\stanza",
       "used_by": "provider nlp, lingvistika",
       "languages": [
         "cs",
-        "en"
+        "en",
+        "de",
+        "it",
+        "es",
+        "fr"
       ]
     },
     "phnrec": {
