@@ -55,9 +55,8 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationDisplayName("SpeechScope")
     app.setApplicationVersion(__version__)
     app.setWindowIcon(app_icon())
-    theme.apply(app)
-
     settings = AppSettings()
+    theme.apply(app, theme.FONT_SCALES.get(settings.font_scale, 1.0))
     if "--fake" in args:
         settings.fake_override = True
     language = i18n.activate(settings.ui_language)

@@ -65,7 +65,11 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   `tests/test_i18n.py` hlídá, že nic nechybí a že sedí zástupné symboly.
   Nový jazyk = nový JSON + název v `i18n.LANGUAGE_NAMES`.
 - Jazyk se volí v Nastavení (`ui/language`, prázdné = systém; bez uložené
-  volby angličtina), po uložení se nabídne restart. Popisy z knihovny
+  volby angličtina), po uložení se nabídne restart. Velikost písma
+  (`ui/font_scale`: normal, large, largest) násobí všechny velikosti
+  v `theme.stylesheet(scale)` (základ 11 bodů) a platí hned
+  (`theme.apply_scale`); dlouhé popisky, které nesmí roztahovat layout,
+  jsou `widgets/elided_label.py`. Popisy z knihovny
   jdou přes `--lang` (viz výše), log knihovny je anglicky natvrdo.
   Přibalené protokoly mají `name_en`/`description_en`; v UI se používá
   `proto.display_name`, `proto.name` zůstává klíč.

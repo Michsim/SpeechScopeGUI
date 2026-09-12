@@ -32,10 +32,10 @@ MUTED = "#6b7280"
 SIDEBAR = "#1e293b"
 SIDEBAR_TEXT = "#cbd5e1"
 
-STYLESHEET = f"""
+STYLESHEET_TEMPLATE = """
 QWidget {{
     color: {TEXT};
-    font-size: 10pt;
+    font-size: {base}pt;
 }}
 QMainWindow, QDialog, QStackedWidget > QWidget, QScrollArea, QScrollArea > QWidget > QWidget {{
     background: {BG};
@@ -46,8 +46,10 @@ QMenuBar::item:selected {{ background: {ACCENT_SOFT}; border-radius: 4px; }}
 /* boční menu */
 QWidget#sidebar {{ background: {SIDEBAR}; }}
 QWidget#brand_panel {{ background: {CARD}; border-bottom: 1px solid {BORDER}; }}
-QLabel#brand {{ color: {SIDEBAR}; font-size: 15pt; font-weight: 600; background: transparent; }}
-QLabel#brand_sub {{ color: {MUTED}; font-size: 8.5pt; background: transparent; }}
+QLabel#brand {{
+    color: {SIDEBAR}; font-size: {brand}pt; font-weight: 600; background: transparent;
+}}
+QLabel#brand_sub {{ color: {MUTED}; font-size: {small}pt; background: transparent; }}
 QListWidget#nav {{
     background: transparent; border: none; outline: none; padding: 0 8px;
 }}
@@ -58,17 +60,17 @@ QListWidget#nav::item:hover {{ background: rgba(255, 255, 255, 0.07); }}
 QListWidget#nav::item:selected {{ background: {ACCENT}; color: white; }}
 
 /* stránky */
-QLabel#page_title {{ font-size: 17pt; font-weight: 600; }}
+QLabel#page_title {{ font-size: {title}pt; font-weight: 600; }}
 QLabel#page_subtitle {{ color: {MUTED}; }}
-QLabel#section {{ font-size: 10.5pt; font-weight: 600; color: {TEXT}; margin-top: 6px; }}
+QLabel#section {{ font-size: {section}pt; font-weight: 600; color: {TEXT}; margin-top: 6px; }}
 QLabel#step_no, QFrame#card QLabel#step_no {{
     background: {ACCENT}; color: white; border-radius: 12px; min-width: 24px; max-width: 24px;
     min-height: 24px; max-height: 24px; font-weight: 700; qproperty-alignment: AlignCenter;
 }}
-QLabel#step_title {{ font-size: 12pt; font-weight: 600; color: {TEXT}; }}
+QLabel#step_title {{ font-size: {step}pt; font-weight: 600; color: {TEXT}; }}
 QLabel#step_hint {{ color: {MUTED}; }}
 QLabel#muted {{ color: {MUTED}; }}
-QLabel#headline {{ font-size: 13pt; font-weight: 600; }}
+QLabel#headline {{ font-size: {headline}pt; font-weight: 600; }}
 QLabel#card_title {{ font-weight: 600; }}
 
 /* karty */
@@ -83,7 +85,7 @@ QFrame#card[role="neutral"] {{ border-left: 4px solid {NEUTRAL}; }}
 QFrame#card[role="selected"] {{ border: 1px solid {ACCENT}; border-left: 4px solid {ACCENT}; }}
 
 /* štítky stavu */
-QLabel#pill {{ padding: 2px 9px; border-radius: 9px; font-size: 8.5pt; font-weight: 600; }}
+QLabel#pill {{ padding: 2px 9px; border-radius: 9px; font-size: {small}pt; font-weight: 600; }}
 QLabel#pill[role="ok"] {{ background: {OK_SOFT}; color: {OK}; }}
 QLabel#pill[role="missing"] {{ background: {MISSING_SOFT}; color: {MISSING}; }}
 QLabel#pill[role="warn"] {{ background: {WARN_SOFT}; color: {WARN}; }}
@@ -156,8 +158,51 @@ QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color
 """
 
 
-def apply(app: QApplication) -> None:
-    """Nastaví styl, paletu, písmo a stylesheet celé aplikace."""
+BASE_PT = 11.0  # výchozí velikost textu; „větší“ a „největší“ jsou násobky
+FONT_SCALES: dict[str, float] = {"normal": 1.0, "large": 1.15, "largest": 1.3}
+
+
+def _pt(value: float) -> str:
+    return f"{value:.1f}".rstrip("0").rstrip(".")
+
+
+def stylesheet(scale: float = 1.0) -> str:
+    """Stylesheet s velikostmi písma vynásobenými `scale` (1.0 = 11 bodů)."""
+    base = BASE_PT * scale
+    return STYLESHEET_TEMPLATE.format(
+        TEXT=TEXT,
+        BG=BG,
+        CARD=CARD,
+        BORDER=BORDER,
+        MUTED=MUTED,
+        ACCENT=ACCENT,
+        ACCENT_HOVER=ACCENT_HOVER,
+        ACCENT_SOFT=ACCENT_SOFT,
+        OK=OK,
+        OK_SOFT=OK_SOFT,
+        MISSING=MISSING,
+        MISSING_SOFT=MISSING_SOFT,
+        WARN=WARN,
+        WARN_SOFT=WARN_SOFT,
+        NEUTRAL=NEUTRAL,
+        NEUTRAL_SOFT=NEUTRAL_SOFT,
+        SIDEBAR=SIDEBAR,
+        SIDEBAR_TEXT=SIDEBAR_TEXT,
+        base=_pt(base),
+        small=_pt(base * 0.82),
+        section=_pt(base * 1.0),
+        step=_pt(base * 1.18),
+        headline=_pt(base * 1.23),
+        brand=_pt(base * 1.36),
+        title=_pt(base * 1.64),
+    )
+
+
+STYLESHEET = stylesheet()
+
+
+def apply(app: QApplication, scale: float = 1.0) -> None:
+    """Nastaví styl, paletu, písmo a stylesheet celé aplikace; `scale` násobí písmo."""
     app.setStyle("Fusion")
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor(BG))
@@ -174,9 +219,17 @@ def apply(app: QApplication) -> None:
     palette.setColor(QPalette.ColorRole.ToolTipText, QColor(TEXT))
     app.setPalette(palette)
     font = QFont("Segoe UI" if sys.platform == "win32" else app.font().family())
-    font.setPointSizeF(10.5)  # o půl bodu víc než výchozí, čitelnější na noteboocích
+    font.setPointSizeF(BASE_PT * scale)
     app.setFont(font)
-    app.setStyleSheet(STYLESHEET)
+    app.setStyleSheet(stylesheet(scale))
+
+
+def apply_scale(app: QApplication, scale: float) -> None:
+    """Změna velikosti písma za běhu (z Nastavení), bez restartu."""
+    font = app.font()
+    font.setPointSizeF(BASE_PT * scale)
+    app.setFont(font)
+    app.setStyleSheet(stylesheet(scale))
 
 
 def set_role(widget: QWidget, role: str) -> None:

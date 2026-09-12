@@ -167,6 +167,16 @@ class AppSettings:
         self._q.setValue("ui/language", value)
 
     @property
+    def font_scale(self) -> str:
+        """Velikost písma: `normal`, `large`, `largest` (násobky v `theme.FONT_SCALES`)."""
+        raw = str(self._q.value("ui/font_scale", "normal") or "normal")
+        return raw if raw in ("normal", "large", "largest") else "normal"
+
+    @font_scale.setter
+    def font_scale(self, value: str) -> None:
+        self._q.setValue("ui/font_scale", value)
+
+    @property
     def advanced(self) -> bool:
         """Rozšířený režim pro výzkumníky: strom feature a všechny parametry."""
         return self._q.value("ui/advanced", False, type=bool)

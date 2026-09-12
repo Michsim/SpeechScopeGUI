@@ -64,6 +64,17 @@ class SettingsDialog(QDialog):
         self.language.setToolTip(tr("Po uložení se aplikace nabídne restartovat."))
         form.addRow(tr("Jazyk aplikace"), self.language)
 
+        self.font_scale = QComboBox()
+        for key, label in (
+            ("normal", tr("normální")),
+            ("large", tr("větší")),
+            ("largest", tr("největší")),
+        ):
+            self.font_scale.addItem(label, key)
+        self.font_scale.setCurrentIndex(max(0, self.font_scale.findData(settings.font_scale)))
+        self.font_scale.setToolTip(tr("Platí hned po uložení, bez restartu."))
+        form.addRow(tr("Velikost písma"), self.font_scale)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -98,4 +109,5 @@ class SettingsDialog(QDialog):
         self.settings.work_root = Path(self.work.text().strip())
         self.settings.advanced = self.advanced.isChecked()
         self.settings.ui_language = str(self.language.currentData() or "")
+        self.settings.font_scale = str(self.font_scale.currentData() or "normal")
         super().accept()

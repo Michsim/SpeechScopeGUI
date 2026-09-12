@@ -12,6 +12,7 @@ from pandas import errors as pd_errors
 from PySide6.QtCore import QProcess, Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -32,6 +33,7 @@ from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.results import merge_results
 from ..backend.settings import AppSettings
 from ..i18n import tr
+from . import theme
 from .models_dialog import ModelsDownloadDialog
 from .models_install_dialog import ModelsInstallDialog
 from .pages.batch import BatchPage
@@ -41,6 +43,7 @@ from .pages.results import ResultsPage
 from .pages.run import RunPage
 from .pages.welcome import WelcomePage
 from .settings_dialog import SettingsDialog
+from .widgets.elided_label import ElidedLabel
 from .widgets.sidebar_nav import SidebarNav
 
 # Pořadí v nabídce: od každodenního (analýza) k jednorázovému (prostředí).
@@ -150,7 +153,7 @@ class MainWindow(QMainWindow):
             scaled.setDevicePixelRatio(dpr)
             brand.setPixmap(scaled)
         brand_layout.addWidget(brand)
-        self.brand_sub = QLabel("")
+        self.brand_sub = ElidedLabel("")  # při větším písmu se zkrátí, nerozšíří panel
         self.brand_sub.setObjectName("brand_sub")
         brand_layout.addWidget(self.brand_sub)
         side.addWidget(brand_panel)
@@ -331,9 +334,14 @@ class MainWindow(QMainWindow):
 
     def _open_settings(self) -> None:
         language_before = self.settings.ui_language
+        scale_before = self.settings.font_scale
         dialog = SettingsDialog(self.settings, self)
         if dialog.exec():
             self._apply_settings()
+            if self.settings.font_scale != scale_before:
+                app = QApplication.instance()
+                if app is not None:
+                    theme.apply_scale(app, theme.FONT_SCALES.get(self.settings.font_scale, 1.0))
             if self.settings.ui_language != language_before:
                 self._offer_restart()
 

@@ -809,3 +809,27 @@ def test_delete_runs_go_to_trash(
     assert "Zatím žádný výstup" in results.summary.text()
     assert window.run_page.headline.text() == "Žádný výpočet"
     assert window.delete_all_runs(confirm=False) == 0
+
+
+def test_font_scale_setting_changes_stylesheet(qtbot: QtBot, settings: AppSettings) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from speechscope_app.ui import theme
+    from speechscope_app.ui.settings_dialog import SettingsDialog
+
+    assert settings.font_scale == "normal"
+    assert "font-size: 11pt;" in theme.stylesheet(1.0)
+    assert "font-size: 14.3pt;" in theme.stylesheet(1.3)
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    dialog = SettingsDialog(settings, window)
+    qtbot.addWidget(dialog)
+    dialog.font_scale.setCurrentIndex(dialog.font_scale.findData("largest"))
+    dialog.accept()
+    assert settings.font_scale == "largest"
+    app = QApplication.instance()
+    theme.apply_scale(app, theme.FONT_SCALES[settings.font_scale])
+    assert abs(app.font().pointSizeF() - theme.BASE_PT * 1.3) < 0.01
+    theme.apply_scale(app, 1.0)  # ostatní testy zpět na normální
+    settings.font_scale = "nesmysl"
+    assert settings.font_scale == "normal"
