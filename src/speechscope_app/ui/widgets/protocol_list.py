@@ -46,6 +46,8 @@ def _pill(text: str, role: str) -> QLabel:
 
 
 class ProtocolCard(QFrame):
+    details_requested = Signal()  # odkaz „co se počítá“
+
     def __init__(self, proto: Protocol, info: ProtocolCardInfo, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("card")
@@ -79,11 +81,18 @@ class ProtocolCard(QFrame):
         if not info.providers:
             foot.addWidget(_pill(tr("bez modelů"), "ok"))
         foot.addStretch(1)
+        self.details = QLabel(f"<a href='#' style='color:{theme.ACCENT}'>{tr('co se počítá')}</a>")
+        self.details.setObjectName("muted")
+        self.details.setToolTip(tr("Seznam feature a sloupců s popisem (i dvojklik na kartu)."))
+        self.details.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self.details.linkActivated.connect(lambda _href: self.details_requested.emit())
+        foot.addWidget(self.details)
         layout.addLayout(foot)
 
 
 class ProtocolList(QWidget):
     current_changed = Signal(object)  # Protocol | None
+    details_requested = Signal(object)  # Protocol: dvojklik na kartu nebo odkaz
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -119,6 +128,9 @@ class ProtocolList(QWidget):
         self.list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list.currentItemChanged.connect(self._item_changed)
+        self.list.itemDoubleClicked.connect(
+            lambda item: self.details_requested.emit(item.data(Qt.ItemDataRole.UserRole))
+        )
         self.list.viewport().installEventFilter(self)
         layout.addWidget(self.list, 1)
 
@@ -220,6 +232,7 @@ class ProtocolList(QWidget):
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, proto)
             card = ProtocolCard(proto, self._infos.get(proto.name, ProtocolCardInfo()))
+            card.details_requested.connect(lambda p=proto: self.details_requested.emit(p))
             item.setSizeHint(card.sizeHint())
             self.list.addItem(item)
             self.list.setItemWidget(item, card)

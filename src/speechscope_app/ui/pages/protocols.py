@@ -41,6 +41,7 @@ from ...backend.protocol import (
 )
 from ...i18n import tr
 from .. import theme
+from ..protocol_detail import ProtocolDetailDialog
 from ..widgets.protocol_editor import ProtocolEditorDialog
 
 ROLE_PROTO = Qt.ItemDataRole.UserRole
@@ -53,6 +54,8 @@ class ProtocolsPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._library: Library | None = None
+        self._doctor: dict[str, Any] | None = None
+        self._seconds_per_file: Callable[[str], float | None] = lambda _slug: None
         self._protocols: list[Protocol] = []
         self._folder: Path | None = None
         self._advanced = False
@@ -94,6 +97,10 @@ class ProtocolsPage(QWidget):
         self.list = QListWidget()
         self.list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.list.currentItemChanged.connect(self._current_changed)
+        self.list.itemDoubleClicked.connect(
+            lambda item: self.show_protocol_detail(item.data(ROLE_PROTO))
+        )
+        self.list.setToolTip(tr("Dvojklik ukáže, co protokol počítá."))
         self.splitter.addWidget(self.list)
 
         right = QWidget()
@@ -159,10 +166,29 @@ class ProtocolsPage(QWidget):
         self._show(self.current())
 
     def set_doctor(self, report: dict[str, Any] | None) -> None:
+        self._doctor = report
         self.editor.set_doctor(report)
 
     def set_stats_lookup(self, lookup: Callable[[str], float | None]) -> None:
+        self._seconds_per_file = lookup
         self.editor.set_stats_lookup(lookup)
+
+    def make_protocol_detail(self, proto: Protocol) -> ProtocolDetailDialog:
+        catalog: list = []
+        providers = None
+        if self._library is not None:
+            try:
+                catalog = self._library.features()
+                providers = self._library.providers()
+            except LibraryError:
+                catalog = []
+        seconds = self._seconds_per_file(proto.slug())
+        hint = tr("naposledy {n:.0f} s na nahrávku").format(n=seconds) if seconds else ""
+        return ProtocolDetailDialog(proto, catalog, providers, self._doctor, hint, self)
+
+    def show_protocol_detail(self, proto: Protocol | None) -> None:
+        if proto is not None:
+            self.make_protocol_detail(proto).exec()
 
     def set_advanced(self, advanced: bool) -> None:
         self._advanced = advanced

@@ -42,7 +42,9 @@ from .. import theme
 from ..file_actions import open_file, show_file_menu
 from ..pages.run import format_seconds
 from ..prepare_dialog import SegmentDialog, TranscribeDialog
+from ..protocol_detail import ProtocolDetailDialog
 from ..protocol_dialog import SaveProtocolDialog
+from ..widgets.elided_label import ElidedLabel
 from ..widgets.protocol_editor import ProtocolEditorDialog
 from ..widgets.protocol_list import ProtocolCardInfo, ProtocolList
 
@@ -55,7 +57,7 @@ def _step(number: int, title: str, hint: str = "") -> tuple[QHBoxLayout, QLabel]
     no.setObjectName("step_no")
     label = QLabel(title)
     label.setObjectName("step_title")
-    hint_label = QLabel(hint)
+    hint_label = ElidedLabel(hint)  # dlouhá nápověda nesmí roztahovat sloupec
     hint_label.setObjectName("step_hint")
     row.addWidget(no)
     row.addWidget(label)
@@ -166,6 +168,7 @@ class BatchPage(QWidget):
         left_layout.addLayout(step2)
         self.protocols = ProtocolList()
         self.protocols.current_changed.connect(self._protocol_changed)
+        self.protocols.details_requested.connect(self.show_protocol_detail)
         left_layout.addWidget(self.protocols.task_bar)
         lang_row = QHBoxLayout()
         self.language = QComboBox()
@@ -410,6 +413,26 @@ class BatchPage(QWidget):
 
     def select_protocol(self, name: str) -> bool:
         return self.protocols.select(name)
+
+    def make_protocol_detail(self, proto: Protocol) -> ProtocolDetailDialog:
+        """Okno „co protokol počítá“ z katalogu knihovny; bez knihovny prázdné."""
+        catalog: list = []
+        providers = None
+        if self._library is not None:
+            try:
+                catalog = self._library.features()
+                providers = self._library.providers()
+            except LibraryError:
+                catalog = []
+        seconds = self._seconds_per_file(proto.slug())
+        hint = tr("naposledy {n:.0f} s na nahrávku").format(n=seconds) if seconds else ""
+        return ProtocolDetailDialog(
+            proto, catalog, providers, self._doctor, hint, self, language=self.language_code()
+        )
+
+    def show_protocol_detail(self, proto: Protocol | None) -> None:
+        if proto is not None:
+            self.make_protocol_detail(proto).exec()
 
     def protocol_names(self) -> set[str]:
         return {p.name for p in self._protocols}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from pytestqt.qtbot import QtBot
 
 from speechscope_app.backend.protocol import Protocol
@@ -49,3 +50,15 @@ def test_empty_list(qtbot: QtBot) -> None:
     qtbot.addWidget(widget)
     widget.set_protocols([], {})
     assert widget.current() is None and all(b.isHidden() for b in widget.task_buttons.values())
+
+
+def test_card_link_and_double_click_request_details(qtbot: QtBot) -> None:
+    widget = ProtocolList()
+    qtbot.addWidget(widget)
+    widget.set_protocols(PROTOCOLS, INFOS, current="Pohádka A")
+    asked: list[str] = []
+    widget.details_requested.connect(lambda p: asked.append(p.name))
+    widget._cards["Pohádka A"].details.linkActivated.emit("#")
+    assert asked == ["Pohádka A"]
+    widget.list.itemDoubleClicked.emit(widget.list.item(1))
+    assert asked[-1] == widget.list.item(1).data(Qt.ItemDataRole.UserRole).name

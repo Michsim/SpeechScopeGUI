@@ -58,6 +58,33 @@ def column_descriptions(catalog: list[FeatureInfo]) -> dict[str, str]:
     return out
 
 
+def filter_tree(tree: QTreeWidget, text: str) -> None:
+    """Skryje větve stromu skupina → feature → sloupec, které neodpovídají hledání."""
+    needle = text.strip().lower()
+    for g in range(tree.topLevelItemCount()):
+        group = tree.topLevelItem(g)
+        group_hit = needle in group.text(0).lower()
+        any_child = False
+        for f in range(group.childCount()):
+            feature = group.child(f)
+            feature_hit = group_hit or any(
+                needle in feature.text(i).lower() for i in range(feature.columnCount())
+            )
+            shown = 0
+            for c in range(feature.childCount()):
+                col = feature.child(c)
+                hit = (
+                    not needle
+                    or feature_hit
+                    or any(needle in col.text(i).lower() for i in range(col.columnCount()))
+                )
+                col.setHidden(not hit)
+                shown += hit
+            feature.setHidden(not (shown or feature_hit))
+            any_child |= bool(shown or feature_hit)
+        group.setHidden(not (any_child or group_hit))
+
+
 def format_value(value: Any) -> str:
     if value is None:
         return ""
@@ -151,6 +178,15 @@ class RecordingDetailDialog(QDialog):
                 groups[group].setForeground(2, QColor(theme.MUTED))
                 self.tree.addTopLevelItem(groups[group])
             name = info.feature.name
+            if info.feature.columns == [name]:
+                # jediný sloupec = feature sama (lingvistika): hodnota rovnou u feature
+                self._add_value(
+                    groups[group],
+                    name.removeprefix(group + "."),
+                    raw,
+                    info.feature.description or "",
+                )
+                continue
             if name not in features:
                 features[name] = QTreeWidgetItem(
                     [name.removeprefix(group + "."), "", info.feature.description or ""]
@@ -171,25 +207,4 @@ class RecordingDetailDialog(QDialog):
         parent.addChild(item)
 
     def _filter(self, text: str) -> None:
-        needle = text.strip().lower()
-        for g in range(self.tree.topLevelItemCount()):
-            group = self.tree.topLevelItem(g)
-            group_hit = needle in group.text(0).lower()
-            any_child = False
-            for f in range(group.childCount()):
-                feature = group.child(f)
-                feature_hit = group_hit or needle in feature.text(0).lower()
-                shown = 0
-                for c in range(feature.childCount()):
-                    col = feature.child(c)
-                    hit = (
-                        not needle
-                        or feature_hit
-                        or needle in col.text(0).lower()
-                        or needle in col.text(2).lower()
-                    )
-                    col.setHidden(not hit)
-                    shown += hit
-                feature.setHidden(not (shown or feature_hit))
-                any_child |= bool(shown or feature_hit)
-            group.setHidden(not (any_child or group_hit))
+        filter_tree(self.tree, text)

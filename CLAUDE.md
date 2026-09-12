@@ -89,6 +89,9 @@ Mezivýsledky (`backend/cache.py`, dialog Uvolnit místo). Dvojklik na
 nahrávku (Analýza, Výpočet) ji otevře přiřazeným programem, pravé tlačítko
 nabídne přehrát, zobrazit ve složce, kopírovat cestu (`ui/file_actions.py`);
 na Výsledcích je dvojklik detail a přehrání je v pravém tlačítku.
+Dvojklik na kartu protokolu (Analýza, Protokoly) nebo odkaz „co se počítá“
+otevře `ui/protocol_detail.py`: strom skupina → feature → sloupec s popisem,
+providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
 
 ## Pasti z knihovny, které GUI hlídá
 - Podproces vždy s `PYTHONUTF8=1` (`library.subprocess_env`). Bez toho

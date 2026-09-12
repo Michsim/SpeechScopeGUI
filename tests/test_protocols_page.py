@@ -97,3 +97,49 @@ def test_basic_mode_shows_summary_only(qtbot: QtBot, settings: AppSettings) -> N
     assert page.edit_btn.isHidden() and page.save_btn.isHidden()
     assert page.delete_btn.isEnabled() and page.export_btn.isEnabled()
     assert "rozšířeném režimu" in page.note.text()
+
+
+def test_protocol_detail_dialog_lists_features(qtbot: QtBot, settings: AppSettings) -> None:
+    """Dvojklik na protokol: strom skupina → feature → sloupec s popisem, parametry zvlášť."""
+    from speechscope_app.backend.protocol import Protocol
+    from speechscope_app.ui.main_window import MainWindow
+
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.env_page.refresh()
+    page = window.protocols_page
+    proto = next(p for p in page._protocols if p.name == "Fonace, základní")
+    dialog = page.make_protocol_detail(proto)
+    assert dialog.windowTitle() == "Co počítá Fonace, základní"
+    assert dialog.summary.columns > 0 and "sloupců" in dialog.counts.text()
+    groups = [dialog.tree.topLevelItem(i).text(0) for i in range(dialog.tree.topLevelItemCount())]
+    assert any(g.startswith("Akustika") for g in groups) and dialog.params_item is None
+    feature = dialog.tree.topLevelItem(0).child(0)
+    assert feature.childCount() > 0 and feature.child(0).text(1)  # sloupec má popis
+    assert dialog.tree.topLevelItem(0).isExpanded() and not feature.isExpanded()  # sbalené
+    dialog.search.setText(feature.child(0).text(0))
+    assert feature.isExpanded()  # hledání rozbalí
+    dialog.search.clear()
+    assert not feature.isExpanded()
+    dialog.search.setText("zzz")
+    assert dialog.tree.topLevelItem(0).isHidden()
+
+    # lingvistika: feature má jediný sloupec, ukáže se jen název a popis bez podřádku
+    ling = next(p for p in page._protocols if p.name == "Pohádka, lingvistika")
+    dialog3 = page.make_protocol_detail(ling)
+    group = dialog3.tree.topLevelItem(0)
+    assert group.text(0).startswith("Lingvistika")
+    leaf = group.child(0)
+    assert leaf.childCount() == 0 and leaf.text(1)  # popis přímo u feature
+    dialog3.search.setText(leaf.text(1)[:12].lower())
+    assert not leaf.isHidden()  # hledání i podle popisu
+
+    custom = Protocol(name="S parametry", task="story", config={"transcript": {"language": "en"}})
+    dialog2 = window.batch_page.make_protocol_detail(custom)
+    assert dialog2.params_item is not None  # transcript z protokolu, nlp z lišty
+    assert dialog2.params_item.child(0).text(0) == "transcript.language"
+    # Analýza dosadí jazyk nahrávek z lišty (čeština) a řekne to
+    assert "cs" in dialog2.params_item.child(0).text(1)
+    assert "z lišty" in dialog2.params_item.child(0).text(1)
+    assert dialog2.params_item.childCount() == 2  # transcript i nlp
+    assert dialog2.provider_pills and dialog2.provider_pills[0].property("role") == "ok"
