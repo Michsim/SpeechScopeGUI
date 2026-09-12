@@ -1,8 +1,8 @@
 format: 1
 name: Monolog, lingvistika
 name_en: Monologue, linguistics
-description: Jen lingvistické feature z monologu (lexikum a syntax). Spouští Whisper a Stanzu, bez akustiky.
-description_en: Linguistic features only (lexicon and syntax) from a monologue. Runs Whisper and Stanza, no acoustics.
+description: Jen lingvistické feature z monologu (lexikum a syntax). 
+description_en: Linguistic features only (lexicon and syntax) from a monologue.
 task: monologue
 domain: linguistic
 config:

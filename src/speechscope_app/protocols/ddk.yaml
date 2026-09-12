@@ -1,7 +1,7 @@
 format: 1
 name: DDK, základní
 name_en: DDK, basic
-description: F0, kvalita hlasu a spektrum z diadochokineze (pa-ta-ka). Bez modelů.
-description_en: F0, voice quality and spectrum from diadochokinesis (pa-ta-ka). No models.
+description: diadochokineze. 
+description_en: diadochokinesis.
 task: ddk
 domain: acoustic

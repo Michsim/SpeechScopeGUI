@@ -1,8 +1,8 @@
 format: 1
 name: Pohádka, lingvistika
 name_en: Story, linguistics
-description: Jen lingvistické feature z vyprávění (lexikum a syntax). Spouští Whisper a Stanzu, bez akustiky.
-description_en: Linguistic features only (lexicon and syntax) from story retelling. Runs Whisper and Stanza, no acoustics.
+description: Jen lingvistické feature z vyprávění (lexikum a syntax). 
+description_en: Linguistic features only (lexicon and syntax) from story retelling.
 task: story
 domain: linguistic
 config:

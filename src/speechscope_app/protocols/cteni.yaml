@@ -1,8 +1,8 @@
 format: 1
 name: Čtení, akustika
 name_en: Reading, acoustics
-description: Akustické feature z čteného textu včetně pauz a časování. Segmentace conformerem.
-description_en: Acoustic features from read text including pauses and timing. Conformer segmentation.
+description: Akustické feature z čteného textu včetně pauz a časování.
+description_en: Acoustic features from read text including pauses and timing.
 task: reading
 domain: acoustic
 config:

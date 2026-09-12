@@ -1,8 +1,8 @@
 format: 1
 name: Pohádka, akustika
 name_en: Story, acoustics
-description: Akustické feature z vyprávění včetně pauz a časování. Segmentace conformerem.
-description_en: Acoustic features from story retelling including pauses and timing. Conformer segmentation.
+description: Akustické feature z vyprávění včetně pauz a časování. 
+description_en: Acoustic features from story retelling including pauses and timing.
 task: story
 domain: acoustic
 config:
