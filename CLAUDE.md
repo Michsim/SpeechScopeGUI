@@ -21,7 +21,8 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   i 1), popisky domén, skupin a providerů, orientační ceny, záložní seznam
   jazyků. Seznam feature, providerů i jejich parametry se nikdy neopisují,
   berou se z `list --json`, `list --providers --json` a `list --params`.
-  Jazyky nahrávek se berou z `doctor --json` (`models.stanza.languages`,
+  Jazyky nahrávek se berou při startu z `models list --json` a pak
+  z `doctor --json` (`models.stanza.languages`,
   od 12. 9. 2026 cs, en, de, it, es, fr); GUI k nim má jen popisky
   v `LANGUAGE_LABELS`, nový jazyk knihovny se ukáže i bez popisku (kódem).
   Artikulace (phnrec) zůstává jen česká, to hlídá knihovna.

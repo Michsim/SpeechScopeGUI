@@ -325,7 +325,13 @@ def test_language_from_doctor_goes_to_run(qtbot: QtBot, settings: AppSettings) -
     window = MainWindow(settings)
     qtbot.addWidget(window)
     page = window.batch_page
-    window.env_page.refresh()  # doctor: Stanza (cs, en)
+    # jazyky jsou k dispozici hned po startu (models list), bez kontroly prostředí
+    assert [page.language.itemData(i) for i in range(page.language.count())][:3] == [
+        "cs",
+        "en",
+        "de",
+    ]
+    window.env_page.refresh()  # doctor: totéž
     codes = [page.language.itemData(i) for i in range(page.language.count())]
     assert codes == ["cs", "en", "de", "it", "es", "fr"]  # Stanza z doctor, v pořadí knihovny
     labels = [page.language.itemText(i) for i in range(page.language.count())]

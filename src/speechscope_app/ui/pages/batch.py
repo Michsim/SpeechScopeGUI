@@ -249,7 +249,22 @@ class BatchPage(QWidget):
     def set_library(self, library: Library | None) -> None:
         self._library = library
         self.editor.set_library(library)
+        self._load_languages()
         self._update_run_state()
+
+    def _load_languages(self) -> None:
+        """Jazyky nahrávek z `models list --json` hned při startu (laciné, bez torche);
+        `doctor` je zpřesní, ale ten se bez chybějících modelů při startu nevolá."""
+        if self._library is None:
+            return
+        try:
+            payload = self._library.models()
+        except LibraryError:
+            return
+        for model in payload.get("models", []):
+            if model.get("key") == "stanza" and model.get("languages"):
+                self.set_languages([str(code) for code in model["languages"]])
+                return
 
     def set_doctor(self, report: dict[str, Any] | None) -> None:
         self._doctor = report
