@@ -256,6 +256,24 @@ class ResultsPage(QWidget):
         if refresh_history:
             self.refresh()
 
+    def current_dir(self) -> Path | None:
+        return self._path.parent if self._path is not None else None
+
+    def clear(self) -> None:
+        """Po smazání běhu, který byl otevřený: bez tabulky, výběr na nejnovějším."""
+        self._path = None
+        self._frame = None
+        self._note = ""
+        self.table.setModel(None)
+        self.detail_btn.setEnabled(False)
+        self.rerun_btn.hide()
+        self.open_btn.setEnabled(False)
+        self.summary.setToolTip("")
+        self.summary.setText(tr("Zatím žádný výstup."))
+        self.history.refresh()
+        if self.history.runs.rowCount():
+            self.history.runs.selectRow(0)
+
     def visible_frame(self) -> pd.DataFrame | None:
         model = self.table.model()
         return model.frame if isinstance(model, FrameModel) else None

@@ -80,7 +80,7 @@ GROUP_LABELS = Labels(
     {
         "acoustic.articulation": N_("Akustika · artikulace"),
         "acoustic.intensity": N_("Akustika · intenzita"),
-        "acoustic.pitch": N_("Akustika · výška"),
+        "acoustic.pitch": N_("Akustika · pitch"),
         "acoustic.quality": N_("Akustika · kvalita hlasu"),
         "acoustic.spectral": N_("Akustika · spektrum"),
         "acoustic.timing": N_("Akustika · časování"),

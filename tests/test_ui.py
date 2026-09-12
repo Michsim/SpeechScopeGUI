@@ -726,3 +726,42 @@ def test_language_change_offers_restart(
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "argv", ["SpeechScope.exe", "--smoke"])
     assert mw.restart_command() == (sys.executable, [])
+
+
+def test_delete_runs_go_to_trash(
+    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Smazat jeden běh i všechny: složky pryč, historie i stránky bez smazaného běhu."""
+    import shutil
+
+    from speechscope_app.backend import history
+
+    trashed: list[Path] = []
+
+    def fake_trash(path: Path) -> None:  # v testu bez Koše
+        trashed.append(path)
+        shutil.rmtree(path)
+
+    monkeypatch.setattr(history, "send_to_trash", fake_trash)
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.batch_page.set_folder(recordings)
+    assert window.batch_page.select_protocol("Fonace, základní")
+    for _ in range(2):
+        with qtbot.waitSignal(window.run_page.finished, timeout=15000):
+            window.batch_page.run_btn.click()
+    results = window.results_page
+    assert results.runs.rowCount() == 2 and results.current_dir() is not None
+    shown = results.current_dir()
+    info = next(r for r in results.history.all_runs() if r.dir == shown)
+    assert results.history.can_delete(info) and results.history.delete_btn.isEnabled()
+    assert window.delete_run(info, confirm=False)
+    assert trashed == [shown] and not shown.exists()
+    assert results.runs.rowCount() == 1 and results.current_dir() != shown
+    assert window.run_page.history.runs.rowCount() == 1
+
+    assert window.delete_all_runs(confirm=False) == 1
+    assert results.runs.rowCount() == 0 and results.current_dir() is None
+    assert "Zatím žádný výstup" in results.summary.text()
+    assert window.run_page.headline.text() == "Žádný výpočet"
+    assert window.delete_all_runs(confirm=False) == 0

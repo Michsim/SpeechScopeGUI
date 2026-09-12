@@ -26,7 +26,7 @@ from .. import __version__, contract
 from ..backend.audio import duration_seconds
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
 from ..backend.diagnostics import build_bundle, default_name
-from ..backend.history import mark_orphans, write_run_file
+from ..backend.history import RunInfo, mark_orphans, trash_all, trash_run, write_run_file
 from ..backend.manifest import Manifest, read_manifest, write_normalized
 from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.results import merge_results
@@ -169,6 +169,8 @@ class MainWindow(QMainWindow):
         menu.addAction(tr("Stáhnout modely…"), self.download_models)
         menu.addAction(tr("Nainstalovat modely ze souboru…"), self.install_models)
         menu.addSeparator()
+        menu.addAction(tr("Smazat všechny běhy…"), self.delete_all_runs)
+        menu.addSeparator()
         menu.addAction(tr("Konec"), self.close)
 
         self.env_page.settings_requested.connect(self._open_settings)
@@ -190,6 +192,8 @@ class MainWindow(QMainWindow):
         self.batch_page.set_rate_lookup(self.settings.seconds_per_audio_minute)
         self.protocols_page.set_stats_lookup(self.settings.seconds_per_file)
         self.results_page.rerun_requested.connect(self.rerun_failed)
+        self.results_page.history.delete_requested.connect(self.delete_run)
+        self.run_page.history.delete_requested.connect(self.delete_run)
         self.protocols_page.protocols_changed.connect(self.reload_protocols)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.prepare_requested.connect(self._start_prepare)
@@ -526,6 +530,90 @@ class MainWindow(QMainWindow):
         )
         return True
 
+    # --- mazání běhů ---------------------------------------------------------------
+
+    def delete_run(self, info: RunInfo, *, confirm: bool = True) -> bool:
+        """Složka běhu do Koše po potvrzení; běžící běh smazat nejde."""
+        running_dir = getattr(self, "_running_dir", None)
+        if self.run_page.runner.running and running_dir == info.dir:
+            self.statusBar().showMessage(tr("Běžící výpočet smazat nejde."), 6000)
+            return False
+        if confirm:
+            when = info.started.strftime("%d.%m. %H:%M") if info.started else info.dir.name
+            answer = QMessageBox.question(
+                self,
+                tr("Smazat běh"),
+                tr(
+                    "Smazat běh {name} z {when}?\n"
+                    "Celá složka s tabulkou výsledků, protokolem a logem půjde do Koše. "
+                    "Nahrávek se to netýká."
+                ).format(name=info.protocol_name, when=when),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+        try:
+            trash_run(info.dir)
+        except OSError as exc:
+            self.statusBar().showMessage(
+                tr("Běh se nepodařilo smazat (otevřený soubor?): {error}").format(error=exc),
+                8000,
+            )
+            return False
+        self._after_runs_deleted({info.dir})
+        self.statusBar().showMessage(
+            tr("Běh přesunut do Koše: {name}").format(name=info.dir.name), 6000
+        )
+        return True
+
+    def delete_all_runs(self, *, confirm: bool = True) -> int:
+        """Všechny složky běhů do Koše; běžící zůstane, mezivýsledky ve work také."""
+        runs = self.results_page.history.all_runs()
+        running_dir = getattr(self, "_running_dir", None) if self.run_page.runner.running else None
+        candidates = [r for r in runs if r.dir != running_dir and r.status != "running"]
+        if not candidates:
+            self.statusBar().showMessage(tr("Žádné běhy ke smazání."), 6000)
+            return 0
+        if confirm:
+            answer = QMessageBox.question(
+                self,
+                tr("Smazat všechny běhy"),
+                tr(
+                    "Smazat všech {n} běhů ze složky {path}?\n"
+                    "Složky půjdou do Koše. Mezivýsledky ve složce work zůstanou, "
+                    "ty se uklízejí v Prostředí."
+                ).format(n=len(candidates), path=self.settings.work_root),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return 0
+        done, failed = trash_all(
+            self.settings.work_root, keep={running_dir} if running_dir else None
+        )
+        self._after_runs_deleted({r.dir for r in candidates if r.dir not in failed})
+        if failed:
+            self.statusBar().showMessage(
+                tr("Smazáno {n} běhů, {k} se nepodařilo (otevřený soubor?).").format(
+                    n=done, k=len(failed)
+                ),
+                8000,
+            )
+        else:
+            self.statusBar().showMessage(tr("Do Koše přesunuto {n} běhů.").format(n=done), 6000)
+        return done
+
+    def _after_runs_deleted(self, dirs: set[Path]) -> None:
+        """Historie obou stránek znovu; smazaný běh nesmí zůstat otevřený."""
+        if self.results_page.current_dir() in dirs:
+            self.results_page.clear()
+        else:
+            self.results_page.refresh()
+        if self.run_page.viewing_dir() in dirs:
+            self.run_page.clear_view()
+        self.run_page.refresh_history()
+
     def _submit(self, job: Job) -> None:
         """Spustí hned, nebo se zeptá a zařadí za běžící dávku."""
         if self.run_page.runner.running:
@@ -585,6 +673,10 @@ class MainWindow(QMainWindow):
             suffix = "-znovu"
         self._running_merge = job.merge_into
         run_dir = self.settings.work_root / f"{stamp}_{slug}{suffix}"
+        n = 2
+        while run_dir.exists():  # dva běhy v téže vteřině (fronta, testy) nesmí sdílet složku
+            run_dir = self.settings.work_root / f"{stamp}_{slug}{suffix}-{n}"
+            n += 1
         run_dir.mkdir(parents=True, exist_ok=True)
         work_dir = self.settings.work_root / "work"
         config_path: Path | None = None

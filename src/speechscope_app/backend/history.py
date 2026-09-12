@@ -28,6 +28,7 @@ from typing import Any
 
 from ..i18n import N_, tr
 from .protocol import Protocol
+from .trash import send_to_trash
 
 RUN_FILE = "run.json"
 STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})_(.+)$")
@@ -147,6 +148,29 @@ def mark_orphans(work_root: Path) -> list[Path]:
             continue
         marked.append(info.dir)
     return marked
+
+
+def trash_run(run_dir: Path) -> None:
+    """Celá složka běhu do Koše; `OSError`, když to nejde (otevřený soubor)."""
+    if read_run(run_dir) is None:
+        raise OSError(0, f"není složka běhu: {run_dir}")
+    send_to_trash(run_dir)
+
+
+def trash_all(work_root: Path, *, keep: set[Path] | None = None) -> tuple[int, list[Path]]:
+    """Všechny běhy do Koše kromě `keep` (běžící); vrací počet a co se nepovedlo."""
+    skipped = {p.resolve() for p in (keep or set())}
+    done = 0
+    failed: list[Path] = []
+    for info in list_runs(work_root):
+        if info.dir.resolve() in skipped or info.status == "running":
+            continue
+        try:
+            send_to_trash(info.dir)
+            done += 1
+        except OSError:
+            failed.append(info.dir)
+    return done, failed
 
 
 def list_runs(work_root: Path) -> list[RunInfo]:

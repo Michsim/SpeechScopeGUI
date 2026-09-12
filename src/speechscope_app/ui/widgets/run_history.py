@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -38,6 +39,7 @@ STATUS_COLORS = {
 
 class RunHistory(QWidget):
     selected = Signal(object)  # RunInfo
+    delete_requested = Signal(object)  # RunInfo: Smazat…, Delete, pravé tlačítko
 
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -52,7 +54,14 @@ class RunHistory(QWidget):
         self.title.setObjectName("section")
         self.refresh_btn = QPushButton(tr("Obnovit"))
         self.refresh_btn.clicked.connect(self.refresh)
+        self.delete_btn = QPushButton(tr("Smazat…"))
+        self.delete_btn.setToolTip(
+            tr("Přesune složku vybraného běhu do Koše. Nahrávek se to netýká.")
+        )
+        self.delete_btn.setEnabled(False)
+        self.delete_btn.clicked.connect(self._delete_current)
         head.addWidget(self.title, 1)
+        head.addWidget(self.delete_btn)
         head.addWidget(self.refresh_btn)
         layout.addLayout(head)
         self.runs = QTableWidget()
@@ -69,11 +78,45 @@ class RunHistory(QWidget):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.runs.itemSelectionChanged.connect(self._selection_changed)
+        self.runs.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.runs.customContextMenuRequested.connect(self._menu)
+        QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.runs, self._delete_current)
         layout.addWidget(self.runs, 1)
+
+    # --- mazání --------------------------------------------------------------------
+
+    def can_delete(self, info: RunInfo | None) -> bool:
+        return info is not None and info.status != "running"
+
+    def _delete_current(self) -> None:
+        info = self.current()
+        if self.can_delete(info):
+            self.delete_requested.emit(info)
+
+    def _menu(self, pos) -> None:  # noqa: ANN001
+        item = self.runs.itemAt(pos)
+        if item is None:
+            return
+        self.runs.selectRow(item.row())
+        info = self.current()
+        if info is None:
+            return
+        menu = QMenu(self)
+        open_action = menu.addAction(tr("Otevřít složku"))
+        open_action.triggered.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(info.dir)))
+        )
+        delete_action = menu.addAction(tr("Smazat běh…"))
+        delete_action.setEnabled(self.can_delete(info))
+        delete_action.triggered.connect(lambda: self.delete_requested.emit(info))
+        menu.exec(self.runs.viewport().mapToGlobal(pos))
 
     def set_work_root(self, root: Path) -> None:
         self._work_root = root
         self.refresh()
+
+    def all_runs(self) -> list[RunInfo]:
+        return list(self._runs)
 
     def current(self) -> RunInfo | None:
         model = self.runs.selectionModel()
@@ -120,6 +163,7 @@ class RunHistory(QWidget):
             self.runs.blockSignals(True)
             self.runs.selectRow(select_row)
             self.runs.blockSignals(False)
+        self.delete_btn.setEnabled(self.can_delete(self.current()))
 
     def select_dir(self, run_dir: Path) -> bool:
         for row, info in enumerate(self._runs):
@@ -130,5 +174,6 @@ class RunHistory(QWidget):
 
     def _selection_changed(self) -> None:
         info = self.current()
+        self.delete_btn.setEnabled(self.can_delete(info))
         if info is not None:
             self.selected.emit(info)

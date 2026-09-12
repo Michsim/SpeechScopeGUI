@@ -625,6 +625,29 @@ class RunPage(QWidget):
     def refresh_history(self, select: Path | None = None) -> None:
         self.history.refresh(select=select)
 
+    def viewing_dir(self) -> Path | None:
+        """Složka běhu přehraného z historie (None = živý nebo nic)."""
+        return self._viewing.dir if self._viewing is not None else self._live_dir
+
+    def clear_view(self) -> None:
+        """Po smazání běhu, který byl na stránce: prázdná stránka bez přehrání."""
+        if self.runner.running:
+            return
+        self._viewing = None
+        self._live_dir = None
+        self._paths = []
+        self._providers = []
+        self._set_columns([])
+        self._fill_rows([])
+        self.headline.setText(tr("Žádný výpočet"))
+        self.summary.setText("")
+        self.current.setText("")
+        self.timing.setText("")
+        self.elapsed.setText("")
+        self.bar.setRange(0, 1)
+        self.bar.setValue(0)
+        self.log.clear()
+
     def show_recorded(self, info: RunInfo) -> None:
         """Průběh starého běhu z events.jsonl a jeho log; při živém běhu se nic nemění."""
         if self.runner.running:

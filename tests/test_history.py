@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from speechscope_app.backend.history import list_runs, mark_orphans, read_run, write_run_file
 from speechscope_app.backend.protocol import Protocol
 
@@ -74,3 +76,23 @@ def test_running_run_counts_rows_and_orphans_get_interrupted(tmp_path: Path) -> 
     assert info is not None and info.status == "interrupted" and info.processed == 2
     assert info.rows == 2  # po konci už se tabulka počítá
     assert mark_orphans(tmp_path) == []  # podruhé už není co značit
+
+
+def test_trash_run_and_all_skip_running(tmp_path: Path, monkeypatch) -> None:
+    import shutil
+
+    from speechscope_app.backend import history
+
+    monkeypatch.setattr(history, "send_to_trash", lambda p: shutil.rmtree(p))
+    a = _run_dir(tmp_path, "2026-09-12_08-00-00_fonace-zakladni", csv_rows=1, run={"status": "ok"})
+    b = _run_dir(tmp_path, "2026-09-12_09-00-00_fonace-zakladni", csv_rows=1, run={"status": "ok"})
+    c = _run_dir(
+        tmp_path, "2026-09-12_10-00-00_fonace-zakladni", csv_rows=None, run={"status": "running"}
+    )
+    history.trash_run(a)
+    assert not a.exists() and b.exists()
+    (tmp_path / "cizi").mkdir()
+    with pytest.raises(OSError):
+        history.trash_run(tmp_path / "cizi")  # není složka běhu
+    done, failed = history.trash_all(tmp_path)
+    assert done == 1 and failed == [] and not b.exists() and c.exists()  # běžící zůstal
