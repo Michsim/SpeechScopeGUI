@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import sys
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 
 from pandas import errors as pd_errors
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QProcess, Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -68,6 +69,17 @@ class Job:
         elif self.merge_into is not None:
             name = tr("Znovu chybné · {name}").format(name=name)
         return tr("{name} ({n} nahrávek)").format(name=name, n=len(self.inputs))
+
+
+def restart_command() -> tuple[str, list[str]]:
+    """Program a argumenty pro nové spuštění: zabalené exe, nebo modul při vývoji.
+
+    Přepínače (`--fake`) se předají dál, `--smoke` ne.
+    """
+    args = [a for a in sys.argv[1:] if a != "--smoke"]
+    if getattr(sys, "frozen", False):
+        return sys.executable, args
+    return sys.executable, ["-m", "speechscope_app.main", *args]
 
 
 def _has_models(models_dir: Path) -> bool:
@@ -313,9 +325,42 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{text} · {self._base_title}" if text else self._base_title)
 
     def _open_settings(self) -> None:
+        language_before = self.settings.ui_language
         dialog = SettingsDialog(self.settings, self)
         if dialog.exec():
             self._apply_settings()
+            if self.settings.ui_language != language_before:
+                self._offer_restart()
+
+    def _offer_restart(self) -> None:
+        """Jazyk se projeví až po novém spuštění; nabídnout ho hned, ne během výpočtu."""
+        if self.run_page.runner.running or self._queue:
+            QMessageBox.information(
+                self,
+                tr("SpeechScope"),
+                tr("Jazyk aplikace se změní po novém spuštění, až doběhne výpočet."),
+            )
+            return
+        answer = QMessageBox.question(
+            self,
+            tr("Změna jazyka"),
+            tr("Jazyk aplikace se projeví po novém spuštění. Restartovat teď?"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.restart()
+
+    def restart(self) -> bool:
+        """Spustí novou instanci se stejnými přepínači a tuhle zavře."""
+        program, args = restart_command()
+        if not QProcess.startDetached(program, args):
+            QMessageBox.warning(
+                self, tr("SpeechScope"), tr("Novou instanci se nepodařilo spustit.")
+            )
+            return False
+        QTimer.singleShot(0, self.close)
+        return True
 
     def download_models(self) -> None:
         if self.library is None:

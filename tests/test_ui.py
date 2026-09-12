@@ -700,3 +700,29 @@ def test_double_click_opens_recording(
     assert run.open_recording(0) and Path(opened[-1]) == recordings / "p01.wav"
     # Výsledky: cesta z tabulky
     assert window.results_page.path_for_row(0) == recordings / "p01.wav"
+
+
+def test_language_change_offers_restart(
+    qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    from speechscope_app.ui import main_window as mw
+
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    started: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(
+        mw.QProcess,
+        "startDetached",
+        staticmethod(lambda prog, args: started.append((prog, args)) or True),
+    )
+    monkeypatch.setattr(
+        mw.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    )
+    monkeypatch.setattr(sys, "argv", ["speechscope-app", "--fake"])
+    window._offer_restart()
+    assert started and started[0] == (sys.executable, ["-m", "speechscope_app.main", "--fake"])
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "argv", ["SpeechScope.exe", "--smoke"])
+    assert mw.restart_command() == (sys.executable, [])

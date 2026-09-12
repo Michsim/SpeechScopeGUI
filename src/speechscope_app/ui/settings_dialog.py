@@ -61,7 +61,7 @@ class SettingsDialog(QDialog):
         for code in i18n.available():
             self.language.addItem(i18n.LANGUAGE_NAMES.get(code, code), code)
         self.language.setCurrentIndex(max(0, self.language.findData(settings.ui_language)))
-        self.language.setToolTip(tr("Projeví se po novém spuštění aplikace."))
+        self.language.setToolTip(tr("Po uložení se aplikace nabídne restartovat."))
         form.addRow(tr("Jazyk aplikace"), self.language)
 
         buttons = QDialogButtonBox(
