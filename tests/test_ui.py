@@ -278,8 +278,11 @@ def _bundle(path: Path, *, valid: bool = True) -> Path:
 
 
 def test_models_install_dialog_unpacks_bundle(
-    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    from speechscope_app.ui import models_install_dialog as mid
     from speechscope_app.ui.models_install_dialog import ModelsInstallDialog
 
     library = settings.make_library()
@@ -287,6 +290,17 @@ def test_models_install_dialog_unpacks_bundle(
     dialog = ModelsInstallDialog(library, settings.models_dir, archive=_bundle(tmp_path / "m.zip"))
     qtbot.addWidget(dialog)
     assert dialog.start_btn.isEnabled()
+    assert dialog.bundle_keys(tmp_path / "m.zip") == ["whisper"]
+    assert "whisper" in dialog.installed_keys()  # falešný doctor: všechno na místě
+    # všechno z balíku už je: dotaz, Ne = nic se nespustí
+    monkeypatch.setattr(
+        mid.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No)
+    )
+    dialog.start()
+    assert not dialog.runner.running and "nic se nedělalo" in dialog.status.text()
+    monkeypatch.setattr(
+        mid.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    )
     with qtbot.waitSignal(dialog.runner.finished, timeout=15000):
         dialog.start()
     assert dialog.installed
@@ -639,6 +653,7 @@ def test_welcome_first_setup_block(
     new_work = tmp_path / "vysledky"
     window.change_work_root(new_work)
     assert settings.work_root == new_work and welcome.work_row.path.toolTip() == str(new_work)
+    assert str(new_work) in window.batch_page.subtitle.text()  # podtitul Analýzy sedí
     assert window.env_page.work_path.text() == str(new_work)
     new_models = tmp_path / "modely"
     new_models.mkdir()

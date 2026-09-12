@@ -285,6 +285,7 @@ class MainWindow(QMainWindow):
         models_dir, work_root = self.settings.models_dir, self.settings.work_root
         self.results_page.set_work_root(work_root)
         self.run_page.set_work_root(work_root)
+        self.batch_page.set_work_root(work_root)
         self.env_page.set_work_dir(work_root / "work")
         self.env_page.set_folders(models_dir, work_root)
         self.welcome_page.set_folders(models_dir, work_root)

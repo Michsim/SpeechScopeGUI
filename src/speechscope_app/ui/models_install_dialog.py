@@ -8,6 +8,8 @@ ty, které už tam jsou, balík nahradí.
 
 from __future__ import annotations
 
+import json
+import zipfile
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -17,6 +19,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -25,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..backend import command
-from ..backend.library import Library
+from ..backend.library import Library, LibraryError
 from ..backend.runner import Runner
 from ..contract import MODELS_BUNDLE_FILTER
 from ..i18n import tr
@@ -123,10 +126,53 @@ class ModelsInstallDialog(QDialog):
 
     # --- běh ------------------------------------------------------------------
 
-    def start(self) -> None:
+    def bundle_keys(self, path: Path) -> list[str] | None:
+        """Klíče modelů v balíku podle manifestu; None, když to není balík."""
+        try:
+            with zipfile.ZipFile(path) as zf:
+                manifest = json.loads(zf.read("manifest.json"))
+        except (OSError, zipfile.BadZipFile, KeyError, json.JSONDecodeError):
+            return None
+        models = manifest.get("models")
+        return list(models) if isinstance(models, dict) else None
+
+    def installed_keys(self) -> set[str]:
+        """Modely, které už ve složce jsou (`models list --json`); bez knihovny prázdné."""
+        try:
+            payload = self._library.models()
+        except LibraryError:
+            return set()
+        return {str(m.get("key")) for m in payload.get("models", []) if m.get("present")}
+
+    def start(self, *, force: bool = False) -> None:
         path = self.archive_path()
         if path is None or not path.is_file() or self.runner.running:
             return
+        if not force:
+            keys = self.bundle_keys(path)
+            present = self.installed_keys()
+            if keys and all(k in present for k in keys):
+                answer = QMessageBox.question(
+                    self,
+                    tr("Modely už jsou nainstalované"),
+                    tr(
+                        "Všech {n} modelů z balíku už je nainstalováno. Přeinstalovat? "
+                        "Rozbalení trvá několik minut, hotové modely zůstanou použitelné."
+                    ).format(n=len(keys)),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    self.status.setText(tr("Modely už jsou nainstalované, nic se nedělalo."))
+                    return
+            elif keys:
+                have = [k for k in keys if k in present]
+                if have:
+                    self.status.setText(
+                        tr("{k} z {n} modelů z balíku už je nainstalováno, přepíší se.").format(
+                            k=len(have), n=len(keys)
+                        )
+                    )
         argv = self._library.argv(command.models_unpack_args(path, models_dir=self._models_dir))
         self.log.clear()
         self.log.appendPlainText("$ " + " ".join(argv))

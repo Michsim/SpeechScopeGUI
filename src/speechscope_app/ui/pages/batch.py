@@ -90,14 +90,11 @@ class BatchPage(QWidget):
         title = QLabel(tr("Analýza"))
         title.setObjectName("page_title")
         layout.addWidget(title)
-        subtitle = QLabel(
-            tr(
-                "Vlevo co se analyzuje (nahrávky, úloha, jazyk), vpravo jak (protokol). "
-                "Do složky s nahrávkami se nic nezapisuje, výsledky jdou do Dokumentů."
-            )
-        )
-        subtitle.setObjectName("page_subtitle")
-        subtitle.setWordWrap(True)
+        self.subtitle = QLabel("")
+        self.subtitle.setObjectName("page_subtitle")
+        self.subtitle.setWordWrap(True)
+        self.set_work_root(None)
+        subtitle = self.subtitle
         layout.addWidget(subtitle)
 
         columns = QHBoxLayout()
@@ -425,6 +422,21 @@ class BatchPage(QWidget):
 
     def protocol_names(self) -> set[str]:
         return {p.name for p in self._protocols}
+
+    def set_work_root(self, root: Path | None) -> None:
+        """Podtitul říká, kam jdou výsledky; složku si uživatel volí sám."""
+        where = (
+            tr("výsledky jdou do {path}").format(path=root)
+            if root is not None
+            else tr("výsledky jdou do složky z Nastavení")
+        )
+        self.subtitle.setText(
+            tr(
+                "Vlevo co se analyzuje (nahrávky, úloha, jazyk), vpravo jak (protokol). "
+                "Do složky s nahrávkami se nic nezapisuje, {where}."
+            ).format(where=where)
+        )
+        self.subtitle.setToolTip(str(root) if root is not None else "")
 
     def set_advanced(self, advanced: bool) -> None:
         self._advanced = advanced
