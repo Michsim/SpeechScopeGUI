@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog,
@@ -28,6 +29,7 @@ from ..backend.library import FeatureInfo, FeatureParams
 from ..backend.protocol import Protocol, summarize
 from ..i18n import tr
 from . import theme
+from .feature_detail import FeatureDetailDialog
 from .recording_detail import column_index, filter_tree
 
 
@@ -118,6 +120,9 @@ class ProtocolDetailDialog(QDialog):
         self.tree.setColumnCount(2)
         self.tree.setHeaderLabels([tr("feature / sloupec"), tr("popis")])
         self.tree.setAlternatingRowColors(True)
+        self.tree.setToolTip(tr("Dvojklik na feature ukáže její sloupce v tabulce."))
+        self.tree.itemDoubleClicked.connect(self._item_double_clicked)
+        self._features_by_name = {f.name: f for f in pool}
         layout.addWidget(self.tree, 1)
         self._fill(proto, pool, chosen)
         # skupiny rozbalené, feature s více sloupci sbalené: seznam zůstane přehledný
@@ -146,6 +151,15 @@ class ProtocolDetailDialog(QDialog):
             for f in range(group.childCount()):
                 group.child(f).setExpanded(bool(text.strip()))
 
+    def feature_at(self, item: QTreeWidgetItem) -> FeatureInfo | None:
+        name = item.data(0, Qt.ItemDataRole.UserRole)
+        return self._features_by_name.get(str(name)) if name else None
+
+    def _item_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
+        info = self.feature_at(item)
+        if info is not None:
+            FeatureDetailDialog(info, self).exec()
+
     def _fill(self, proto: Protocol, pool: list[FeatureInfo], chosen: list[str]) -> None:
         index = column_index(pool)
         by_name = {f.name: f for f in pool}
@@ -161,6 +175,7 @@ class ProtocolDetailDialog(QDialog):
                 self.tree.addTopLevelItem(groups[group])
             item = QTreeWidgetItem([name.removeprefix(group + "."), feature.description or ""])
             item.setToolTip(0, name)
+            item.setData(0, Qt.ItemDataRole.UserRole, name)
             item.setToolTip(1, feature.description or "")
             groups[group].addChild(item)
             if feature.columns == [name]:

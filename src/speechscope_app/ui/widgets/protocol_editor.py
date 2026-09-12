@@ -32,6 +32,7 @@ from ... import contract
 from ...backend.library import FeatureInfo, Library, LibraryError
 from ...backend.protocol import Protocol, provider_order, summarize
 from ...i18n import tr
+from ..feature_detail import FeatureDetailDialog
 from .feature_picker import FeaturePicker
 from .param_form import ParamForm
 
@@ -133,6 +134,7 @@ class ProtocolEditor(QWidget):
         self.picker = FeaturePicker()
         self.picker.selection_changed.connect(self._selection_changed)
         self.picker.current_changed.connect(self._show_params)
+        self.picker.details_requested.connect(self.show_feature_detail)
         self.splitter.addWidget(self.picker)
         self.params = ParamsPanel()
         self.splitter.addWidget(self.params)
@@ -166,6 +168,12 @@ class ProtocolEditor(QWidget):
 
     def refresh_summary(self) -> None:
         self._update_summary()
+
+    def make_feature_detail(self, info: FeatureInfo) -> FeatureDetailDialog:
+        return FeatureDetailDialog(info, self.window())
+
+    def show_feature_detail(self, info: FeatureInfo) -> None:
+        self.make_feature_detail(info).exec()
 
     def set_protocol(self, proto: Protocol | None) -> None:
         """Načte výběr a parametry protokolu; dosavadní úpravy zahodí."""

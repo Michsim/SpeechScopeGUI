@@ -61,6 +61,18 @@ def feature_short(name: str) -> str:
     return name.rsplit(".", 1)[-1]
 
 
+DESC_LIMIT = 150  # znaků popisu na dlaždici; zbytek je v tooltipu a v okně sloupců
+
+
+def short_description(text: str, limit: int = DESC_LIMIT) -> str:
+    """Popis na dlaždici zkrácený na celé slovo s trojtečkou."""
+    text = " ".join((text or "").split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(";,. ")
+    return cut + "…"
+
+
 def columns_label(n: int) -> str:
     if n == 1:
         return tr("1 sloupec")
@@ -74,6 +86,7 @@ class FeatureCard(QFrame):
 
     toggled = Signal(str, bool)
     clicked = Signal(str)
+    details_requested = Signal(str)  # dvojklik nebo odkaz: okno se sloupci
 
     def __init__(self, info: FeatureInfo, checked: bool, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -92,17 +105,23 @@ class FeatureCard(QFrame):
         self.check.setChecked(checked)
         self.check.toggled.connect(lambda on: self.toggled.emit(info.name, on))
         head.addWidget(self.check, 1)
-        cols = QLabel(columns_label(len(info.columns) or len(info.outputs) or 1))
-        cols.setObjectName("muted")
-        cols.setToolTip("\n".join(f"{k}: {v}" for k, v in info.outputs.items()))
-        head.addWidget(cols)
+        self.cols = QLabel(
+            f"<a href='#' style='color:{theme.ACCENT}'>"
+            f"{columns_label(len(info.columns) or len(info.outputs) or 1)}</a>"
+        )
+        self.cols.setObjectName("muted")
+        self.cols.setToolTip(tr("Seznam sloupců s jednotkou a popisem (i dvojklik na dlaždici)."))
+        self.cols.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self.cols.linkActivated.connect(lambda _href: self.details_requested.emit(info.name))
+        head.addWidget(self.cols)
         layout.addLayout(head)
         desc = info.description or "; ".join(v for v in info.outputs.values() if v)
         if desc:
-            text = QLabel(desc)
-            text.setObjectName("muted")
-            text.setWordWrap(True)
-            layout.addWidget(text)
+            self.text = QLabel(short_description(desc))
+            self.text.setObjectName("muted")
+            self.text.setWordWrap(True)
+            self.text.setToolTip(desc)
+            layout.addWidget(self.text)
         foot = QHBoxLayout()
         req = QLabel(
             tr("potřebuje: ") + requires_label(info.requires) if info.requires else tr("bez modelů")
@@ -123,12 +142,16 @@ class FeatureCard(QFrame):
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         self.clicked.emit(self.info.name)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        self.details_requested.emit(self.info.name)
         super().mousePressEvent(event)
 
 
 class FeaturePicker(QWidget):
     selection_changed = Signal()
     current_changed = Signal(str)  # jméno feature nebo providera, "" = nic
+    details_requested = Signal(object)  # FeatureInfo: okno se sloupci
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -391,6 +414,7 @@ class FeaturePicker(QWidget):
         self.group_check.blockSignals(False)
         for f in features:
             card = FeatureCard(f, self._checked[f.name])
+            card.details_requested.connect(lambda _n, info=f: self.details_requested.emit(info))
             card.set_modified(f.name in self._overridden)
             card.toggled.connect(self._card_toggled)
             card.clicked.connect(self._set_current)

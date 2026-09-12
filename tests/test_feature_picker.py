@@ -119,3 +119,41 @@ def test_summary_and_overridden(qtbot: QtBot) -> None:
     assert not picker._cards["acoustic.timing.pauses"].modified.text()
     picker.set_warning("Není připraveno: x")
     assert picker.warning.text()
+
+
+def test_card_short_description_and_details_signal(qtbot: QtBot) -> None:
+    from speechscope_app.ui.feature_detail import FeatureDetailDialog, split_unit
+    from speechscope_app.ui.widgets.feature_picker import short_description
+
+    assert short_description("a b c", 10) == "a b c"
+    long = "; ".join(f"slovo{i}" for i in range(40))
+    cut = short_description(long, 60)
+    assert cut.endswith("…") and len(cut) <= 61 and not cut[:-1].endswith(";")
+    assert split_unit("Medián kontury F0 (půltóny)") == ("Medián kontury F0", "půltóny")
+    assert split_unit("Podíl znělých rámců (0 až 1)") == ("Podíl znělých rámců", "0 až 1")
+    assert split_unit("bez jednotky") == ("bez jednotky", "")
+
+    picker = FeaturePicker()
+    qtbot.addWidget(picker)
+    picker.set_features(FEATURES, set())
+    asked: list[str] = []
+    picker.details_requested.connect(lambda info: asked.append(info.name))
+    card = picker._cards["acoustic.pitch.f0"]
+    card.cols.linkActivated.emit("#")
+    assert asked == ["acoustic.pitch.f0"]
+    assert card.text.toolTip() and len(card.text.text()) <= 151
+
+    from speechscope_app.backend.library import Library, fake_command
+
+    catalog = Library(fake_command()).features("phonation")
+    info = next(f for f in catalog if f.name == "acoustic.pitch.f0")
+    dialog = FeatureDetailDialog(info)
+    qtbot.addWidget(dialog)
+    assert dialog.table.rowCount() == len(info.columns)
+    names = [dialog.table.item(r, 0).text() for r in range(dialog.table.rowCount())]
+    assert "median" in names and "median_hz" in names
+    row = names.index("median")
+    assert dialog.table.item(row, 1).text()  # jednotka z popisu
+    dialog.search.setText("median")
+    hidden = [dialog.table.isRowHidden(r) for r in range(dialog.table.rowCount())]
+    assert hidden.count(False) == 2  # median a median_hz

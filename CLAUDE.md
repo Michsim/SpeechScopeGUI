@@ -111,6 +111,10 @@ Historie (Výpočet i Výsledky) umí Smazat… (tlačítko, Delete, pravé tla�
 a nabídka Aplikace „Smazat všechny běhy…“: složky běhů jdou do Koše přes
 `backend/trash.py` (SHFileOperationW), běžící běh se přeskočí, potvrzení
 řeší hlavní okno (`delete_run`, `delete_all_runs`); `work` se nemaže.
+V editoru má dlaždice feature zkrácený popis; odkaz s počtem sloupců nebo
+dvojklik otevře `ui/feature_detail.py` (tabulka sloupec, jednotka, popis;
+jednotka ze závorky na konci popisu), totéž dvojklikem na feature v okně
+protokolu.
 Dvojklik na kartu protokolu (Analýza, Protokoly) nebo odkaz „co se počítá“
 otevře `ui/protocol_detail.py`: strom skupina → feature → sloupec s popisem,
 providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
