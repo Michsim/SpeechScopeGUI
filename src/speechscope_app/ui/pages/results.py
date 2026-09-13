@@ -215,7 +215,7 @@ class ResultsPage(QWidget):
         self.history.refresh(select=self._path.parent if self._path else None)
 
     def show_run(self, info: RunInfo) -> None:
-        self.title_label.setText(info.protocol_name)
+        self.title_label.setText(info.display_name)
         self.header.set_role(STATUS_ROLES.get(info.status, "neutral"))
         note = ""
         if info.status == "cancelled" and info.total:
@@ -279,7 +279,7 @@ class ResultsPage(QWidget):
             self.rerun_btn.hide()
             return
         info = read_run(path.parent)
-        self.title_label.setText(info.protocol_name if info else path.parent.name)
+        self.title_label.setText(info.display_name if info else path.parent.name)
         self.header.set_role(STATUS_ROLES.get(info.status, "neutral") if info else "neutral")
         self.open_btn.setEnabled(True)
         self._refresh()
@@ -365,8 +365,11 @@ class ResultsPage(QWidget):
         self.rerun_btn.setVisible(can_rerun)
         self.summary.setToolTip(str(self._path))
         note = f"{self._note} " if self._note else ""
+        info = read_run(self._path.parent) if self._path else None
+        protocol = f"{info.protocol_name} · " if info is not None and info.label else ""
         self.summary.setText(
             note
+            + protocol
             + tr("{rows} nahrávek · {cols} sloupců · {folder}").format(
                 rows=len(self._frame),
                 cols=len(self._frame.columns),

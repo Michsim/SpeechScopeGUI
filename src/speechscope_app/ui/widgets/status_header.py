@@ -79,6 +79,8 @@ class StatusHeader(QFrame):
         """Štítky (text, role, tooltip, akce) místo dosavadních."""
         for old in self._pill_widgets:
             self.pills.removeWidget(old)
+            old.hide()  # jinak starý štítek zůstane vykreslený, dokud ho Qt nesmaže
+            old.setParent(None)
             old.deleteLater()
         self._pill_widgets = []
         for text, role, tooltip, action in pills:

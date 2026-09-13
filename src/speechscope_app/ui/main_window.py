@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -27,7 +28,15 @@ from .. import __version__, contract
 from ..backend.audio import duration_seconds
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
 from ..backend.diagnostics import build_bundle, default_name
-from ..backend.history import RunInfo, mark_orphans, trash_all, trash_run, write_run_file
+from ..backend.history import (
+    RunInfo,
+    mark_orphans,
+    read_run,
+    rename_run,
+    trash_all,
+    trash_run,
+    write_run_file,
+)
 from ..backend.manifest import Manifest, read_manifest, write_normalized
 from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.results import merge_results
@@ -63,9 +72,10 @@ class Job:
     language: str = ""
     durations: list[float | None] = field(default_factory=list)  # délky zvuku k inputs
     merge_into: Path | None = None  # znovu chybné: tabulka, do které se řádky vrátí
+    label: str = ""  # vlastní název běhu z Analýzy; prázdné = podle protokolu
 
     def title(self) -> str:
-        name = self.proto.display_name
+        name = self.label or self.proto.display_name
         if self.kind != "extract":
             what = contract.PROVIDER_SHORT.get(self.kind, self.kind)
             name = tr("Jen {what} · {name}").format(what=what, name=name)
@@ -197,6 +207,8 @@ class MainWindow(QMainWindow):
         self.results_page.rerun_requested.connect(self.rerun_failed)
         self.results_page.history.delete_requested.connect(self.delete_run)
         self.run_page.history.delete_requested.connect(self.delete_run)
+        self.results_page.history.rename_requested.connect(self.rename_run)
+        self.run_page.history.rename_requested.connect(self.rename_run)
         self.protocols_page.protocols_changed.connect(self.reload_protocols)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.prepare_requested.connect(self._start_prepare)
@@ -276,6 +288,7 @@ class MainWindow(QMainWindow):
                 status="running",
                 kind=self._running_kind,
                 protocol=self._running_name,
+                label=getattr(self, "_running_label", ""),
                 processed=processed,
                 total=total,
             )
@@ -479,6 +492,7 @@ class MainWindow(QMainWindow):
                 manifest=self.batch_page.manifest(),
                 language=self.batch_page.language_code(),
                 durations=self.batch_page.durations_for(list(inputs)),
+                label=self.batch_page.run_label(),
             )
         )
 
@@ -536,11 +550,43 @@ class MainWindow(QMainWindow):
                 language=str(transcript.get("language") or ""),
                 durations=[duration_seconds(p) for p in inputs],
                 merge_into=run_dir / "features.csv",
+                label=tr("Znovu chybné · {name}").format(name=origin.display_name)
+                if (origin := read_run(run_dir)) is not None
+                else "",
             )
         )
         return True
 
     # --- mazání běhů ---------------------------------------------------------------
+
+    def rename_run(self, info: RunInfo, label: str | None = None) -> bool:
+        """Vlastní název běhu (dialog, nebo daný text v testech); prázdný = podle protokolu."""
+        if label is None:
+            text, ok = QInputDialog.getText(
+                self,
+                tr("Přejmenovat běh"),
+                tr("Název běhu (prázdný = podle protokolu):"),
+                text=info.label,
+            )
+            if not ok:
+                return False
+            label = text
+        try:
+            rename_run(info.dir, label)
+        except OSError as exc:
+            self.statusBar().showMessage(
+                tr("Běh se nepodařilo přejmenovat: {error}").format(error=exc), 8000
+            )
+            return False
+        if getattr(self, "_running_dir", None) == info.dir:
+            self._running_label = label.strip()
+        self.results_page.refresh()
+        self.run_page.refresh_history()
+        if self.results_page.current_dir() == info.dir:
+            self.results_page.title_label.setText(label.strip() or info.protocol_name)
+        if self.run_page.viewing_dir() == info.dir:
+            self.run_page.headline.setText(label.strip() or info.protocol_name)
+        return True
 
     def delete_run(self, info: RunInfo, *, confirm: bool = True) -> bool:
         """Složka běhu do Koše po potvrzení; běžící běh smazat nejde."""
@@ -745,18 +791,21 @@ class MainWindow(QMainWindow):
         self._running_dir = run_dir
         self._running_kind = "extract" if job.kind == "extract" else "prepare"
         self._running_name = proto.display_name
+        self._running_label = job.label.strip()
         # Stav „běží“ hned: tabulka roste průběžně a bez záznamu by běh vypadal hotový.
         write_run_file(
             run_dir,
             status="running",
             kind=self._running_kind,
             protocol=proto.display_name,
+            label=self._running_label,
             total=len(inputs),
         )
         self.nav.setCurrentRow(PAGE_RUN)
         self.run_page.start(
             argv,
-            title=title,
+            title=self._running_label or title,
+            protocol=title if self._running_label else "",
             log_file=log_file,
             inputs=inputs,
             expected_seconds=expected,
@@ -797,6 +846,7 @@ class MainWindow(QMainWindow):
                 status=status,
                 kind=self._running_kind,
                 protocol=self._running_name,
+                label=getattr(self, "_running_label", ""),
                 processed=state.processed,
                 total=state.total,
                 seconds=self.run_page.elapsed_seconds(),

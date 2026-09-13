@@ -86,10 +86,23 @@ def test_window_runs_batch_end_to_end(
     # historie na Výsledcích: jeden běh, vybraný, se stavem hotovo
     results = window.results_page
     assert results.history.count() == 1
+    # bez názvu se běh jmenuje podle protokolu (pole zůstává prázdné, jen nápověda)
+    assert window.batch_page.run_label() == ""
     assert results.history.card(0).title.text() == "Fonace, základní"
     assert results.history.card(0).pill.text() == "hotovo"
     assert results.history.current_row() == 0
     assert results.title_label.text() == "Fonace, základní"
+    # přejmenování z historie
+    info = results.history.current()
+    assert window.rename_run(info, "Pacienti září")
+    assert results.history.card(0).title.text() == "Pacienti září"
+    assert "Fonace, základní" in results.history.card(0).detail.text()
+    assert results.title_label.text() == "Pacienti září"
+    assert json.loads((run_dirs[0] / "run.json").read_text(encoding="utf-8"))["label"] == (
+        "Pacienti září"
+    )
+    assert window.rename_run(info, "")  # prázdný = podle protokolu
+    assert results.history.card(0).title.text() == "Fonace, základní"
     # záznam průběhu a jeho přehrání na Výpočtu
     events = (run_dirs[0] / "events.jsonl").read_text(encoding="utf-8").splitlines()
     assert events[0].startswith('{"event": "inputs"')  # řádek GUI se seznamem nahrávek

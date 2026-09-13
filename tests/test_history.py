@@ -96,3 +96,17 @@ def test_trash_run_and_all_skip_running(tmp_path: Path, monkeypatch) -> None:
         history.trash_run(tmp_path / "cizi")  # není složka běhu
     done, failed = history.trash_all(tmp_path)
     assert done == 1 and failed == [] and not b.exists() and c.exists()  # běžící zůstal
+
+
+def test_rename_run_label(tmp_path: Path) -> None:
+    from speechscope_app.backend.history import read_run, rename_run
+
+    d = _run_dir(tmp_path, "2026-09-13_11-00-00_fonace-zakladni", csv_rows=1, run={"status": "ok"})
+    info = read_run(d)
+    assert info is not None and info.label == "" and info.display_name == "Fonace, základní"
+    rename_run(d, "  Kontrola po 3 měsících ")
+    info = read_run(d)
+    assert info is not None and info.label == "Kontrola po 3 měsících"
+    assert info.display_name == "Kontrola po 3 měsících" and info.status == "ok"  # zbytek zůstal
+    rename_run(d, "")
+    assert read_run(d).display_name == "Fonace, základní"

@@ -50,6 +50,7 @@ class RunInfo:
     started: datetime | None
     slug: str
     protocol_name: str
+    label: str  # vlastní název běhu z run.json; prázdné = podle protokolu
     status: str  # ok | cancelled | error | prepare | running | interrupted | unknown
     processed: int | None
     total: int | None
@@ -64,6 +65,11 @@ class RunInfo:
     @property
     def status_label(self) -> str:
         return tr(STATUS_LABELS.get(self.status, self.status))
+
+    @property
+    def display_name(self) -> str:
+        """Název běhu pro karty a nadpisy: vlastní, jinak jméno protokolu."""
+        return self.label or self.protocol_name
 
 
 def write_run_file(run_dir: Path, **data: Any) -> Path:
@@ -119,12 +125,26 @@ def read_run(run_dir: Path) -> RunInfo | None:
         started=started,
         slug=slug,
         protocol_name=str(data.get("protocol") or protocol_name),
+        label=str(data.get("label") or "").strip(),
         status=status,
         processed=processed,
         total=data.get("total"),
         seconds=data.get("seconds"),
         rows=rows,
     )
+
+
+def rename_run(run_dir: Path, label: str) -> None:
+    """Vlastní název běhu do run.json (prázdný = zpět na jméno protokolu)."""
+    run_file = run_dir / RUN_FILE
+    data: dict[str, Any] = {}
+    if run_file.is_file():
+        try:
+            data = json.loads(run_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+    data["label"] = label.strip()
+    write_run_file(run_dir, **data)
 
 
 def mark_orphans(work_root: Path) -> list[Path]:

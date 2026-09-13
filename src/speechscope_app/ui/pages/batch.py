@@ -190,6 +190,33 @@ class BatchPage(QWidget):
         page2_layout.setContentsMargins(0, 0, 0, 0)
         page2_layout.setSpacing(10)
 
+        label_card = QFrame()
+        label_card.setObjectName("card")
+        label_layout = QVBoxLayout(label_card)
+        label_layout.setContentsMargins(16, 12, 16, 12)
+        label_layout.setSpacing(4)
+        label_row = QHBoxLayout()
+        label_title = QLabel(tr("Název běhu"))
+        label_title.setObjectName("card_title")
+        self.run_label_edit = QLineEdit()
+        self.run_label_edit.setPlaceholderText(tr("např. pacienti září, kontrola po 3 měsících"))
+        self.run_label_edit.setClearButtonEnabled(True)
+        self._label_touched = False
+        self.run_label_edit.textEdited.connect(self._label_edited)
+        self.run_label_edit.returnPressed.connect(self._run)
+        label_row.addWidget(label_title)
+        label_row.addWidget(self.run_label_edit, 1)
+        label_layout.addLayout(label_row)
+        label_hint = QLabel(
+            tr(
+                "Nepovinné. Ukáže se v historii a nad výsledky; "
+                "bez názvu se běh jmenuje podle protokolu."
+            )
+        )
+        label_hint.setObjectName("muted")
+        label_layout.addWidget(label_hint)
+        page2_layout.addWidget(label_card)
+
         task_card = QFrame()
         task_card.setObjectName("card")
         task_layout = QVBoxLayout(task_card)
@@ -296,6 +323,12 @@ class BatchPage(QWidget):
         self.step_label.setText(
             tr("krok 1 ze 2 · Nahrávky") if step == 1 else tr("krok 2 ze 2 · Úloha a protokol")
         )
+
+    def run_label(self) -> str:
+        return self.run_label_edit.text().strip()
+
+    def _label_edited(self, text: str) -> None:
+        self._label_touched = bool(text.strip())
 
     def _continue_if_ready(self) -> None:
         if self.continue_btn.isEnabled():

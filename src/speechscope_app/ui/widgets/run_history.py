@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 from ...backend.history import RunInfo, list_runs
 from ...i18n import tr
 from .. import theme
+from .elided_label import ElidedLabel
 
 # role karty (proužek) a štítku podle stavu běhu
 STATUS_ROLES: dict[str, str] = {
@@ -68,7 +69,7 @@ class RunCard(QFrame):
         layout.setSpacing(3)
         head = QHBoxLayout()
         head.setSpacing(8)
-        self.title = QLabel(info.protocol_name)
+        self.title = ElidedLabel(info.display_name)  # dlouhý název se zkrátí, celý v tooltipu
         self.title.setObjectName("card_title")
         head.addWidget(self.title, 1)
         self.pill = _pill(info.status_label, STATUS_ROLES.get(info.status, "neutral"))
@@ -82,6 +83,8 @@ class RunCard(QFrame):
     @staticmethod
     def _detail_text(info: RunInfo) -> str:
         parts = [info.started.strftime("%d.%m. %H:%M") if info.started else info.dir.name]
+        if info.label:
+            parts.append(info.protocol_name)
         if info.total:
             if info.processed is not None and info.processed != info.total:
                 parts.append(
@@ -104,6 +107,7 @@ class RunCard(QFrame):
 class RunHistory(QWidget):
     selected = Signal(object)  # RunInfo
     delete_requested = Signal(object)  # RunInfo: Smazat…, Delete, pravé tlačítko
+    rename_requested = Signal(object)  # RunInfo: Přejmenovat…, F2
 
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -141,6 +145,7 @@ class RunHistory(QWidget):
         self.runs.customContextMenuRequested.connect(self._menu)
         self.runs.viewport().installEventFilter(self)
         QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.runs, self._delete_current)
+        QShortcut(QKeySequence(Qt.Key.Key_F2), self.runs, self._rename_current)
         layout.addWidget(self.runs, 1)
         self.empty = QLabel(tr("Zatím žádný běh."))
         self.empty.setObjectName("muted")
@@ -253,6 +258,11 @@ class RunHistory(QWidget):
         if self.can_delete(info):
             self.delete_requested.emit(info)
 
+    def _rename_current(self) -> None:
+        info = self.current()
+        if info is not None:
+            self.rename_requested.emit(info)
+
     def open_current_folder(self) -> None:
         info = self.current()
         if info is not None:
@@ -269,6 +279,8 @@ class RunHistory(QWidget):
         menu = QMenu(self)
         open_action = menu.addAction(tr("Otevřít složku"))
         open_action.triggered.connect(self.open_current_folder)
+        rename_action = menu.addAction(tr("Přejmenovat…"))
+        rename_action.triggered.connect(lambda: self.rename_requested.emit(info))
         delete_action = menu.addAction(tr("Smazat běh…"))
         delete_action.setEnabled(self.can_delete(info))
         delete_action.triggered.connect(lambda: self.delete_requested.emit(info))

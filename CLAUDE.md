@@ -96,7 +96,10 @@ Prostředí (doctor, modely, Diagnostika… = zip pro podporu z
 1 nahrávky s metadaty z `manifest.csv` (`backend/manifest.py`, tolerantní
 čtení, normalizovaná kopie do složky běhu) a Pokračovat; 2 úloha a jazyk
 nahoře v jedné řadě, karty protokolů pod tím, vlevo dole ← Nahrávky, vpravo
-Spustit; stránka si krok pamatuje (`go_to_step`, `current_step`);
+Spustit; stránka si krok pamatuje (`go_to_step`, `current_step`); na začátku
+kroku 2 pole Název běhu (prázdné, jen nápověda; `run_label()`), ukládá se do
+`run.json` jako `label` (`RunInfo.display_name`), historie umí Přejmenovat…
+(F2, `MainWindow.rename_run`), složka na disku se nemění;
 v rozšířeném režimu souhrn feature, Upravit…, Uložit jako protokol…,
 Jen segmentace, Jen přepis; Spustit se před nepřipraveným providerem
 zeptá; délka nahrávek z hlavičky WAV/FLAC (`backend/audio.py`) a odhad

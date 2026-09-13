@@ -238,6 +238,7 @@ class RunPage(QWidget):
         expected_seconds: float | None = None,
         audio_seconds: list[float | None] | None = None,
         expected_total: float | None = None,
+        protocol: str = "",
     ) -> None:
         """Spustí knihovnu. `inputs` předplní tabulku, `expected_seconds` je
         doba na nahrávku z minulého běhu téhož protokolu pro první odhad,
@@ -263,7 +264,11 @@ class RunPage(QWidget):
 
         self.header.set_role("accent")
         self.headline.setText(title)
-        self.summary.setText(tr("{n} nahrávek").format(n=len(self._paths)) if self._paths else "")
+        self._protocol = protocol  # jméno protokolu, když je nadpis vlastní název běhu
+        summary = tr("{n} nahrávek").format(n=len(self._paths)) if self._paths else ""
+        self.summary.setText(
+            f"{protocol} · {summary}" if protocol and summary else protocol or summary
+        )
         self.bar.setRange(0, 0)
         first_guess = expected_total or (
             expected_seconds * len(self._paths) if expected_seconds and self._paths else None
@@ -462,7 +467,8 @@ class RunPage(QWidget):
                 self._fill_rows(names)
                 providers = ", ".join(contract.PROVIDER_LABELS.get(p, p) for p in event.providers)
                 self.summary.setText(
-                    tr("{n} nahrávek, {k} feature").format(n=event.total, k=len(event.features))
+                    (f"{self._protocol} · " if getattr(self, "_protocol", "") else "")
+                    + tr("{n} nahrávek, {k} feature").format(n=event.total, k=len(event.features))
                     + (
                         tr(" · spouští se: {providers}").format(providers=providers)
                         if providers
@@ -740,9 +746,9 @@ class RunPage(QWidget):
         self._set_columns([])
         self._fill_rows([])
         self.header.set_role(STATUS_ROLES.get(info.status, "neutral"))
-        self.headline.setText(info.protocol_name)
+        self.headline.setText(info.display_name)
         when = info.started.strftime("%d.%m.%Y %H:%M") if info.started else ""
-        parts = [when, info.status_label]
+        parts = [info.protocol_name if info.label else "", when, info.status_label]
         if info.seconds:
             parts.append(tr("trvalo {time}").format(time=format_seconds(info.seconds)))
         events_file = info.dir / "events.jsonl"
