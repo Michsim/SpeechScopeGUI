@@ -92,17 +92,22 @@ vedle exe (`settings.default_models_dir`; instalátor je per-user, takže
 zapisovatelná), při vývoji AppData; starší instalace s modely v AppData
 je používá dál.
 Prostředí (doctor, modely, Diagnostika… = zip pro podporu z
-`backend/diagnostics.py`) · Analýza (dva sloupce: vlevo nahrávky s metadaty
-z `manifest.csv` (`backend/manifest.py`, tolerantní čtení, normalizovaná
-kopie do složky běhu), úloha a jazyk, vpravo karty protokolů;
+`backend/diagnostics.py`) · Analýza (dva kroky v `QStackedWidget`:
+1 nahrávky s metadaty z `manifest.csv` (`backend/manifest.py`, tolerantní
+čtení, normalizovaná kopie do složky běhu) a Pokračovat; 2 úloha a jazyk
+nahoře v jedné řadě, karty protokolů pod tím, vlevo dole ← Nahrávky, vpravo
+Spustit; stránka si krok pamatuje (`go_to_step`, `current_step`);
 v rozšířeném režimu souhrn feature, Upravit…, Uložit jako protokol…,
 Jen segmentace, Jen přepis; Spustit se před nepřipraveným providerem
 zeptá; délka nahrávek z hlavičky WAV/FLAC (`backend/audio.py`) a odhad
 dávky podle minut zvuku, statistika `stats/<slug>/seconds_per_audio_minute`) · Protokoly (přibalené ke čtení, kopie, vlastní s editorem, import,
 export, smazání) · Výpočet (tabulka nahrávek × providerů, odhad času, Zrušit
 s potvrzením, fronta dalších dávek: Spustit během běhu zařadí, po konci
-se pustí další, `Job` v `main_window.py`) · Výsledky (historie běhů ze složek v Dokumentech přes
-`backend/history.py` a `run.json`, tabulka vybraného běhu se zmrazeným prvním
+se pustí další, `Job` v `main_window.py`; stavová karta `widgets/status_header.py` nahoře, tabulka
+nahrávek v kartě, výsledek jako štítek přes buňku) · Výsledky (historie běhů ze složek v Dokumentech přes
+`backend/history.py` a `run.json` jako karty (`widgets/run_history.py`, `RunCard`
+se štítkem stavu, API `count/card/current_row/select_row`), stavová karta se
+štítky počtů (klik přepne filtr), tabulka vybraného běhu v kartě se zmrazeným prvním
 sloupcem (`widgets/frozen_table.py`), hledání sloupce, popis sloupce
 v tooltipu z `list --json`, detail nahrávky (`ui/recording_detail.py`),
 Spočítat znovu chybné = nová dávka `Job.merge_into`, řádky se vrátí do

@@ -13,13 +13,15 @@ načtení modelů.
 
 from __future__ import annotations
 
+import json
 import statistics
 import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont, QFontMetrics
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -43,7 +45,8 @@ from ...backend.runner import Runner
 from ...i18n import tr
 from .. import theme
 from ..file_actions import open_file, show_file_menu
-from ..widgets.run_history import RunHistory
+from ..widgets.run_history import STATUS_ROLES, RunHistory
+from ..widgets.status_header import StatusHeader
 
 TICK_MS = 1000
 
@@ -123,6 +126,10 @@ class RunPage(QWidget):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(28, 24, 28, 24)
+        outer.setSpacing(10)
+        page_title = QLabel(tr("Výpočet"))
+        page_title.setObjectName("page_title")
+        outer.addWidget(page_title)
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         outer.addWidget(self.splitter, 1)
         self.history = RunHistory(tr("Historie výpočtů"))
@@ -137,34 +144,51 @@ class RunPage(QWidget):
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([380, 720])
 
-        self.headline = QLabel(tr("Žádný běh."))
-        self.headline.setObjectName("headline")
-        self.headline.setWordWrap(True)
-        layout.addWidget(self.headline)
-        self.summary = QLabel("")
-        self.summary.setObjectName("muted")
-        self.summary.setWordWrap(True)
-        layout.addWidget(self.summary)
-
+        # stavová karta: nadpis, souhrn, průběh, Stop vpravo
+        self.header = StatusHeader()
+        self.headline = self.header.title
+        self.headline.setText(tr("Žádný běh."))
+        self.summary = self.header.subtitle
         self.bar = QProgressBar()
-        layout.addWidget(self.bar)
+        self.header.add_body(self.bar)
+        timing_row = QHBoxLayout()
         self.timing = QLabel("")
-        layout.addWidget(self.timing)
+        self.elapsed = QLabel("")
+        self.elapsed.setObjectName("muted")
+        timing_row.addWidget(self.timing, 1)
+        timing_row.addWidget(self.elapsed)
+        self.header.body.addLayout(timing_row)
         self.current = QLabel("")
         self.current.setWordWrap(True)
-        layout.addWidget(self.current)
+        self.header.add_body(self.current)
+        self.cancel_btn = QPushButton(tr("■ Stop"))
+        self.cancel_btn.setToolTip(tr("Zastaví výpočet po potvrzení; hotové nahrávky zůstanou."))
+        theme.set_role(self.cancel_btn, "danger")
+        self.cancel_btn.setEnabled(False)
+        self.cancel_btn.clicked.connect(self.confirm_cancel)
+        self.header.add_button(self.cancel_btn)
+        layout.addWidget(self.header)
 
+        # tabulka nahrávek v kartě
+        self.files_card = QFrame()
+        self.files_card.setObjectName("card")
+        files_layout = QVBoxLayout(self.files_card)
+        files_layout.setContentsMargins(8, 6, 8, 6)
         self.files = QTableWidget()
         self.files.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.files.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.files.verticalHeader().setVisible(False)
+        self.files.verticalHeader().setDefaultSectionSize(30)
+        self.files.setShowGrid(False)
+        self.files.setAlternatingRowColors(True)
         self.files.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.files.cellDoubleClicked.connect(lambda row, _col: self.open_recording(row))
         self.files.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.files.customContextMenuRequested.connect(self._files_menu)
         self._row_paths: dict[int, Path] = {}
         self._set_columns([])
-        layout.addWidget(self.files, 2)
+        files_layout.addWidget(self.files)
+        layout.addWidget(self.files_card, 2)
 
         # fronta dalších dávek (jen když něco čeká)
         self.queue_box = QWidget()
@@ -202,18 +226,6 @@ class RunPage(QWidget):
         self.log.setVisible(False)
         layout.addWidget(self.log, 1)
 
-        bottom = QHBoxLayout()
-        self.elapsed = QLabel("")
-        self.elapsed.setObjectName("muted")
-        self.cancel_btn = QPushButton(tr("■ Stop"))
-        self.cancel_btn.setToolTip(tr("Zastaví výpočet po potvrzení; hotové nahrávky zůstanou."))
-        theme.set_role(self.cancel_btn, "danger")
-        self.cancel_btn.setEnabled(False)
-        self.cancel_btn.clicked.connect(self.confirm_cancel)
-        bottom.addWidget(self.elapsed, 1)
-        bottom.addWidget(self.cancel_btn)
-        layout.addLayout(bottom)
-
     # --- start -------------------------------------------------------------------
 
     def start(
@@ -241,6 +253,7 @@ class RunPage(QWidget):
         self._live_dir = log_file.parent if log_file else None
         if self._events_file is not None:
             self._events_file.unlink(missing_ok=True)
+            self._record_inputs()
         self._durations = []
         self._providers = []
         self._file_started_at = None
@@ -248,6 +261,7 @@ class RunPage(QWidget):
         self._finished_at = None
         self._started_at = time.monotonic()
 
+        self.header.set_role("accent")
         self.headline.setText(title)
         self.summary.setText(tr("{n} nahrávek").format(n=len(self._paths)) if self._paths else "")
         self.bar.setRange(0, 0)
@@ -286,7 +300,20 @@ class RunPage(QWidget):
         header = self.files.horizontalHeader()
         for col in range(len(labels) - 1):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.col_status, QHeaderView.ResizeMode.Fixed)
+        self.files.setColumnWidth(self.col_status, self._status_width())
         header.setStretchLastSection(True)
+
+    def _status_width(self) -> int:
+        """Šířka sloupce výsledku podle nejdelšího štítku v jazyce aplikace (tučně)."""
+        font = QFont(self.font())
+        font.setWeight(QFont.Weight.DemiBold)
+        metrics = QFontMetrics(font)
+        widest = max(
+            metrics.horizontalAdvance(tr(text))
+            for text in ("čeká", "běží", "ok", "chyba", "zrušeno", "nedokončeno", "neproběhlo")
+        )
+        return widest + 48  # okraje štítku 2×9 px, okraje buňky 2×4 px, rezerva
 
     @property
     def col_status(self) -> int:
@@ -298,6 +325,9 @@ class RunPage(QWidget):
 
     def _fill_rows(self, names: list[str]) -> None:
         self.files.clearContents()  # buňky ze startu bez sloupců providerů by zůstaly
+        for row in range(self.files.rowCount()):
+            for col in range(self.files.columnCount()):
+                self.files.removeCellWidget(row, col)
         self.files.setRowCount(len(names))
         self._row_paths = {
             i: p for i, p in enumerate(self._paths) if i < len(names) and p.name == names[i]
@@ -307,6 +337,7 @@ class RunPage(QWidget):
             self._set_cell(row, self.col_status, tr("čeká"), color=theme.MUTED)
             self._set_cell(row, self.col_note, "")
         self.files.resizeColumnsToContents()
+        self.files.setColumnWidth(self.col_status, self._status_width())  # ne podle textu
 
     def _ensure_row(self, index: int, path: str) -> None:
         """Knihovna může najít jiné soubory než GUI; řádek se doplní."""
@@ -349,7 +380,28 @@ class RunPage(QWidget):
         if tooltip:
             item.setToolTip(tooltip)
         self.files.setItem(row, col, item)
+        if col == self.col_status:
+            item.setForeground(QColor(0, 0, 0, 0))  # text nese jen logika, vidět je štítek
+            self._status_pill(row, text, color)
         return item
+
+    def _status_pill(self, row: int, text: str, color: str | None) -> None:
+        """Výsledek jako štítek přes buňku; text v buňce zůstává (logika, testy)."""
+        role = {
+            theme.OK: "ok",
+            theme.MISSING: "missing",
+            theme.ACCENT: "accent",
+            theme.WARN: "warn",
+        }.get(color or "", "neutral")
+        holder = QWidget()
+        box = QHBoxLayout(holder)
+        box.setContentsMargins(4, 2, 4, 2)
+        pill = QLabel(text)
+        pill.setObjectName("pill")
+        theme.set_role(pill, role)
+        box.addWidget(pill, 0, Qt.AlignmentFlag.AlignVCenter)
+        box.addStretch(1)
+        self.files.setCellWidget(row, self.col_status, holder)
 
     def _stage_cell(self, stage: contract.StageEvent, elapsed: float | None = None) -> None:
         if stage.provider not in self._providers:
@@ -376,6 +428,20 @@ class RunPage(QWidget):
         try:
             with self._events_file.open("a", encoding="utf-8") as fh:
                 fh.write(contract.dump_event(event) + "\n")
+        except OSError:
+            self._events_file = None
+
+    def _record_inputs(self) -> None:
+        """Vlastní řádek GUI před událostmi knihovny: cesty nahrávek v pořadí dávky.
+        Knihovna posílá jen index a cestu u začatých nahrávek; po zrušení by ty
+        nezačaté neměly v přehrání jméno."""
+        if self._events_file is None or not self._paths:
+            return
+        try:
+            with self._events_file.open("a", encoding="utf-8") as fh:
+                fh.write(
+                    json.dumps({"event": "inputs", "paths": [str(p) for p in self._paths]}) + "\n"
+                )
         except OSError:
             self._events_file = None
 
@@ -639,6 +705,7 @@ class RunPage(QWidget):
         self._providers = []
         self._set_columns([])
         self._fill_rows([])
+        self.header.set_role("neutral")
         self.headline.setText(tr("Žádný výpočet"))
         self.summary.setText("")
         self.current.setText("")
@@ -672,6 +739,7 @@ class RunPage(QWidget):
         self.bar.setValue(0)
         self._set_columns([])
         self._fill_rows([])
+        self.header.set_role(STATUS_ROLES.get(info.status, "neutral"))
         self.headline.setText(info.protocol_name)
         when = info.started.strftime("%d.%m.%Y %H:%M") if info.started else ""
         parts = [when, info.status_label]
@@ -681,6 +749,12 @@ class RunPage(QWidget):
         state = contract.BatchState()
         if events_file.is_file():
             for line in events_file.read_text(encoding="utf-8").splitlines():
+                if line.startswith('{"event": "inputs"'):
+                    try:
+                        self._paths = [Path(p) for p in json.loads(line).get("paths", [])]
+                    except (ValueError, TypeError):
+                        self._paths = []
+                    continue
                 try:
                     event = contract.parse_event(line)
                 except contract.ContractError:
@@ -721,6 +795,11 @@ class RunPage(QWidget):
         self.bar.setRange(0, max(1, self.bar.maximum()))
         state = self.runner.state
         spent = format_seconds(self._finished_at - self._started_at)
+        self.header.set_role(
+            "warn"
+            if cancelled
+            else ("missing" if code != 0 else ("warn" if state.errors else "ok"))
+        )
         if cancelled:
             self.headline.setText(
                 tr("Zrušeno uživatelem po {n} z {total} nahrávek.").format(

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -87,27 +88,35 @@ class BatchPage(QWidget):
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(10)
 
+        head = QHBoxLayout()
         title = QLabel(tr("Analýza"))
         title.setObjectName("page_title")
-        layout.addWidget(title)
+        head.addWidget(title, 1)
+        self.step_label = QLabel("")
+        self.step_label.setObjectName("muted")
+        head.addWidget(self.step_label, 0, Qt.AlignmentFlag.AlignBottom)
+        layout.addLayout(head)
         self.subtitle = QLabel("")
         self.subtitle.setObjectName("page_subtitle")
         self.subtitle.setWordWrap(True)
         self.set_work_root(None)
-        subtitle = self.subtitle
-        layout.addWidget(subtitle)
+        layout.addWidget(self.subtitle)
 
-        columns = QHBoxLayout()
-        columns.setSpacing(16)
-        layout.addLayout(columns, 1)
+        # Dva kroky v zásobníku: 1 nahrávky a metadata, 2 úloha, jazyk a protokol.
+        self.steps = QStackedWidget()
+        layout.addWidget(self.steps, 1)
 
-        # --- levý sloupec: vstup --------------------------------------------------
+        # === krok 1: nahrávky ============================================================
+        page1 = QWidget()
+        page1_layout = QVBoxLayout(page1)
+        page1_layout.setContentsMargins(0, 0, 0, 0)
+        page1_layout.setSpacing(10)
         left = QFrame()
         left.setObjectName("card")
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(16, 14, 16, 14)
         left_layout.setSpacing(8)
-        columns.addWidget(left, 2)
+        page1_layout.addWidget(left, 1)
 
         step1, self.step1_hint = _step(1, tr("Nahrávky"), tr("Vyber složku."))
         left_layout.addLayout(step1)
@@ -119,11 +128,11 @@ class BatchPage(QWidget):
         browse.clicked.connect(self._browse)
         folder_row.addWidget(self.folder, 1)
         folder_row.addWidget(browse)
-        left_layout.addLayout(folder_row)
         self.recursive = QCheckBox(tr("včetně podsložek"))
         self.recursive.setChecked(True)
         self.recursive.toggled.connect(self.rescan)
-        left_layout.addWidget(self.recursive)
+        folder_row.addWidget(self.recursive)
+        left_layout.addLayout(folder_row)
         self.files = QTableWidget()
         self.files.setColumnCount(3)
         self.files.setHorizontalHeaderLabels([tr("nahrávka")])
@@ -133,7 +142,9 @@ class BatchPage(QWidget):
         self.files.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.files.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.files.verticalHeader().setVisible(False)
-        self.files.verticalHeader().setDefaultSectionSize(24)
+        self.files.verticalHeader().setDefaultSectionSize(26)
+        self.files.setShowGrid(False)
+        self.files.setAlternatingRowColors(True)
         self.files.cellDoubleClicked.connect(self.open_recording)
         self.files.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.files.customContextMenuRequested.connect(self._files_menu)
@@ -160,14 +171,39 @@ class BatchPage(QWidget):
         meta_row.addWidget(self.manifest_clear_btn)
         left_layout.addLayout(meta_row)
 
+        bottom1 = QHBoxLayout()
+        self.status1 = QLabel("")
+        self.continue_btn = QPushButton(tr("Pokračovat →"))
+        theme.set_role(self.continue_btn, "primary")
+        self.continue_btn.setEnabled(False)
+        self.continue_btn.clicked.connect(lambda: self.go_to_step(2))
+        bottom1.addWidget(self.status1, 1)
+        bottom1.addWidget(self.continue_btn)
+        page1_layout.addLayout(bottom1)
+        QShortcut(QKeySequence(Qt.Key.Key_Return), page1, self._continue_if_ready)
+        QShortcut(QKeySequence(Qt.Key.Key_Enter), page1, self._continue_if_ready)
+        self.steps.addWidget(page1)
+
+        # === krok 2: úloha a jazyk nahoře, protokol pod tím ==============================
+        page2 = QWidget()
+        page2_layout = QVBoxLayout(page2)
+        page2_layout.setContentsMargins(0, 0, 0, 0)
+        page2_layout.setSpacing(10)
+
+        task_card = QFrame()
+        task_card.setObjectName("card")
+        task_layout = QVBoxLayout(task_card)
+        task_layout.setContentsMargins(16, 14, 16, 14)
+        task_layout.setSpacing(8)
         step2, self.step2_hint = _step(2, tr("Úloha a jazyk"), "")
-        left_layout.addLayout(step2)
-        self.protocols = ProtocolList()
+        task_layout.addLayout(step2)
+        self.protocols = ProtocolList(task_columns=len(contract.TASKS))
         self.protocols.current_changed.connect(self._protocol_changed)
         self.protocols.details_requested.connect(self.show_protocol_detail)
         self.protocols.edit_requested.connect(self.edit_protocol)
-        left_layout.addWidget(self.protocols.task_bar)
-        lang_row = QHBoxLayout()
+        task_row = QHBoxLayout()
+        task_row.setSpacing(12)
+        task_row.addWidget(self.protocols.task_bar, 1)
         self.language = QComboBox()
         self.language.setToolTip(
             tr(
@@ -177,18 +213,18 @@ class BatchPage(QWidget):
         )
         self.language.currentIndexChanged.connect(self._language_changed)
         self.set_languages(list(contract.DEFAULT_LANGUAGES))
-        lang_row.addWidget(QLabel(tr("Jazyk nahrávek:")))
-        lang_row.addWidget(self.language, 1)
-        left_layout.addLayout(lang_row)
+        self.language.setMinimumWidth(160)
+        task_row.addWidget(QLabel(tr("Jazyk nahrávek:")))
+        task_row.addWidget(self.language)
+        task_layout.addLayout(task_row)
+        page2_layout.addWidget(task_card)
 
-        # --- pravý sloupec: protokol --------------------------------------------
         right = QFrame()
         right.setObjectName("card")
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(16, 14, 16, 14)
         right_layout.setSpacing(8)
-        columns.addWidget(right, 3)
-
+        page2_layout.addWidget(right, 1)
         step3, self.step3_hint = _step(3, tr("Protokol"), tr("Co se má z nahrávek spočítat."))
         right_layout.addLayout(step3)
         right_layout.addWidget(self.protocols, 1)
@@ -232,17 +268,38 @@ class BatchPage(QWidget):
         self.new_btn.clicked.connect(self.new_protocol)
         adv_buttons.addWidget(self.new_btn)
         adv.addLayout(adv_buttons)
-        right_layout.addWidget(self.advanced_box)
+        page2_layout.addWidget(self.advanced_box)
 
         bottom = QHBoxLayout()
+        self.back_btn = QPushButton(tr("← Nahrávky"))
+        self.back_btn.clicked.connect(lambda: self.go_to_step(1))
         self.status = QLabel("")
         self.run_btn = QPushButton(tr("Spustit"))
         theme.set_role(self.run_btn, "primary")
         self.run_btn.setEnabled(False)
         self.run_btn.clicked.connect(self._run)
+        bottom.addWidget(self.back_btn)
         bottom.addWidget(self.status, 1)
         bottom.addWidget(self.run_btn)
-        layout.addLayout(bottom)
+        page2_layout.addLayout(bottom)
+        self.steps.addWidget(page2)
+        self.go_to_step(1)
+
+    # --- kroky ------------------------------------------------------------------------
+
+    def current_step(self) -> int:
+        return self.steps.currentIndex() + 1
+
+    def go_to_step(self, step: int) -> None:
+        """Krok 1 (nahrávky) nebo 2 (úloha a protokol); stránka si ho pamatuje."""
+        self.steps.setCurrentIndex(0 if step == 1 else 1)
+        self.step_label.setText(
+            tr("krok 1 ze 2 · Nahrávky") if step == 1 else tr("krok 2 ze 2 · Úloha a protokol")
+        )
+
+    def _continue_if_ready(self) -> None:
+        if self.continue_btn.isEnabled():
+            self.go_to_step(2)
 
     # --- nastavení zvenku -----------------------------------------------------
 
@@ -447,7 +504,7 @@ class BatchPage(QWidget):
         )
         self.subtitle.setText(
             tr(
-                "Vlevo co se analyzuje (nahrávky, úloha, jazyk), vpravo jak (protokol). "
+                "Krok 1 nahrávky a metadata, krok 2 úloha, jazyk a protokol. "
                 "Do složky s nahrávkami se nic nezapisuje, {where}."
             ).format(where=where)
         )
@@ -644,16 +701,23 @@ class BatchPage(QWidget):
         self.step3_hint.setText(
             proto.display_name if proto is not None else tr("Co se má spočítat.")
         )
+        self.continue_btn.setEnabled(bool(self._recordings))
         if not self._recordings:
+            self.status1.setText(tr("Vyber složku s nahrávkami."))
             self.status.setText(tr("Vyber složku s nahrávkami."))
-        elif proto is None:
-            self.status.setText(tr("Vyber protokol."))
         else:
-            self.status.setText(
-                tr("{n} nahrávek").format(n=len(self._recordings))
-                + f" · {contract.TASK_LABELS[proto.task]} · "
-                f"{contract.language_label(self.language_code())} · {proto.display_name}"
+            folder = self._recordings[0].path.parent
+            self.status1.setText(
+                tr("{n} nahrávek z {folder}").format(n=len(self._recordings), folder=folder)
             )
+            if proto is None:
+                self.status.setText(tr("Vyber protokol."))
+            else:
+                self.status.setText(
+                    tr("{n} nahrávek").format(n=len(self._recordings))
+                    + f" · {contract.TASK_LABELS[proto.task]} · "
+                    f"{contract.language_label(self.language_code())} · {proto.display_name}"
+                )
 
     def effective_protocol(self) -> Protocol | None:
         """Protokol pro běh: vybraný protokol tak, jak je uložený, plus jazyk z lišty."""

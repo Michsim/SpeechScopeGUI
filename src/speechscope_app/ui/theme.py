@@ -83,6 +83,15 @@ QFrame#card[role="missing"] {{ border-left: 4px solid {MISSING}; }}
 QFrame#card[role="warn"] {{ border-left: 4px solid {WARN}; }}
 QFrame#card[role="neutral"] {{ border-left: 4px solid {NEUTRAL}; }}
 QFrame#card[role="selected"] {{ border: 1px solid {ACCENT}; border-left: 4px solid {ACCENT}; }}
+QFrame#card[role="accent"] {{ border-left: 4px solid {ACCENT}; }}
+QFrame#card QTableView, QFrame#card QTableWidget, QFrame#card QPlainTextEdit {{
+    border: none; border-radius: 0; background: transparent;
+}}
+QFrame#card QHeaderView::section {{ background: transparent; }}
+QFrame#card QTableView#frozen {{
+    background: {CARD}; border-right: 1px solid {BORDER};
+}}
+QListWidget#cards {{ background: transparent; border: none; }}
 
 /* štítky stavu */
 QLabel#pill {{ padding: 2px 9px; border-radius: 9px; font-size: {small}pt; font-weight: 600; }}

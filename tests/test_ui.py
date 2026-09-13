@@ -85,14 +85,16 @@ def test_window_runs_batch_end_to_end(
     assert run_file["status"] == "ok" and run_file["total"] == 4 and run_file["processed"] == 4
     # historie na Výsledcích: jeden běh, vybraný, se stavem hotovo
     results = window.results_page
-    assert results.runs.rowCount() == 1
-    assert results.runs.item(0, 1).text() == "Fonace, základní"
-    assert results.runs.item(0, 3).text() == "hotovo"
-    assert results.runs.selectionModel().selectedRows()[0].row() == 0
+    assert results.history.count() == 1
+    assert results.history.card(0).title.text() == "Fonace, základní"
+    assert results.history.card(0).pill.text() == "hotovo"
+    assert results.history.current_row() == 0
+    assert results.title_label.text() == "Fonace, základní"
     # záznam průběhu a jeho přehrání na Výpočtu
     events = (run_dirs[0] / "events.jsonl").read_text(encoding="utf-8").splitlines()
-    assert events[0].startswith('{"event": "start"') and events[-1].startswith('{"event": "saved"')
-    assert run.history.runs.rowCount() == 1
+    assert events[0].startswith('{"event": "inputs"')  # řádek GUI se seznamem nahrávek
+    assert events[1].startswith('{"event": "start"') and events[-1].startswith('{"event": "saved"')
+    assert run.history.count() == 1
     run._live_dir = None  # jako po novém startu aplikace: běh je jen v historii
     run.show_recorded(run.history.current())
     assert run.files.rowCount() == 4
@@ -374,6 +376,8 @@ def test_cancel_shows_partial_results(
     run.show_recorded(run.history.current())  # přehrání ze záznamu totéž
     replayed = [run.files.item(r, run.col_status).text() for r in range(run.files.rowCount())]
     assert "běží" not in replayed and "čeká" not in replayed
+    names = [run.files.item(r, run.COL_FILE).text() for r in range(run.files.rowCount())]
+    assert all(names) and "p03_short.wav" in names  # i nezačaté nahrávky mají jméno
     assert window.nav.currentRow() == PAGE_RESULTS
     assert "Částečný výsledek po zrušení" in window.results_page.summary.text()
     assert window.results_page.table.model().rowCount() == state.processed
@@ -803,17 +807,17 @@ def test_delete_runs_go_to_trash(
         with qtbot.waitSignal(window.run_page.finished, timeout=15000):
             window.batch_page.run_btn.click()
     results = window.results_page
-    assert results.runs.rowCount() == 2 and results.current_dir() is not None
+    assert results.history.count() == 2 and results.current_dir() is not None
     shown = results.current_dir()
     info = next(r for r in results.history.all_runs() if r.dir == shown)
     assert results.history.can_delete(info) and results.history.delete_btn.isEnabled()
     assert window.delete_run(info, confirm=False)
     assert trashed == [shown] and not shown.exists()
-    assert results.runs.rowCount() == 1 and results.current_dir() != shown
-    assert window.run_page.history.runs.rowCount() == 1
+    assert results.history.count() == 1 and results.current_dir() != shown
+    assert window.run_page.history.count() == 1
 
     assert window.delete_all_runs(confirm=False) == 1
-    assert results.runs.rowCount() == 0 and results.current_dir() is None
+    assert results.history.count() == 0 and results.current_dir() is None
     assert "Zatím žádný výstup" in results.summary.text()
     assert window.run_page.headline.text() == "Žádný výpočet"
     assert window.delete_all_runs(confirm=False) == 0
@@ -842,3 +846,27 @@ def test_font_scale_setting_changes_stylesheet(qtbot: QtBot, settings: AppSettin
     theme.apply_scale(app, 1.0)  # ostatní testy zpět na normální
     settings.font_scale = "nesmysl"
     assert settings.font_scale == "normal"
+
+
+def test_analysis_two_steps(qtbot: QtBot, settings: AppSettings, recordings: Path) -> None:
+    """Krok 1 nahrávky, Pokračovat až s nahrávkami; krok 2 úloha a protokol, zpět vlevo dole."""
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    assert page.current_step() == 1 and not page.continue_btn.isEnabled()
+    assert "krok 1" in page.step_label.text()
+    page.set_folder(recordings)
+    assert page.continue_btn.isEnabled() and page.current_step() == 1
+    assert "4 nahrávek" in page.status1.text()
+    page.continue_btn.click()
+    assert page.current_step() == 2 and "krok 2" in page.step_label.text()
+    assert page.select_protocol("Fonace, základní") and page.run_btn.isEnabled()
+    page.back_btn.click()
+    assert page.current_step() == 1
+    page._continue_if_ready()
+    assert page.current_step() == 2
+    # po spuštění zůstane krok 2 pro další dávku
+    with qtbot.waitSignal(window.run_page.finished, timeout=15000):
+        page.run_btn.click()
+    assert page.current_step() == 2
+    assert len(page.protocols.task_buttons) == 5  # úlohy v jedné řadě

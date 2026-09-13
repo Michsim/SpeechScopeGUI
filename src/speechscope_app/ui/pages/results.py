@@ -20,6 +20,7 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -29,14 +30,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...backend.history import RunInfo
+from ...backend.history import RunInfo, read_run
 from ...backend.library import FeatureInfo, Library, LibraryError
 from ...backend.results import failed_paths
 from ...i18n import tr
 from ..file_actions import file_menu
 from ..recording_detail import RecordingDetailDialog, column_descriptions
 from ..widgets.frozen_table import FrozenTableView
-from ..widgets.run_history import RunHistory
+from ..widgets.run_history import STATUS_ROLES, RunHistory
+from ..widgets.status_header import StatusHeader
 
 PROBLEM_COLUMNS = ("notes", "error")
 
@@ -64,9 +66,9 @@ class FrameModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.BackgroundRole:
             row = self.frame.iloc[index.row()]
             if "error" in self.frame.columns and pd.notna(row.get("error")) and row.get("error"):
-                return QColor(255, 205, 205)
+                return QColor(254, 226, 226)
             if "notes" in self.frame.columns and pd.notna(row.get("notes")) and row.get("notes"):
-                return QColor(255, 240, 200)
+                return QColor(254, 243, 199)
         return None
 
     def headerData(
@@ -114,16 +116,19 @@ class ResultsPage(QWidget):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(12, 0, 0, 0)
-        head = QHBoxLayout()
-        self.summary = QLabel(tr("Zatím žádný výstup."))
-        self.summary.setWordWrap(True)
+        right_layout.setSpacing(8)
+        # stavová karta: název běhu, souhrn, štítky s počty, Otevřít složku
+        self.header = StatusHeader()
+        self.title_label = self.header.title
+        self.title_label.setText(tr("Výsledky"))
+        self.summary = self.header.subtitle
+        self.summary.setText(tr("Zatím žádný výstup."))
         self.summary.setToolTip("")
         self.open_btn = QPushButton(tr("Otevřít složku"))
         self.open_btn.setEnabled(False)
         self.open_btn.clicked.connect(self._open_folder)
-        head.addWidget(self.summary, 1)
-        head.addWidget(self.open_btn)
-        right_layout.addLayout(head)
+        self.header.add_button(self.open_btn)
+        right_layout.addWidget(self.header)
 
         tools = QHBoxLayout()
         self.search = QLineEdit()
@@ -131,7 +136,8 @@ class ResultsPage(QWidget):
         self.search.setClearButtonEnabled(True)
         self.search.setMaximumWidth(260)
         self.search.textChanged.connect(self._refresh)
-        self.problems_only = QCheckBox(tr("jen řádky s poznámkou nebo chybou"))
+        self.problems_only = QCheckBox(tr("jen problémové"))
+        self.problems_only.setToolTip(tr("Jen řádky s poznámkou nebo chybou."))
         self.problems_only.toggled.connect(self._refresh)
         self.detail_btn = QPushButton(tr("Detail nahrávky…"))
         self.detail_btn.setToolTip(tr("Hodnoty jedné nahrávky po skupinách s popisem sloupců."))
@@ -149,23 +155,38 @@ class ResultsPage(QWidget):
         tools.addWidget(self.search)
         tools.addWidget(self.problems_only)
         tools.addStretch(1)
-        tools.addWidget(self.rerun_btn)
-        tools.addWidget(self.detail_btn)
         right_layout.addLayout(tools)
+        # akce k běhu patří do stavové karty vedle Otevřít složku, lišta je pak jen filtr
+        self.header.add_button(self.rerun_btn)
+        self.header.add_button(self.detail_btn)
 
+        self.table_card = QFrame()
+        self.table_card.setObjectName("card")
+        card_layout = QVBoxLayout(self.table_card)
+        card_layout.setContentsMargins(8, 6, 8, 6)
         self.table = FrozenTableView()
         self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.frozen.setShowGrid(False)
+        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.frozen.verticalHeader().setDefaultSectionSize(30)
         self.table.doubleClicked.connect(lambda index: self.show_detail(index.row()))
         for view in (self.table, self.table.frozen):
             view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             view.customContextMenuRequested.connect(
                 lambda pos, view=view: self._row_menu(view, pos)
             )
-        right_layout.addWidget(self.table, 1)
+        card_layout.addWidget(self.table)
+        self.empty = QLabel(tr("Vyber běh v historii vlevo."))
+        self.empty.setObjectName("muted")
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(self.empty)
+        self.table.hide()
+        right_layout.addWidget(self.table_card, 1)
         self.splitter.addWidget(right)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([400, 700])
+        self.splitter.setSizes([360, 760])
 
     # --- knihovna (popisy sloupců) ------------------------------------------------------
 
@@ -194,6 +215,8 @@ class ResultsPage(QWidget):
         self.history.refresh(select=self._path.parent if self._path else None)
 
     def show_run(self, info: RunInfo) -> None:
+        self.title_label.setText(info.protocol_name)
+        self.header.set_role(STATUS_ROLES.get(info.status, "neutral"))
         note = ""
         if info.status == "cancelled" and info.total:
             note = tr("Částečný výsledek po zrušení: {n} z {total} nahrávek.").format(
@@ -212,6 +235,8 @@ class ResultsPage(QWidget):
         self._path = info.dir / "features.csv"
         self._frame = None
         self.table.setModel(None)
+        self._show_table(False)
+        self.header.set_pills([])
         self.detail_btn.setEnabled(False)
         self.rerun_btn.hide()
         self.open_btn.setEnabled(True)
@@ -248,9 +273,14 @@ class ResultsPage(QWidget):
             self.summary.setText(tr("CSV nejde načíst: {error}").format(error=exc))
             self._frame = None
             self.table.setModel(None)
+            self._show_table(False)
+            self.header.set_role("missing")
             self.detail_btn.setEnabled(False)
             self.rerun_btn.hide()
             return
+        info = read_run(path.parent)
+        self.title_label.setText(info.protocol_name if info else path.parent.name)
+        self.header.set_role(STATUS_ROLES.get(info.status, "neutral") if info else "neutral")
         self.open_btn.setEnabled(True)
         self._refresh()
         if refresh_history:
@@ -265,14 +295,18 @@ class ResultsPage(QWidget):
         self._frame = None
         self._note = ""
         self.table.setModel(None)
+        self._show_table(False)
+        self.header.set_pills([])
+        self.header.set_role("neutral")
+        self.title_label.setText(tr("Výsledky"))
         self.detail_btn.setEnabled(False)
         self.rerun_btn.hide()
         self.open_btn.setEnabled(False)
         self.summary.setToolTip("")
         self.summary.setText(tr("Zatím žádný výstup."))
         self.history.refresh()
-        if self.history.runs.rowCount():
-            self.history.runs.selectRow(0)
+        if self.history.count():
+            self.history.select_row(0)
 
     def visible_frame(self) -> pd.DataFrame | None:
         model = self.table.model()
@@ -301,7 +335,28 @@ class ResultsPage(QWidget):
         self.table.setModel(
             FrameModel(frame.reset_index(drop=True), column_descriptions(self.catalog()))
         )
+        self._show_table(True)
         self.table.resizeColumnsToContents()
+        pills: list = []
+        if n_notes:
+            pills.append(
+                (
+                    tr("{n} s poznámkou").format(n=n_notes),
+                    "warn",
+                    tr("Klik přepne filtr jen na řádky s poznámkou nebo chybou."),
+                    self.problems_only.toggle,
+                )
+            )
+        if n_err:
+            pills.append(
+                (
+                    tr("{n} s chybou").format(n=n_err),
+                    "missing",
+                    tr("Klik přepne filtr jen na řádky s poznámkou nebo chybou."),
+                    self.problems_only.toggle,
+                )
+            )
+        self.header.set_pills(pills)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
         self.detail_btn.setEnabled(False)
         can_rerun = bool(failed_paths(self._frame)) and (
@@ -312,16 +367,16 @@ class ResultsPage(QWidget):
         note = f"{self._note} " if self._note else ""
         self.summary.setText(
             note
-            + tr(
-                "{path}: {rows} řádků, {cols} sloupců, {notes} s poznámkou, {errors} s chybou."
-            ).format(
-                path=f"{self._path.parent.name}/{self._path.name}" if self._path else "",
+            + tr("{rows} nahrávek · {cols} sloupců · {folder}").format(
                 rows=len(self._frame),
                 cols=len(self._frame.columns),
-                notes=n_notes,
-                errors=n_err,
+                folder=self._path.parent.name if self._path else "",
             )
         )
+
+    def _show_table(self, shown: bool) -> None:
+        self.table.setVisible(shown)
+        self.empty.setVisible(not shown)
 
     def _selection_changed(self) -> None:
         self.detail_btn.setEnabled(bool(self.table.selectionModel().selectedRows()))

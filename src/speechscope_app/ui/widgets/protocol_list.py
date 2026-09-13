@@ -84,11 +84,6 @@ class ProtocolCard(QFrame):
         self.details.setToolTip(tr("Seznam feature a sloupců s popisem (i dvojklik na kartu)."))
         self.details.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
         self.details.linkActivated.connect(lambda _href: self.details_requested.emit())
-        foot.addWidget(self.details)
-        layout.addLayout(foot)
-        # Upravit… na vlastním řádku, ať se na užší kartě netlačí se štítky
-        actions = QHBoxLayout()
-        actions.addStretch(1)
         self.edit_btn = QPushButton(tr("Upravit…"))
         self.edit_btn.setToolTip(
             tr("Vlastní protokol se uloží; přibalený se uloží jako kopie.")
@@ -97,8 +92,9 @@ class ProtocolCard(QFrame):
         )
         self.edit_btn.clicked.connect(self.edit_requested)
         self.edit_btn.hide()
-        actions.addWidget(self.edit_btn)
-        layout.addLayout(actions)
+        foot.addWidget(self.edit_btn)
+        foot.addWidget(self.details)
+        layout.addLayout(foot)
 
 
 class ProtocolList(QWidget):
@@ -106,8 +102,9 @@ class ProtocolList(QWidget):
     details_requested = Signal(object)  # Protocol: dvojklik na kartu nebo odkaz
     edit_requested = Signal(object)  # Protocol: Upravit… na kartě
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, task_columns: int = 3) -> None:
         super().__init__(parent)
+        self._task_columns = max(1, task_columns)
         self._protocols: list[Protocol] = []
         self._infos: dict[str, ProtocolCardInfo] = {}
         self._cards: dict[str, ProtocolCard] = {}
@@ -132,7 +129,7 @@ class ProtocolList(QWidget):
             btn.setCheckable(True)
             btn.clicked.connect(lambda _=False, t=task: self._task_clicked(t))
             self.task_group.addButton(btn)
-            self.tasks_grid.addWidget(btn, i // 3, i % 3)
+            self.tasks_grid.addWidget(btn, i // self._task_columns, i % self._task_columns)
             self.task_buttons[task] = btn
         layout.addWidget(self.task_bar)
 
