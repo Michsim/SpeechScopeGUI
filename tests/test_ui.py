@@ -717,7 +717,7 @@ def test_environment_warns_about_remote_desktop(qtbot: QtBot, settings: AppSetti
     gpu = dict(report["gpu"])
     gpu.update({"remote_session": True, "onnxruntime_gpu_usable": False})
     report["gpu"] = gpu
-    env._show("0.2.0", report)
+    env._show("0.3.0", report)
     card = env.gpu_cards["onnx"]
     assert card.pill.text() == "CPU" and "vzdálená plocha" in card.detail.text()
 
