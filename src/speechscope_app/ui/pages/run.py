@@ -701,6 +701,15 @@ class RunPage(QWidget):
         """Složka běhu přehraného z historie (None = živý nebo nic)."""
         return self._viewing.dir if self._viewing is not None else self._live_dir
 
+    def relocate(self, old: Path, new: Path) -> None:
+        """Složka běhu na stránce byla přejmenována; stránka se nepřehrává znovu."""
+        if self._live_dir == old:
+            self._live_dir = new
+        if self._viewing is not None and self._viewing.dir == old:
+            self._viewing.dir = new
+        if self._events_file is not None and self._events_file.parent == old:
+            self._events_file = new / self._events_file.name
+
     def clear_view(self) -> None:
         """Po smazání běhu, který byl na stránce: prázdná stránka bez přehrání."""
         if self.runner.running:

@@ -1,4 +1,8 @@
-"""Historie běhů: složky `<datum>_<protokol>` v Dokumentech.
+"""Historie běhů: složky `<datum>_<čas>_<protokol>` v Dokumentech.
+
+Má-li běh vlastní název, je místo slugu protokolu v názvu složky slug názvu
+(`rename_run_dir`), aby se běh dal najít i v Průzkumníku; protokol je vždy
+v `protocol.yaml`.
 
 Každý běh má složku s `protocol.yaml`, `speechscope.log`, případně
 `features.csv` a od této verze `run.json` se stavem (hotovo, zrušeno,
@@ -27,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from ..i18n import N_, tr
-from .protocol import Protocol
+from .protocol import Protocol, slugify
 from .trash import send_to_trash
 
 RUN_FILE = "run.json"
@@ -132,6 +136,45 @@ def read_run(run_dir: Path) -> RunInfo | None:
         seconds=data.get("seconds"),
         rows=rows,
     )
+
+
+def unique_run_dir(work_root: Path, name: str) -> Path:
+    """Složka `name` ve složce výsledků; při kolizi (týž běh v téže vteřině) `-2`, `-3`…"""
+    run_dir = work_root / name
+    n = 2
+    while run_dir.exists():
+        run_dir = work_root / f"{name}-{n}"
+        n += 1
+    return run_dir
+
+
+def rename_run_dir(run_dir: Path, label: str) -> Path:
+    """Přejmenuje složku běhu podle názvu: `<datum>_<čas>_<slug názvu>`.
+
+    Prázdný název vrátí slug protokolu z `protocol.yaml`. Datum a čas zůstávají,
+    aby historie složku dál poznala a řazení sedělo. Vrací novou cestu; když se
+    jméno nemění, tu původní. Při otevřeném souboru ve složce Windows přejmenování
+    odmítnou (`OSError`), o tom rozhoduje volající.
+    """
+    match = STAMP.match(run_dir.name)
+    if match is None:
+        return run_dir
+    date, hh, mm, ss, old_slug = match.groups()
+    if label.strip():
+        slug = slugify(label)
+    else:
+        slug = old_slug
+        proto_path = run_dir / "protocol.yaml"
+        if proto_path.is_file():
+            try:
+                slug = Protocol.load(proto_path).slug()
+            except Exception:  # noqa: BLE001
+                pass
+    if slug == old_slug:
+        return run_dir
+    target = unique_run_dir(run_dir.parent, f"{date}_{hh}-{mm}-{ss}_{slug}")
+    run_dir.rename(target)
+    return target
 
 
 def rename_run(run_dir: Path, label: str) -> None:

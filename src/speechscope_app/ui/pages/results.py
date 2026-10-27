@@ -289,6 +289,11 @@ class ResultsPage(QWidget):
     def current_dir(self) -> Path | None:
         return self._path.parent if self._path is not None else None
 
+    def relocate(self, old: Path, new: Path) -> None:
+        """Složka otevřeného běhu byla přejmenována; tabulka zůstává, mění se jen cesta."""
+        if self._path is not None and self._path.parent == old:
+            self._path = new / self._path.name
+
     def clear(self) -> None:
         """Po smazání běhu, který byl otevřený: bez tabulky, výběr na nejnovějším."""
         self._path = None

@@ -98,11 +98,16 @@ def test_window_runs_batch_end_to_end(
     assert results.history.card(0).title.text() == "Pacienti září"
     assert "Fonace, základní" in results.history.card(0).detail.text()
     assert results.title_label.text() == "Pacienti září"
-    assert json.loads((run_dirs[0] / "run.json").read_text(encoding="utf-8"))["label"] == (
+    # složka na disku se přejmenuje podle názvu, datum a čas zůstávají
+    renamed = settings.work_root / (run_dirs[0].name[:20] + "pacienti-zari")
+    assert renamed.is_dir() and not run_dirs[0].exists()
+    assert results.current_dir() == renamed and results.history.current().dir == renamed
+    assert json.loads((renamed / "run.json").read_text(encoding="utf-8"))["label"] == (
         "Pacienti září"
     )
-    assert window.rename_run(info, "")  # prázdný = podle protokolu
+    assert window.rename_run(results.history.current(), "")  # prázdný = podle protokolu
     assert results.history.card(0).title.text() == "Fonace, základní"
+    assert run_dirs[0].is_dir() and not renamed.exists()  # i složka zpět na protokol
     # záznam průběhu a jeho přehrání na Výpočtu
     events = (run_dirs[0] / "events.jsonl").read_text(encoding="utf-8").splitlines()
     assert events[0].startswith('{"event": "inputs"')  # řádek GUI se seznamem nahrávek
@@ -452,6 +457,25 @@ def test_transcribe_only_writes_work_dir(
     monkeypatch.setattr(SegmentDialog, "exec", lambda self: 0)
     page.segment_btn.click()
     assert not window.run_page.runner.running
+
+
+def test_run_label_names_folder(
+    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SPEECHSCOPE_FAKE_DELAY", "0.05")  # ať má statistika co měřit
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    assert page.select_protocol("Fonace, základní")
+    page.run_label_edit.setText("  Kontrola po 3 měsících ")
+    with qtbot.waitSignal(window.run_page.finished, timeout=15000):
+        page.run_btn.click()
+    run_dir = next(settings.work_root.glob("*_kontrola-po-3-mesicich"))
+    assert not list(settings.work_root.glob("*_fonace-zakladni"))
+    info = read_run(run_dir)
+    assert info.label == "Kontrola po 3 měsících" and info.protocol_name == "Fonace, základní"
+    assert settings.seconds_per_file("fonace-zakladni") is not None  # statistika podle protokolu
 
 
 def test_manifest_metadata_reach_results(

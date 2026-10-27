@@ -162,6 +162,7 @@
   "Nový vlastní protokol: jméno, popis, úloha, výběr feature a parametry.": "New custom protocol: name, description, task, feature selection and parameters.",
   "Název běhu": "Run name",
   "Název běhu (prázdný = podle protokolu):": "Run name (empty = after the protocol):",
+  "Název je uložený, složku ale nejde přejmenovat: {error}": "The name is saved, but the folder could not be renamed: {error}",
   "Něco chybí": "Something is missing",
   "Něco chybí.": "Something is missing.",
   "Obnovit": "Refresh",

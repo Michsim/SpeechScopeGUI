@@ -110,3 +110,20 @@ def test_rename_run_label(tmp_path: Path) -> None:
     assert info.display_name == "Kontrola po 3 měsících" and info.status == "ok"  # zbytek zůstal
     rename_run(d, "")
     assert read_run(d).display_name == "Fonace, základní"
+
+
+def test_rename_run_dir_follows_label(tmp_path: Path) -> None:
+    from speechscope_app.backend.history import read_run, rename_run_dir, unique_run_dir
+
+    d = _run_dir(tmp_path, "2026-09-13_11-00-00_fonace-zakladni", csv_rows=1, run={"status": "ok"})
+    new = rename_run_dir(d, "Pacienti září / kontrola")
+    assert new == tmp_path / "2026-09-13_11-00-00_pacienti-zari-kontrola" and new.is_dir()
+    assert not d.exists()
+    assert read_run(new) is not None and read_run(new).started == read_run(new).started
+    assert rename_run_dir(new, "pacienti ZÁŘÍ kontrola") == new  # stejný slug = nic
+    # zpět na protokol z protocol.yaml; obsazené jméno dostane -2
+    (tmp_path / "2026-09-13_11-00-00_fonace-zakladni").mkdir()
+    back = rename_run_dir(new, "")
+    assert back == tmp_path / "2026-09-13_11-00-00_fonace-zakladni-2" and back.is_dir()
+    assert unique_run_dir(tmp_path, "2026-09-13_11-00-00_fonace-zakladni").name.endswith("-3")
+    assert rename_run_dir(tmp_path / "cizi", "x") == tmp_path / "cizi"  # není složka běhu

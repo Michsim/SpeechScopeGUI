@@ -98,8 +98,13 @@ Prostředí (doctor, modely, Diagnostika… = zip pro podporu z
 nahoře v jedné řadě, karty protokolů pod tím, vlevo dole ← Nahrávky, vpravo
 Spustit; stránka si krok pamatuje (`go_to_step`, `current_step`); na začátku
 kroku 2 pole Název běhu (prázdné, jen nápověda; `run_label()`), ukládá se do
-`run.json` jako `label` (`RunInfo.display_name`), historie umí Přejmenovat…
-(F2, `MainWindow.rename_run`), složka na disku se nemění;
+`run.json` jako `label` (`RunInfo.display_name`) a slug názvu je místo slugu
+protokolu v názvu složky (`<datum>_<čas>_<slug>`, `unique_run_dir`); historie
+umí Přejmenovat… (F2, `MainWindow.rename_run`): přepíše `label` a přejmenuje
+i složku (`history.rename_run_dir`, datum a čas zůstávají, prázdný název =
+slug protokolu z `protocol.yaml`); běžící běh nebo složku s otevřeným souborem
+(Excel) přejmenovat nejde, pak zůstane jen `label`; stránky si cesty přepíší
+přes `relocate(old, new)`;
 v rozšířeném režimu souhrn feature, Upravit…, Uložit jako protokol…,
 Jen segmentace, Jen přepis; Spustit se před nepřipraveným providerem
 zeptá; délka nahrávek z hlavičky WAV/FLAC (`backend/audio.py`) a odhad
@@ -160,6 +165,15 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   Beam 1 je 5× rychlejší, ale u těžkých nahrávek kazí text. Při pádu
   na kartě knihovna sama dopočítá v int8 na CPU. Jazyk z lišty na Datech
   jde do `transcript.language` i `nlp.language` a přebije protokol.
+- Whisper na GPU jede jen přes CUDA (CTranslate2), tedy jen NVIDIA;
+  DirectML má jen segmentace. Balík nemá `cublas64_12.dll`, takže bez
+  nainstalované CUDA 12 počítá Whisper i s NVIDIÍ na CPU. Odložené
+  varianty (14. 9. 2026, zatím nedělat): 1) přibalit wheel
+  `nvidia-cublas-cu12` (~0,5 GB, výsledky beze změny, doporučeno jako
+  první); 2) whisper.cpp s Vulkanem jako podproces (NVIDIA, AMD, Intel;
+  jiné přepisy, znovu ověřit halucinace a zlaté testy); 3) Whisper
+  v ONNX Runtime s DirectML (slabší beam search, pomalý dekodér,
+  DirectML jen v údržbě).
 - Vzdálená plocha (RDP) a virtuální stroje: DirectML v RDP relaci
   k fyzické kartě nemá přístup (chyba C0262002), knihovna dopočítá na
   procesoru a `doctor` to hlásí (`gpu.remote_session`,

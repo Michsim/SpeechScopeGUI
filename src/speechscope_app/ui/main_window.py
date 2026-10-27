@@ -33,8 +33,10 @@ from ..backend.history import (
     mark_orphans,
     read_run,
     rename_run,
+    rename_run_dir,
     trash_all,
     trash_run,
+    unique_run_dir,
     write_run_file,
 )
 from ..backend.manifest import Manifest, read_manifest, write_normalized
@@ -571,22 +573,48 @@ class MainWindow(QMainWindow):
             if not ok:
                 return False
             label = text
+        old = info.dir
         try:
-            rename_run(info.dir, label)
+            rename_run(old, label)
         except OSError as exc:
             self.statusBar().showMessage(
                 tr("Běh se nepodařilo přejmenovat: {error}").format(error=exc), 8000
             )
             return False
-        if getattr(self, "_running_dir", None) == info.dir:
-            self._running_label = label.strip()
+        running = self.run_page.runner.running and getattr(self, "_running_dir", None) == old
+        new = old
+        if running:
+            self._running_label = label.strip()  # složku nelze: knihovna do ní právě píše
+        else:
+            try:
+                new = rename_run_dir(old, label)
+            except OSError as exc:
+                # Typicky features.csv otevřené v Excelu: název zůstane aspoň v run.json.
+                self.statusBar().showMessage(
+                    tr("Název je uložený, složku ale nejde přejmenovat: {error}").format(
+                        error=exc
+                    ),
+                    8000,
+                )
+        if new != old:
+            self._run_moved(old, new)
         self.results_page.refresh()
-        self.run_page.refresh_history()
-        if self.results_page.current_dir() == info.dir:
+        self.run_page.refresh_history(select=new if self.run_page.viewing_dir() == new else None)
+        if self.results_page.current_dir() == new:
             self.results_page.title_label.setText(label.strip() or info.protocol_name)
-        if self.run_page.viewing_dir() == info.dir:
+        if self.run_page.viewing_dir() == new:
             self.run_page.headline.setText(label.strip() or info.protocol_name)
         return True
+
+    def _run_moved(self, old: Path, new: Path) -> None:
+        """Po přejmenování složky běhu: všechny cesty, které na ni ukazovaly, na novou."""
+        if getattr(self, "_running_dir", None) == old:
+            self._running_dir = new
+        for job in self._queue:
+            if job.merge_into is not None and job.merge_into.parent == old:
+                job.merge_into = new / job.merge_into.name
+        self.results_page.relocate(old, new)
+        self.run_page.relocate(old, new)
 
     def delete_run(self, info: RunInfo, *, confirm: bool = True) -> bool:
         """Složka běhu do Koše po potvrzení; běžící běh smazat nejde."""
@@ -722,17 +750,14 @@ class MainWindow(QMainWindow):
         assert self.library is not None
         proto, inputs = job.proto, job.inputs
         stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        slug = proto.slug()
+        slug = proto.slug()  # klíč statistik; složka se jmenuje podle názvu běhu, je-li
         label = contract.PROVIDER_SHORT.get(job.kind, job.kind)
         suffix = "" if job.kind == "extract" else f"-{slugify(label)}"
         if job.merge_into is not None:
             suffix = "-znovu"
         self._running_merge = job.merge_into
-        run_dir = self.settings.work_root / f"{stamp}_{slug}{suffix}"
-        n = 2
-        while run_dir.exists():  # dva běhy v téže vteřině (fronta, testy) nesmí sdílet složku
-            run_dir = self.settings.work_root / f"{stamp}_{slug}{suffix}-{n}"
-            n += 1
+        dir_slug = slugify(job.label) if job.label.strip() else slug
+        run_dir = unique_run_dir(self.settings.work_root, f"{stamp}_{dir_slug}{suffix}")
         run_dir.mkdir(parents=True, exist_ok=True)
         work_dir = self.settings.work_root / "work"
         config_path: Path | None = None
