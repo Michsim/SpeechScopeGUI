@@ -53,6 +53,19 @@ def scan(work_dir: Path, *, older_than_days: int | None = None) -> CacheInfo:
     return CacheInfo(files, size, datetime.fromtimestamp(oldest) if oldest else None)
 
 
+def breakdown(work_dir: Path) -> list[tuple[str, CacheInfo]]:
+    """Velikost po podsložkách `work` (úlohy; starší rozvržení má segments, transcript…)."""
+    if not work_dir.is_dir():
+        return []
+    rows: list[tuple[str, CacheInfo]] = []
+    for child in sorted(work_dir.iterdir()):
+        if child.is_dir():
+            info = scan(child)
+            if not info.empty:
+                rows.append((child.name, info))
+    return rows
+
+
 def purge(work_dir: Path, *, older_than_days: int | None = None) -> CacheInfo:
     """Smaže mezivýsledky (všechny, nebo starší než N dní); vrací, co se smazalo.
 

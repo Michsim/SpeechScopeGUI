@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 
 from ... import contract
 from ...backend import command
-from ...backend.cache import format_size, scan
+from ...backend.cache import breakdown, format_size, scan
 from ...backend.library import Library, LibraryError
 from ...backend.query import AsyncQuery, parse_json
 from ...i18n import N_, tr
@@ -345,13 +345,18 @@ class EnvironmentPage(QWidget):
             self.cache_detail.setText(tr("Žádné mezivýsledky."))
             self.cache_card.set_role("neutral")
             return
-        self.cache_detail.setText(
-            tr("{n} souborů, {size}, nejstarší z {date}.").format(
-                n=info.files,
-                size=format_size(info.size),
-                date=info.oldest.strftime("%d.%m.%Y") if info.oldest else "?",
-            )
+        text = tr("{n} souborů, {size}, nejstarší z {date}.").format(
+            n=info.files,
+            size=format_size(info.size),
+            date=info.oldest.strftime("%d.%m.%Y") if info.oldest else "?",
         )
+        parts = []
+        for name, part in breakdown(self._work_dir):
+            label = contract.TASK_SHORT[name] if name in contract.TASKS else name
+            parts.append(f"{label} {format_size(part.size)}")
+        if parts:
+            text += " " + tr("Po úlohách: {parts}.").format(parts=" · ".join(parts))
+        self.cache_detail.setText(text)
         self.cache_card.set_role("warn" if info.size >= 5_000_000_000 else "neutral")
 
     def cleanup_cache(self) -> CacheDialog | None:

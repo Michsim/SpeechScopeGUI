@@ -428,20 +428,46 @@ def test_transcribe_only_writes_work_dir(
     assert page.advanced_box.isHidden() and page.step3_title.text() == "Přepis (Whisper)"
     assert page.transcribe_model.text() == "large-v3"
     assert "Jen přepis · angličtina · large-v3" in page.status.text()
+    page.run_label_edit.setText("Pacienti říjen")  # název běhu platí i pro přepis
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
         page.run_btn.click()
+    assert page.run_label() == ""  # po spuštění se pole vyprázdní
     state = window.run_page.runner.state
     assert state.finished and state.providers == ["transcript"] and state.n_ok == 3
     work = Path(state.out)
-    assert work == settings.work_root / "work"
+    assert work == settings.work_root / "work" / "story"  # pracovní složka podle úlohy
     assert (work / "transcript" / "p01.txt").is_file()
     assert window.nav.currentRow() == PAGE_RUN  # bez tabulky se na Výsledky nepřepíná
     assert window.run_page.headline.text().startswith("Hotovo")
     argv = window.run_page.log.toPlainText().splitlines()[0]
     assert "transcribe" in argv and "--language en" in argv
     assert settings.seconds_per_file("pohadka-lingvistika") is None
-    run_dirs = list(settings.work_root.glob("*_pohadka-lingvistika-prepis"))
+    run_dirs = list(settings.work_root.glob("*_pacienti-rijen-prepis"))
     assert len(run_dirs) == 1 and (run_dirs[0] / "speechscope.log").is_file()
+    assert not list(settings.work_root.glob("*_pohadka-lingvistika-prepis"))
+    # kopie přepisů ve složce běhu (bez otisku .json), živé zůstávají ve work
+    copies = sorted(p.name for p in (run_dirs[0] / "transcript").iterdir())
+    assert copies == [
+        "p01.txt",
+        "p01.words.json",
+        "p03_short.txt",
+        "p03_short.words.json",
+        "p04.txt",
+        "p04.words.json",
+    ]
+    run_file = json.loads((run_dirs[0] / "run.json").read_text(encoding="utf-8"))
+    assert run_file["prepare"] == "transcript" and run_file["copied"] == 6
+    assert run_file["label"] == "Pacienti říjen"
+    assert run_file["work_dir"] == str(work)
+    results = window.results_page
+    results.refresh()  # bez tabulky se Výsledky samy neotvírají
+    assert results.history.select_dir(run_dirs[0])
+    results.show_run(results.history.current())
+    assert results.title_label.text() == "Pacienti říjen"  # název, ne protokol
+    assert results.history.card(results.history.current_row()).title.text() == "Pacienti říjen"
+    assert not results.work_btn.isHidden() and results._work_dir == work / "transcript"
+    assert "Kopie ve složce běhu (3): p01.txt, p03_short.txt, p04.txt." in results.summary.text()
+    assert str(work / "transcript") in results.summary.text()
 
     page.set_mode("segments")
     assert page.step3_title.text() == "Segmentace" and not page.segment_opts.isHidden()
@@ -455,6 +481,20 @@ def test_transcribe_only_writes_work_dir(
     assert (work / "segments" / "p01.txt").is_file()
     first = window.run_page.log.toPlainText().splitlines()[0]
     assert "--model conformer" in first and "--cut-audio" in first
+    # vyříznutý zvuk se přesune do složky běhu, ve work nezůstane
+    seg_dir = next(settings.work_root.glob("*_pohadka-lingvistika-segmentace"))
+    assert sorted(p.name for p in (seg_dir / "cut").iterdir()) == [
+        "p01.wav",
+        "p03_short.wav",
+        "p04.wav",
+    ]
+    assert not (work / "segments" / "cut").exists()
+    assert (seg_dir / "segments" / "p01.txt").is_file()
+    results.refresh()
+    assert results.history.select_dir(seg_dir)
+    results.show_run(results.history.current())
+    assert "Vyříznutý zvuk (3) ve složce cut." in results.summary.text()
+    assert results._work_dir == work / "segments"
 
     # fonace a DDK: přepis nedává smysl, zůstává jen segmentace
     page.set_mode("transcript")
@@ -484,6 +524,7 @@ def test_run_label_names_folder(
     assert not list(settings.work_root.glob("*_fonace-zakladni"))
     info = read_run(run_dir)
     assert info.label == "Kontrola po 3 měsících" and info.protocol_name == "Fonace, základní"
+    assert page.run_label() == ""  # název platí pro jeden běh
     assert settings.seconds_per_file("fonace-zakladni") is not None  # statistika podle protokolu
 
 
@@ -726,6 +767,13 @@ def test_environment_cache_cleanup(qtbot: QtBot, settings: AppSettings) -> None:
     env = window.env_page
     env.refresh_cache()
     assert "2 souborů, 20 B" in env.cache_detail.text() and env.cache_btn.isEnabled()
+    assert "Po úlohách: segments 20 B." in env.cache_detail.text()  # staré rozvržení jménem
+    (work / "ddk" / "segments").mkdir(parents=True)
+    (work / "ddk" / "segments" / "p09.txt").write_bytes(b"z" * 5)
+    env.refresh_cache()
+    assert "Po úlohách: DDK 5 B · segments 20 B." in env.cache_detail.text()
+    (work / "ddk" / "segments" / "p09.txt").unlink()
+    env.refresh_cache()
 
     dialog = CacheDialog(work)
     qtbot.addWidget(dialog)

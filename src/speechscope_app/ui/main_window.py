@@ -43,6 +43,7 @@ from ..backend.manifest import Manifest, read_manifest, write_normalized
 from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.results import merge_results
 from ..backend.settings import AppSettings
+from ..backend.work import collect_prepare_outputs, work_dir_for
 from ..i18n import tr
 from . import theme
 from .models_dialog import ModelsDownloadDialog
@@ -514,6 +515,7 @@ class MainWindow(QMainWindow):
                 inputs=list(inputs),
                 options=dict(options),
                 language=self.batch_page.language_code(),
+                label=self.batch_page.run_label(),
             )
         )
 
@@ -594,9 +596,7 @@ class MainWindow(QMainWindow):
             except OSError as exc:
                 # Typicky features.csv otevřené v Excelu: název zůstane aspoň v run.json.
                 self.statusBar().showMessage(
-                    tr("Název je uložený, složku ale nejde přejmenovat: {error}").format(
-                        error=exc
-                    ),
+                    tr("Název je uložený, složku ale nejde přejmenovat: {error}").format(error=exc),
                     8000,
                 )
         if new != old:
@@ -718,6 +718,7 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
             self._queue.append(job)
+            self.batch_page.clear_run_label()
             self._show_queue()
             self.statusBar().showMessage(
                 tr("Zařazeno do fronty jako {n}.: {name}").format(
@@ -727,6 +728,7 @@ class MainWindow(QMainWindow):
             )
             return
         self._launch(job)
+        self.batch_page.clear_run_label()
 
     def queued_jobs(self) -> list[Job]:
         return list(self._queue)
@@ -762,7 +764,7 @@ class MainWindow(QMainWindow):
         dir_slug = slugify(job.label) if job.label.strip() else slug
         run_dir = unique_run_dir(self.settings.work_root, f"{stamp}_{dir_slug}{suffix}")
         run_dir.mkdir(parents=True, exist_ok=True)
-        work_dir = self.settings.work_root / "work"
+        work_dir = work_dir_for(self.settings.work_root, proto.task)
         config_path: Path | None = None
         if proto.config:
             config_path = run_dir / "config.yaml"
@@ -818,6 +820,9 @@ class MainWindow(QMainWindow):
 
         self._running_dir = run_dir
         self._running_kind = "extract" if job.kind == "extract" else "prepare"
+        self._running_prepare = "" if job.kind == "extract" else job.kind
+        self._running_work_dir = work_dir
+        self._running_inputs = list(inputs)
         self._running_name = proto.display_name
         self._running_label = job.label.strip()
         # Stav „běží“ hned: tabulka roste průběžně a bez záznamu by běh vypadal hotový.
@@ -825,6 +830,8 @@ class MainWindow(QMainWindow):
             run_dir,
             status="running",
             kind=self._running_kind,
+            prepare=self._running_prepare,
+            work_dir=str(work_dir),
             protocol=proto.display_name,
             label=self._running_label,
             total=len(inputs),
@@ -869,16 +876,26 @@ class MainWindow(QMainWindow):
                 status = "prepare"
             else:
                 status = "ok"
+            collected = None
+            if self._running_kind == "prepare" and self._running_prepare:
+                # Snímek přepisů/segmentace do složky běhu, vyříznutý zvuk tam přesunout.
+                collected = collect_prepare_outputs(
+                    self._running_work_dir, self._running_prepare, self._running_inputs, run_dir
+                )
             write_run_file(
                 run_dir,
                 status=status,
                 kind=self._running_kind,
+                prepare=self._running_prepare,
+                work_dir=str(self._running_work_dir),
                 protocol=self._running_name,
                 label=getattr(self, "_running_label", ""),
                 processed=state.processed,
                 total=state.total,
                 seconds=self.run_page.elapsed_seconds(),
                 out=state.out,
+                copied=collected.copied if collected else None,
+                moved_cut=collected.moved_cut if collected else None,
             )
         self.run_page.refresh_history(select=run_dir)
         merged = self._merge_rerun(state)
@@ -922,8 +939,13 @@ class MainWindow(QMainWindow):
             self.results_page.load(out)
             if not more:
                 self.nav.setCurrentRow(PAGE_RESULTS)
-        elif out.is_dir():  # jen segmentace nebo přepis: mezivýsledky v pracovní složce
-            self.statusBar().showMessage(tr("Mezivýsledky jsou v {path}").format(path=out), 10000)
+        elif out.is_dir():  # jen segmentace nebo přepis: kopie v běhu, živé ve work
+            self.statusBar().showMessage(
+                tr(
+                    "Kopie mezivýsledků jsou ve složce běhu, výpočet feature je bere z {path}"
+                ).format(path=out),
+                10000,
+            )
 
     def _merge_rerun(self, state: contract.BatchState) -> tuple[Path, int] | None:
         """Po běhu „znovu chybné“ vrátí řádky do původní tabulky; None jinak."""

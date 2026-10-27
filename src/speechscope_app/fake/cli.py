@@ -491,8 +491,14 @@ def _cmd_prepare(ns: argparse.Namespace, provider: str) -> int:
             (sub / f"{path.stem}.txt").write_text(
                 "0.000\t1.200\tsv\n1.200\t1.500\tps\n1.500\t3.000\tsu\n", encoding="utf-8"
             )
+            if getattr(ns, "cut_audio", False):
+                (sub / "cut").mkdir(exist_ok=True)
+                (sub / "cut" / f"{path.stem}.wav").write_bytes(b"RIFF")
         else:
             (sub / f"{path.stem}.txt").write_text("falešný přepis nahrávky", encoding="utf-8")
+            (sub / f"{path.stem}.words.json").write_text(
+                json.dumps([{"text": "falešný", "start": 0.0, "end": 0.5}]), encoding="utf-8"
+            )
         (sub / f"{path.stem}.json").write_text(
             json.dumps({"provider": provider, "fake": True}), encoding="utf-8"
         )

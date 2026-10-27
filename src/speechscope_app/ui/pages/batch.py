@@ -415,6 +415,11 @@ class BatchPage(QWidget):
     def run_label(self) -> str:
         return self.run_label_edit.text().strip()
 
+    def clear_run_label(self) -> None:
+        """Po spuštění nebo zařazení dávky: název platí pro jeden běh, další začíná prázdný."""
+        self.run_label_edit.clear()
+        self._label_touched = False
+
     def _label_edited(self, text: str) -> None:
         self._label_touched = bool(text.strip())
 

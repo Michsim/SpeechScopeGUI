@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 from ...backend.history import RunInfo, read_run
 from ...backend.library import FeatureInfo, Library, LibraryError
 from ...backend.results import failed_paths
+from ...backend.work import CUT_DIR, PREPARE_OUTPUTS
 from ...i18n import tr
 from ..file_actions import file_menu
 from ..recording_detail import RecordingDetailDialog, column_descriptions
@@ -128,6 +129,18 @@ class ResultsPage(QWidget):
         self.open_btn.setEnabled(False)
         self.open_btn.clicked.connect(self._open_folder)
         self.header.add_button(self.open_btn)
+        # Jen segmentace / přepis: živé mezivýsledky ve work\<úloha>, tam se opravují.
+        self.work_btn = QPushButton(tr("Otevřít mezivýsledky"))
+        self.work_btn.setToolTip(
+            tr(
+                "Složka work s živými přepisy a segmentací, kterou bere výpočet feature. "
+                "Opravy přepisů se dělají tam; ve složce běhu je jen kopie."
+            )
+        )
+        self.work_btn.clicked.connect(self._open_work)
+        self.work_btn.hide()
+        self.header.add_button(self.work_btn)
+        self._work_dir: Path | None = None
         right_layout.addWidget(self.header)
 
         tools = QHBoxLayout()
@@ -233,6 +246,7 @@ class ResultsPage(QWidget):
             return
         # Běžící běh se neotvírá: Windows by knihovně zablokovaly přejmenování `.part`.
         self._path = info.dir / "features.csv"
+        self._set_work(info)
         self._frame = None
         self.table.setModel(None)
         self._show_table(False)
@@ -249,12 +263,7 @@ class ResultsPage(QWidget):
                 )
             )
         elif info.status == "prepare":
-            self.summary.setText(
-                tr(
-                    "{name}: jen mezivýsledky (segmentace nebo přepis), tabulka se nepočítala. "
-                    "Leží ve složce work."
-                ).format(name=info.protocol_name)
-            )
+            self.summary.setText(self._prepare_summary(info))
         else:
             self.summary.setText(
                 (note + " " if note else "")
@@ -279,6 +288,7 @@ class ResultsPage(QWidget):
             self.rerun_btn.hide()
             return
         info = read_run(path.parent)
+        self._set_work(info)
         self.title_label.setText(info.display_name if info else path.parent.name)
         self.header.set_role(STATUS_ROLES.get(info.status, "neutral") if info else "neutral")
         self.open_btn.setEnabled(True)
@@ -447,3 +457,46 @@ class ResultsPage(QWidget):
     def _open_folder(self) -> None:
         if self._path is not None:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._path.parent)))
+
+    def _set_work(self, info: RunInfo | None) -> None:
+        """Tlačítko Otevřít mezivýsledky jen u běhu jen segmentace / přepis."""
+        self._work_dir = None
+        if info is not None and info.prepare and info.work_dir is not None:
+            sub = PREPARE_OUTPUTS.get(info.prepare, (info.prepare, ()))[0]
+            self._work_dir = info.work_dir / sub
+        self.work_btn.setVisible(self._work_dir is not None)
+
+    def _open_work(self) -> None:
+        if self._work_dir is not None:
+            target = self._work_dir if self._work_dir.is_dir() else self._work_dir.parent
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
+
+    @staticmethod
+    def _prepare_summary(info: RunInfo) -> str:
+        """Co po běhu jen segmentace / přepis leží ve složce běhu a kde jsou živé soubory."""
+        what = {
+            "segments": tr("segmentace"),
+            "transcript": tr("přepisy"),
+        }.get(info.prepare, tr("mezivýsledky"))
+        sub = PREPARE_OUTPUTS.get(info.prepare, (info.prepare, ()))[0]
+        copies = sorted(p.name for p in (info.dir / sub).glob("*.txt")) if sub else []
+        cut = sorted(p.name for p in (info.dir / CUT_DIR).glob("*.wav"))
+        parts = [
+            tr("{name}: jen {what}, tabulka feature se nepočítala.").format(
+                name=info.protocol_name, what=what
+            )
+        ]
+        if copies:
+            shown = ", ".join(copies[:8]) + (", …" if len(copies) > 8 else "")
+            parts.append(
+                tr("Kopie ve složce běhu ({n}): {files}.").format(n=len(copies), files=shown)
+            )
+        if cut:
+            parts.append(tr("Vyříznutý zvuk ({n}) ve složce cut.").format(n=len(cut)))
+        if info.work_dir is not None:
+            parts.append(
+                tr("Výpočet feature bere živé soubory z {path}; opravy přepisů tam.").format(
+                    path=info.work_dir / sub if sub else info.work_dir
+                )
+            )
+        return " ".join(parts)
