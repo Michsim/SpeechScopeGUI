@@ -40,7 +40,7 @@ from ...backend.manifest import Manifest, find_manifest, read_manifest
 from ...backend.protocol import Protocol, card_infos, summarize
 from ...i18n import tr
 from .. import theme
-from ..file_actions import open_file, show_file_menu
+from ..file_actions import file_menu, open_file
 from ..pages.run import format_seconds
 from ..prepare_dialog import SegmentDialog, TranscribeDialog
 from ..protocol_detail import ProtocolDetailDialog
@@ -76,7 +76,10 @@ class BatchPage(QWidget):
         super().__init__(parent)
         self._library: Library | None = None
         self._protocols: list[Protocol] = []
-        self._recordings: list[Recording] = []
+        self._recordings: list[Recording] = []  # nalezené minus odebrané ze seznamu
+        self._found: list[Recording] = []
+        self._excluded: set[Path] = set()  # odebrané pro tuto dávku; změna složky je zahodí
+        self._scanned_folder: str = ""
         self._manifest: Manifest | None = None
         self._doctor: dict[str, Any] | None = None
         self._advanced = False
@@ -141,6 +144,7 @@ class BatchPage(QWidget):
         self.files.horizontalHeader().setStretchLastSection(False)
         self.files.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.files.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.files.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.files.verticalHeader().setVisible(False)
         self.files.verticalHeader().setDefaultSectionSize(26)
         self.files.setShowGrid(False)
@@ -148,8 +152,24 @@ class BatchPage(QWidget):
         self.files.cellDoubleClicked.connect(self.open_recording)
         self.files.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.files.customContextMenuRequested.connect(self._files_menu)
+        self.files.itemSelectionChanged.connect(self._selection_changed)
+        QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.files, self.remove_selected)
         left_layout.addWidget(self.files, 1)
         meta_row = QHBoxLayout()
+        # Odebrání ze seznamu: nahrávka zůstane na disku, jen se pro ni nepočítá.
+        self.remove_btn = QPushButton(tr("Odebrat"))
+        self.remove_btn.setToolTip(
+            tr("Odebere vybrané nahrávky ze seznamu (Delete). Na disku zůstanou.")
+        )
+        self.remove_btn.setEnabled(False)
+        self.remove_btn.clicked.connect(self.remove_selected)
+        self.restore_btn = QPushButton("")
+        self.restore_btn.setFlat(True)
+        self.restore_btn.setToolTip(tr("Vrátí do seznamu všechny odebrané nahrávky."))
+        self.restore_btn.clicked.connect(self.restore_excluded)
+        self.restore_btn.hide()
+        meta_row.addWidget(self.remove_btn)
+        meta_row.addWidget(self.restore_btn)
         self.manifest_label = QLabel("")
         self.manifest_label.setObjectName("muted")
         self.manifest_label.setWordWrap(True)
@@ -450,8 +470,14 @@ class BatchPage(QWidget):
         if item is None:
             return
         path = self.file_for_cell(item.row(), item.column())
-        if path is not None:
-            show_file_menu(self, path, self.files.viewport().mapToGlobal(pos), self.notice.emit)
+        if path is None:
+            return
+        menu = file_menu(self, path, self.notice.emit)
+        menu.addSeparator()
+        n = len(self.selected_rows()) or 1
+        remove = menu.addAction(tr("Odebrat ze seznamu ({n})").format(n=n))
+        remove.triggered.connect(self.remove_selected)
+        menu.exec(self.files.viewport().mapToGlobal(pos))
 
     def _update_step1_hint(self) -> None:
         text = self.folder.text().strip()
@@ -459,10 +485,10 @@ class BatchPage(QWidget):
             self.step1_hint.setText(tr("Vyber složku."))
             return
         n = len(self._recordings)
-        if not n:
+        if not n and not self._excluded:
             self.step1_hint.setText(tr("žádná nenalezena"))
             return
-        parts = [tr("{n} nahrávek").format(n=n)]
+        parts = [self._count_text()]
         known = [rec.duration for rec in self._recordings if rec.duration]
         if known:
             audio = format_seconds(sum(known))
@@ -566,12 +592,55 @@ class BatchPage(QWidget):
 
     def rescan(self) -> None:
         text = self.folder.text().strip()
-        self._recordings = (
+        if text != self._scanned_folder:
+            self._excluded.clear()
+            self._scanned_folder = text
+        self._found = (
             find_recordings(Path(text), recursive=self.recursive.isChecked()) if text else []
         )
+        self._apply_exclusions()
         if self._manifest_auto:
             found = find_manifest(Path(text)) if text else None
             self._manifest = read_manifest(found, Path(text)) if found else None
+        self._fill_files()
+        self._update_run_state()
+
+    # --- odebrání ze seznamu -------------------------------------------------------------
+
+    def _apply_exclusions(self) -> None:
+        self._recordings = [rec for rec in self._found if rec.path not in self._excluded]
+        self._excluded &= {rec.path for rec in self._found}  # po přeskenování jen existující
+        k = len(self._excluded)
+        self.restore_btn.setText(tr("Vrátit odebrané ({k})").format(k=k))
+        self.restore_btn.setVisible(k > 0)
+
+    def _count_text(self) -> str:
+        text = tr("{n} nahrávek").format(n=len(self._recordings))
+        if self._excluded:
+            text += " " + tr("({k} odebráno)").format(k=len(self._excluded))
+        return text
+
+    def selected_rows(self) -> list[int]:
+        return sorted(index.row() for index in self.files.selectionModel().selectedRows())
+
+    def _selection_changed(self) -> None:
+        self.remove_btn.setEnabled(bool(self.selected_rows()))
+
+    def remove_selected(self) -> None:
+        """Vybrané nahrávky ven ze seznamu; na disku zůstanou, jen se nepočítají."""
+        rows = self.selected_rows()
+        if not rows:
+            return
+        self._excluded.update(self._recordings[r].path for r in rows if r < len(self._recordings))
+        self._apply_exclusions()
+        self._fill_files()
+        self._update_run_state()
+        if self.files.rowCount():  # výběr na místo první odebrané, ať jde Delete opakovat
+            self.files.selectRow(min(rows[0], self.files.rowCount() - 1))
+
+    def restore_excluded(self) -> None:
+        self._excluded.clear()
+        self._apply_exclusions()
         self._fill_files()
         self._update_run_state()
 
@@ -741,13 +810,13 @@ class BatchPage(QWidget):
         else:
             folder = self._recordings[0].path.parent
             self.status1.setText(
-                tr("{n} nahrávek z {folder}").format(n=len(self._recordings), folder=folder)
+                tr("{count} z {folder}").format(count=self._count_text(), folder=folder)
             )
             if proto is None:
                 self.status.setText(tr("Vyber protokol."))
             else:
                 self.status.setText(
-                    tr("{n} nahrávek").format(n=len(self._recordings))
+                    self._count_text()
                     + f" · {contract.TASK_LABELS[proto.task]} · "
                     f"{contract.language_label(self.language_code())} · {proto.display_name}"
                 )

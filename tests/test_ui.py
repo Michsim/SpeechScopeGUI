@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QItemSelectionModel
 from pytestqt.qtbot import QtBot
 
 from speechscope_app import contract
@@ -476,6 +477,45 @@ def test_run_label_names_folder(
     info = read_run(run_dir)
     assert info.label == "Kontrola po 3 měsících" and info.protocol_name == "Fonace, základní"
     assert settings.seconds_per_file("fonace-zakladni") is not None  # statistika podle protokolu
+
+
+def test_remove_recordings_from_list(qtbot: QtBot, settings: AppSettings, recordings: Path) -> None:
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    assert page.files.rowCount() == 4 and not page.remove_btn.isEnabled()
+    assert page.restore_btn.isHidden()
+    names = [page.files.item(r, 0).text() for r in range(4)]
+    page.files.selectRow(1)
+    page.files.selectionModel().select(
+        page.files.model().index(2, 0),
+        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    assert page.remove_btn.isEnabled() and page.selected_rows() == [1, 2]
+    page.remove_selected()
+    assert [page.files.item(r, 0).text() for r in range(page.files.rowCount())] == [
+        names[0],
+        names[3],
+    ]
+    assert "2 nahrávek (2 odebráno)" in page.step1_hint.text()
+    assert "(2 odebráno)" in page.status1.text()
+    assert not page.restore_btn.isHidden() and page.restore_btn.text() == "Vrátit odebrané (2)"
+    # přeskenování téže složky odebrané nevrátí, jiná složka ano
+    page.rescan()
+    assert page.files.rowCount() == 2
+    assert page.select_protocol("Fonace, základní")
+    with qtbot.waitSignal(window.run_page.finished, timeout=15000):
+        page.run_btn.click()
+    assert window.run_page.runner.state.total == 2
+    page.restore_excluded()
+    assert page.files.rowCount() == 4 and page.restore_btn.isHidden()
+    page.files.selectRow(0)
+    page.remove_selected()
+    assert page.files.rowCount() == 3 and page.selected_rows() == [0]  # Delete jde opakovat
+    page.set_folder(recordings.parent)
+    page.set_folder(recordings)
+    assert page.files.rowCount() == 4 and not page._excluded
 
 
 def test_manifest_metadata_reach_results(

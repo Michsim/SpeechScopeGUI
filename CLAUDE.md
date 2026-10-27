@@ -94,7 +94,10 @@ je používá dál.
 Prostředí (doctor, modely, Diagnostika… = zip pro podporu z
 `backend/diagnostics.py`) · Analýza (dva kroky v `QStackedWidget`:
 1 nahrávky s metadaty z `manifest.csv` (`backend/manifest.py`, tolerantní
-čtení, normalizovaná kopie do složky běhu) a Pokračovat; 2 úloha a jazyk
+čtení, normalizovaná kopie do složky běhu), výběr více řádků a Odebrat
+(tlačítko, Delete, pravé tlačítko: nahrávka zůstane na disku, jen vypadne
+z dávky; `_excluded` přežije přeskenování téže složky, jiná složka ho
+zahodí; Vrátit odebrané (k); počty ukazují „(k odebráno)“) a Pokračovat; 2 úloha a jazyk
 nahoře v jedné řadě, karty protokolů pod tím, vlevo dole ← Nahrávky, vpravo
 Spustit; stránka si krok pamatuje (`go_to_step`, `current_step`); na začátku
 kroku 2 pole Název běhu (prázdné, jen nápověda; `run_label()`), ukládá se do
