@@ -34,7 +34,7 @@ from . import theme
 
 NOT_DOWNLOADABLE = {"phnrec"}
 NEEDS_HF_TOKEN = {"pyannote"}
-NEEDS_GITHUB_TOKEN = {"onnx"}
+NEEDS_GITHUB_TOKEN = {"onnx", "ddk"}
 
 
 class ModelsDownloadDialog(QDialog):

@@ -1,0 +1,31 @@
+{
+  "kind": "feature",
+  "name": "acoustic.ddk.intensity",
+  "version": "1.0",
+  "tasks": [
+    "ddk"
+  ],
+  "requires": [
+    "ddk_events"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "ddk": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "slope": "Slope of the robust trend of the intensity envelope from the first burst to the end of the last vowel (dB/s)",
+    "rirv": "Deviation of the intensity envelope from its trend, root of the sum of squares (dB)"
+  },
+  "params": {
+    "window_duration": {
+      "default": 0.02,
+      "type": "float",
+      "description": "Intensity envelope window length (s)",
+      "gt": 0
+    }
+  }
+}

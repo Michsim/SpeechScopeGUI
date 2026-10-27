@@ -1,7 +1,7 @@
 format: 1
 name: DDK, základní
 name_en: DDK, basic
-description: diadochokineze. 
-description_en: diadochokinesis.
+description: diadochokineze, opakované /pataka/. Tempo, pravidelnost, zpomalování, doba nástupu hlasu, délka vokálu a intenzita ze slabik 2 až 11; nahrávka s méně než 18 slabikami se nehodnotí.
+description_en: diadochokinesis, repeated /pataka/. Rate, regularity, deceleration, voice onset time, vowel length and intensity from syllables 2 to 11; a recording with fewer than 18 syllables is not evaluated.
 task: ddk
 domain: acoustic

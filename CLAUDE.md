@@ -163,10 +163,16 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   „Modely ze souboru“): kód 1 = některý model selhal, kód 2 = není to
   balík. Stahování z Hugging Face je záloha. Balík pro kliniky se dělá
   v repu knihovny: `uv run speechscope models pack --only
-  whisper,stanza,onnx,phnrec --out speechscope-modely-v1.zip` (5,25 GB).
+  whisper,stanza,onnx,phnrec,ddk --out speechscope-modely-v3.zip` (asi 6,2 GB,
+  v `dist/`; v2 z 12. 9. je bez `ddk`).
   phnrec v něm být může: provider phonemes ho najde v `models\phnrec`
   sám, pokud parametr `phonemes.phnrec_dir` zůstane prázdný. WavLM
   a pyannote klinika nepotřebuje, segmentace jede přes ONNX.
+- DDK (knihovna 0.3.0): provider `ddk_events` (síť E/V/O v ONNX, model `ddk`
+  ve složce `ddk-onnx`, 630 MB) a feature `acoustic.ddk.*` jen pro /pataka/;
+  obecná akustika se na úloze ddk nepočítá. Model jde jen z vydání na GitHubu
+  s tokenem (`models download --only ddk`), pro kliniky z balíku v3. Dotaz
+  před Spustit na nepřipravený provider platí i tady.
 - Knihovna zapisuje `features.csv` průběžně po každé nahrávce (přes
   `.part` a přejmenování). Po Zrušit nebo chybě GUI ukáže částečnou
   tabulku. Soubor nesmí být během běhu otevřený v Excelu, **ani GUI ho

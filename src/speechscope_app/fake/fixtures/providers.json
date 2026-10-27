@@ -1,5 +1,72 @@
 [
   {
+    "name": "ddk_events",
+    "version": "1.0",
+    "requires": [],
+    "params": {
+      "model_dir": {
+        "default": "",
+        "type": "str",
+        "description": "Složka s modelem detektoru; prázdné = úložiště modelů"
+      },
+      "onnx_device": {
+        "default": "auto",
+        "type": "str",
+        "description": "Kde počítat síť: auto (grafická karta, když jde), cpu, gpu, gpu:N"
+      },
+      "batch_size": {
+        "default": 64,
+        "type": "int",
+        "description": "Kolik oken sítě se počítá najednou",
+        "ge": 1
+      },
+      "ignore_start": {
+        "default": 0.01875,
+        "type": "float",
+        "description": "Začátek, na kterém se výstup sítě zahodí (s)",
+        "ge": 0
+      },
+      "tempo_distance": {
+        "default": 0.03125,
+        "type": "float",
+        "description": "Nejmenší rozestup silných vrcholů V pro odhad tempa (s)",
+        "gt": 0
+      },
+      "distance_factor": {
+        "default": 0.75,
+        "type": "float",
+        "description": "Nejmenší rozestup vrcholů jako podíl odhadnuté periody slabiky",
+        "gt": 0,
+        "le": 1
+      },
+      "peak_height": {
+        "default": 0.09,
+        "type": "float",
+        "description": "Nejmenší výška vrcholu křivky sítě (0–1)",
+        "ge": 0,
+        "lt": 1
+      },
+      "skip_syllables": {
+        "default": 3,
+        "type": "int",
+        "description": "Kolik slabik na začátku vynechat (první /pataka/ je náběh)",
+        "ge": 0
+      },
+      "max_syllables": {
+        "default": 30,
+        "type": "int",
+        "description": "Nejvýš tolik slabik po vynechaných",
+        "ge": 3
+      },
+      "min_syllables": {
+        "default": 18,
+        "type": "int",
+        "description": "Pod tolik detekovaných slabik (včetně vynechaných) se nahrávka nehodnotí",
+        "ge": 4
+      }
+    }
+  },
+  {
     "name": "nlp",
     "version": "1.0",
     "requires": [

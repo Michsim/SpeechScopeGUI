@@ -1,0 +1,31 @@
+{
+  "kind": "feature",
+  "name": "acoustic.ddk.intensity",
+  "version": "1.0",
+  "tasks": [
+    "ddk"
+  ],
+  "requires": [
+    "ddk_events"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "ddk": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "slope": "Sklon robustního trendu obálky intenzity od první exploze po konec posledního vokálu (dB/s)",
+    "rirv": "Odchylka obálky intenzity od trendu, odmocnina součtu čtverců (dB)"
+  },
+  "params": {
+    "window_duration": {
+      "default": 0.02,
+      "type": "float",
+      "description": "Délka okna obálky intenzity (s)",
+      "gt": 0
+    }
+  }
+}

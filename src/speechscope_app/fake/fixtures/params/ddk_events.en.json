@@ -1,0 +1,68 @@
+{
+  "kind": "provider",
+  "name": "ddk_events",
+  "version": "1.0",
+  "requires": [],
+  "params": {
+    "model_dir": {
+      "default": "",
+      "type": "str",
+      "description": "Folder with the detector model; empty = the model store"
+    },
+    "onnx_device": {
+      "default": "auto",
+      "type": "str",
+      "description": "Where to run the network: auto (GPU when possible), cpu, gpu, gpu:N"
+    },
+    "batch_size": {
+      "default": 64,
+      "type": "int",
+      "description": "How many network windows are computed at once",
+      "ge": 1
+    },
+    "ignore_start": {
+      "default": 0.01875,
+      "type": "float",
+      "description": "Initial part where the network output is discarded (s)",
+      "ge": 0
+    },
+    "tempo_distance": {
+      "default": 0.03125,
+      "type": "float",
+      "description": "Smallest spacing of strong V peaks for the tempo estimate (s)",
+      "gt": 0
+    },
+    "distance_factor": {
+      "default": 0.75,
+      "type": "float",
+      "description": "Smallest peak spacing as a fraction of the estimated syllable period",
+      "gt": 0,
+      "le": 1
+    },
+    "peak_height": {
+      "default": 0.09,
+      "type": "float",
+      "description": "Smallest peak height of a network curve (0–1)",
+      "ge": 0,
+      "lt": 1
+    },
+    "skip_syllables": {
+      "default": 3,
+      "type": "int",
+      "description": "How many syllables to skip at the start (the first /pataka/ is a warm-up)",
+      "ge": 0
+    },
+    "max_syllables": {
+      "default": 30,
+      "type": "int",
+      "description": "At most this many syllables after the skipped ones",
+      "ge": 3
+    },
+    "min_syllables": {
+      "default": 18,
+      "type": "int",
+      "description": "Below this many detected syllables (including the skipped ones) the recording is not evaluated",
+      "ge": 4
+    }
+  }
+}

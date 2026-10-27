@@ -61,6 +61,15 @@
       "size_mb": 500,
       "languages": [],
       "used_by": "provider segments bez torche, i na grafické kartě přes DirectML"
+    },
+    {
+      "key": "ddk",
+      "name": "detektor slabik DDK v ONNX (E, V, O)",
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\ddk-onnx",
+      "present": true,
+      "size_mb": 630,
+      "languages": [],
+      "used_by": "provider ddk_events, feature acoustic.ddk.*"
     }
   ]
 }

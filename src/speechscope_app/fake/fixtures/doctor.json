@@ -1,5 +1,5 @@
 {
-  "speechscope": "0.2.0",
+  "speechscope": "0.3.0",
   "python": "3.11.16",
   "platform": "Windows 10",
   "models_dir": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models",
@@ -52,7 +52,7 @@
     },
     "onnxruntime": {
       "installed": true,
-      "used_by": "ONNX (extra onnx)"
+      "used_by": "ONNX: segmentace, detektor DDK (extra onnx)"
     }
   },
   "models": {
@@ -104,6 +104,13 @@
       "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\segmentation-onnx",
       "used_by": "provider segments bez torche, i na grafické kartě přes DirectML",
       "languages": []
+    },
+    "ddk": {
+      "name": "detektor slabik DDK v ONNX (E, V, O)",
+      "present": true,
+      "path": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models\\ddk-onnx",
+      "used_by": "provider ddk_events, feature acoustic.ddk.*",
+      "languages": []
     }
   },
   "gpu": {
@@ -139,6 +146,10 @@
     "phonemes": {
       "ready": true,
       "needs": "Windows a složka phnrec v úložišti modelů"
+    },
+    "ddk_events": {
+      "ready": true,
+      "needs": "extra onnx a `models download --only ddk`"
     }
   },
   "all_ready": true

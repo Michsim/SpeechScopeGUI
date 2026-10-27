@@ -61,8 +61,14 @@ def test_params_json_and_unknown() -> None:
 
 def test_providers_json_and_provider_params() -> None:
     providers = json.loads(run("list", "--providers", "--json").stdout)
-    assert [p["name"] for p in providers] == ["nlp", "phonemes", "segments", "transcript"]
-    assert "model" in providers[2]["params"]
+    assert [p["name"] for p in providers] == [
+        "ddk_events",
+        "nlp",
+        "phonemes",
+        "segments",
+        "transcript",
+    ]
+    assert "model" in providers[3]["params"]
     seg = json.loads(run("list", "--params", "segments", "--json").stdout)
     assert seg["kind"] == "provider"
     assert seg["params"]["model"]["choices"] == ["auto", "labels", "pyannote", "conformer"]
@@ -208,7 +214,13 @@ def test_library_wrapper_reads_fake(fake_library: Library) -> None:
     assert f0.params[0].bounds == {"gt": 0}
     assert {m["key"] for m in fake_library.models()["models"]} >= {"whisper", "onnx"}
     providers = fake_library.providers()
-    assert [p.name for p in providers] == ["nlp", "phonemes", "segments", "transcript"]
+    assert [p.name for p in providers] == [
+        "ddk_events",
+        "nlp",
+        "phonemes",
+        "segments",
+        "transcript",
+    ]
     assert all(p.kind == "provider" for p in providers)
     transcript = fake_library.params("transcript")
     assert transcript.kind == "provider"

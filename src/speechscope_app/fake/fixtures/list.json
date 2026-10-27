@@ -39,6 +39,104 @@
     ]
   },
   {
+    "name": "acoustic.ddk.deceleration",
+    "version": "1.0",
+    "tasks": [
+      "ddk"
+    ],
+    "requires": [
+      "ddk_events"
+    ],
+    "description": "Zpomalování DDK: sklon robustního trendu rozestupů slabik (s na slabiku); kladný = zpomaluje",
+    "outputs": {},
+    "columns": [
+      "acoustic.ddk.deceleration"
+    ]
+  },
+  {
+    "name": "acoustic.ddk.intensity",
+    "version": "1.0",
+    "tasks": [
+      "ddk"
+    ],
+    "requires": [
+      "ddk_events"
+    ],
+    "description": "",
+    "outputs": {
+      "slope": "Sklon robustního trendu obálky intenzity od první exploze po konec posledního vokálu (dB/s)",
+      "rirv": "Odchylka obálky intenzity od trendu, odmocnina součtu čtverců (dB)"
+    },
+    "columns": [
+      "acoustic.ddk.intensity.slope",
+      "acoustic.ddk.intensity.rirv"
+    ]
+  },
+  {
+    "name": "acoustic.ddk.rate",
+    "version": "1.0",
+    "tasks": [
+      "ddk"
+    ],
+    "requires": [
+      "ddk_events"
+    ],
+    "description": "Tempo DDK: počet slabik za sekundu mezi prvním a posledním V (slabiky/s)",
+    "outputs": {},
+    "columns": [
+      "acoustic.ddk.rate"
+    ]
+  },
+  {
+    "name": "acoustic.ddk.regularity",
+    "version": "1.0",
+    "tasks": [
+      "ddk"
+    ],
+    "requires": [
+      "ddk_events"
+    ],
+    "description": "Nepravidelnost DDK: směrodatná odchylka rozestupů slabik kolem robustního lineárního trendu (s); nižší = pravidelnější",
+    "outputs": {},
+    "columns": [
+      "acoustic.ddk.regularity"
+    ]
+  },
+  {
+    "name": "acoustic.ddk.vot",
+    "version": "1.0",
+    "tasks": [
+      "ddk"
+    ],
+    "requires": [
+      "ddk_events"
+    ],
+    "description": "",
+    "outputs": {
+      "median": "Medián doby nástupu hlasu, od exploze po začátek vokálu (ms)",
+      "iqr": "Mezikvartilové rozpětí doby nástupu hlasu (ms)"
+    },
+    "columns": [
+      "acoustic.ddk.vot.median",
+      "acoustic.ddk.vot.iqr"
+    ]
+  },
+  {
+    "name": "acoustic.ddk.vowel_length",
+    "version": "1.0",
+    "tasks": [
+      "ddk"
+    ],
+    "requires": [
+      "ddk_events"
+    ],
+    "description": "Relativní délka vokálu: medián (O − V) / (O − E) přes slabiky (0–1)",
+    "outputs": {},
+    "columns": [
+      "acoustic.ddk.vowel_length"
+    ]
+  },
+  {
     "name": "acoustic.intensity.stats",
     "version": "1.0",
     "tasks": [
@@ -65,7 +163,6 @@
     "name": "acoustic.pitch.f0",
     "version": "1.1",
     "tasks": [
-      "ddk",
       "monologue",
       "phonation",
       "reading",
@@ -100,7 +197,6 @@
     "name": "acoustic.quality.cpp",
     "version": "1.1",
     "tasks": [
-      "ddk",
       "monologue",
       "phonation",
       "reading",
@@ -148,7 +244,6 @@
     "name": "acoustic.spectral.ltas",
     "version": "1.2",
     "tasks": [
-      "ddk",
       "monologue",
       "phonation",
       "reading",
@@ -173,7 +268,6 @@
     "name": "acoustic.spectral.mfcc",
     "version": "1.1",
     "tasks": [
-      "ddk",
       "monologue",
       "phonation",
       "reading",

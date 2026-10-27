@@ -24,7 +24,7 @@ PROTOCOL_VERSION = 2
 SUPPORTED_PROTOCOLS: tuple[int, ...] = (1, 2)
 
 # Verze knihovny, proti které bylo GUI naposledy ověřené (`speechscope version`).
-KNOWN_LIBRARY_VERSION = "0.2.0"
+KNOWN_LIBRARY_VERSION = "0.3.0"
 
 TASKS: tuple[str, ...] = ("phonation", "ddk", "story", "monologue", "reading")
 
@@ -83,6 +83,7 @@ DOMAIN_LABELS = Labels(
 GROUP_LABELS = Labels(
     {
         "acoustic.articulation": N_("Akustika · artikulace"),
+        "acoustic.ddk": N_("Akustika · DDK"),
         "acoustic.intensity": N_("Akustika · intenzita"),
         "acoustic.pitch": N_("Akustika · pitch"),
         "acoustic.quality": N_("Akustika · kvalita hlasu"),
@@ -134,6 +135,7 @@ PROVIDER_LABELS = Labels(
         "phonemes": N_("Fonémy (phnrec)"),
         "transcript": N_("Přepis (Whisper)"),
         "nlp": N_("Jazykový rozbor (Stanza)"),
+        "ddk_events": N_("Slabiky DDK (detektor v ONNX)"),
     }
 )
 
@@ -144,6 +146,7 @@ PROVIDER_SHORT = Labels(
         "transcript": N_("přepis"),
         "nlp": N_("jaz. rozbor"),
         "phonemes": N_("fonémy"),
+        "ddk_events": N_("slabiky DDK"),
     }
 )
 
@@ -154,6 +157,7 @@ PROVIDER_COST: tuple[tuple[str, str], ...] = (
     ("nlp", N_("minuty na nahrávku")),
     ("segments", N_("desítky sekund na nahrávku")),
     ("phonemes", N_("sekundy na nahrávku")),
+    ("ddk_events", N_("sekundy na nahrávku")),
 )
 NO_MODELS_COST = N_("sekundy na nahrávku")
 

@@ -105,7 +105,7 @@ class StatusCard(Card):
 # --- stránka ------------------------------------------------------------------
 
 
-DOWNLOADABLE = ("whisper", "wavlm", "pyannote", "stanza", "onnx")
+DOWNLOADABLE = ("whisper", "wavlm", "pyannote", "stanza", "onnx", "ddk")
 
 
 class EnvironmentPage(QWidget):
@@ -267,7 +267,7 @@ class EnvironmentPage(QWidget):
         self.gpu_cards: dict[str, StatusCard] = {}
         for key, title in (
             ("whisper", tr("Přepis (CTranslate2)")),
-            ("onnx", tr("Segmentace (ONNX Runtime)")),
+            ("onnx", tr("Segmentace a DDK (ONNX Runtime)")),
             ("torch", "Torch"),
         ):
             card = StatusCard(title)
@@ -564,7 +564,10 @@ class EnvironmentPage(QWidget):
                 "CPU",
                 "warn",
                 reason
-                + tr("segmentace poběží na procesoru. Přihlášení u počítače to obvykle vyřeší."),
+                + tr(
+                    "segmentace a detektor DDK poběží na procesoru. "
+                    "Přihlášení u počítače to obvykle vyřeší."
+                ),
             )
         else:
             self._set_accel(
