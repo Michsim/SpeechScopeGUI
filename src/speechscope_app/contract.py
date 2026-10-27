@@ -128,6 +128,8 @@ RUN_MODE_LABELS = Labels(
     }
 )
 TRANSCRIPT_TASKS: tuple[str, ...] = ("story", "monologue", "reading")
+# Samostatná segmentace: u DDK ji žádná feature nepotřebuje (slabiky hledá ddk_events).
+SEGMENT_TASKS: tuple[str, ...] = ("phonation", "story", "monologue", "reading")
 
 PROVIDER_LABELS = Labels(
     {

@@ -95,7 +95,7 @@
   "Jen přepis": "Transcription only",
   "Jen přepis Whisperem do pracovní složky, v jazyce z lišty. Přepisy jde před výpočtem feature ručně zkontrolovat. Jen u souvislé řeči.": "Transcription only, with Whisper, into the work folder, in the language from the bar. Transcripts can be checked by hand before computing features. Connected speech only.",
   "Jen segmentace": "Segmentation only",
-  "Jen segmentace řeči do pracovní složky, žádné feature. Výpočet feature ji pak vezme z mezivýsledků.": "Speech segmentation only, into the work folder, no features. Feature extraction then takes it from the intermediate results.",
+  "Jen segmentace řeči do pracovní složky, žádné feature. Výpočet feature ji pak vezme z mezivýsledků. Ne u DDK.": "Speech segmentation only, into the work folder, no features. Feature extraction then takes it from the intermediate results. Not for DDK.",
   "Jen {what} · {name}": "{what} only · {name}",
   "Jen řádky s poznámkou nebo chybou.": "Only rows with a note or an error.",
   "Jméno:": "Name:",

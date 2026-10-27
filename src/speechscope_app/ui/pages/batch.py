@@ -291,7 +291,7 @@ class BatchPage(QWidget):
         self.mode_buttons["segments"].setToolTip(
             tr(
                 "Jen segmentace řeči do pracovní složky, žádné feature. Výpočet feature "
-                "ji pak vezme z mezivýsledků."
+                "ji pak vezme z mezivýsledků. Ne u DDK."
             )
         )
         self.mode_buttons["transcript"].setToolTip(
@@ -672,7 +672,7 @@ class BatchPage(QWidget):
         """Výpočet feature, jen segmentace, nebo jen přepis; mění obsah kroku 3."""
         if mode not in contract.RUN_MODES:
             return
-        if mode == "transcript" and not self._transcript_allowed():
+        if not self._mode_allowed(mode):
             mode = "extract"
         self._mode = mode
         btn = self.mode_buttons[mode]
@@ -692,16 +692,23 @@ class BatchPage(QWidget):
         )
         self._update_run_state()
 
-    def _transcript_allowed(self) -> bool:
+    def _mode_allowed(self, mode: str) -> bool:
+        """Přepis jen u souvislé řeči, segmentace ne u DDK; bez protokolu vše."""
         proto = self.current_protocol()
-        return proto is None or proto.task in contract.TRANSCRIPT_TASKS
+        if proto is None or mode == "extract":
+            return True
+        if mode == "transcript":
+            return proto.task in contract.TRANSCRIPT_TASKS
+        return proto.task in contract.SEGMENT_TASKS
 
     def _sync_mode_to_protocol(self) -> None:
-        """Po změně protokolu: přepis jen u souvislé řeči, výchozí modely z protokolu."""
+        """Po změně protokolu: nepovolené režimy vypnout, výchozí modely z protokolu."""
         proto = self.current_protocol()
-        self.mode_buttons["transcript"].setEnabled(self._transcript_allowed())
-        if self._mode == "transcript" and not self._transcript_allowed():
-            self.set_mode("segments")
+        for mode in ("segments", "transcript"):
+            self.mode_buttons[mode].setEnabled(self._mode_allowed(mode))
+        if not self._mode_allowed(self._mode):
+            # přepis u fonace spadne na segmentaci, u DDK oba na výpočet feature
+            self.set_mode("segments" if self._mode_allowed("segments") else "extract")
         if proto is not None:
             model = proto.segments_model()
             idx = self.segment_model.findData(model if model != "auto" else "conformer")

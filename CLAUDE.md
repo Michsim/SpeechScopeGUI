@@ -120,8 +120,9 @@ a pod úlohou řada „Spustit:“ Výpočet feature · Jen segmentace · Jen p�
 (`contract.RUN_MODES`, `BatchPage.set_mode`): krok 3 pak místo karet ukáže
 volby mezivýsledku (model segmentace z `contract.SEGMENT_MODELS`, vyříznutá
 řeč; model Whisperu z protokolu, jazyk z lišty), bez dialogu; přepis jen pro
-story, monologue, reading (`TRANSCRIPT_TASKS`), u fonace a DDK jen
-segmentace; po startu vždy výpočet feature; Spustit se před nepřipraveným
+story, monologue, reading (`TRANSCRIPT_TASKS`), u fonace jen segmentace,
+u DDK žádný mezivýsledek (`SEGMENT_TASKS`, slabiky hledá ddk_events); po startu
+vždy výpočet feature; Spustit se před nepřipraveným
 providerem zeptá; délka nahrávek z hlavičky WAV/FLAC (`backend/audio.py`) a odhad
 dávky podle minut zvuku, statistika `stats/<slug>/seconds_per_audio_minute`) · Protokoly (přibalené ke čtení, kopie, vlastní s editorem, import,
 export, smazání) · Výpočet (tabulka nahrávek × providerů, odhad času, Zrušit

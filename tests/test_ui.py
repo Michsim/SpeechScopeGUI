@@ -504,6 +504,16 @@ def test_transcribe_only_writes_work_dir(
     assert page.mode == "extract"  # nepovolený režim spadne na výpočet feature
     assert not page.protocols.isHidden() and page.step3_title.text() == "Protokol"
     page.set_mode("segments")
+    # DDK: slabiky hledá ddk_events, segmentace ani přepis nedávají smysl
+    assert page.select_protocol("DDK, základní")
+    assert page.mode == "extract"
+    assert not page.mode_buttons["segments"].isEnabled()
+    assert not page.mode_buttons["transcript"].isEnabled()
+    page.set_mode("segments")
+    assert page.mode == "extract"
+    assert page.select_protocol("Fonace, základní")
+    assert page.mode_buttons["segments"].isEnabled()
+    page.set_mode("segments")
     page.set_advanced(False)  # základní režim vrátí výpočet feature a řadu schová
     assert page.mode == "extract" and page.mode_row.isHidden()
 
