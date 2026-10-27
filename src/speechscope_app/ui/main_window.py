@@ -193,6 +193,7 @@ class MainWindow(QMainWindow):
         self.env_page.install_requested.connect(self.install_models)
         self.env_page.diagnostics_requested.connect(self.save_diagnostics)
         self.env_page.report_changed.connect(self.batch_page.set_doctor)
+        self.batch_page.set_check_requester(self.env_page.refresh)
         self.env_page.report_changed.connect(self.welcome_page.set_report)
         self.env_page.models_dir_requested.connect(self.change_models_dir)
         self.env_page.work_root_requested.connect(self.change_work_root)
@@ -235,8 +236,10 @@ class MainWindow(QMainWindow):
         )
         self.nav.setCurrentRow(-1)
         self.pages.setCurrentIndex(PAGE_WELCOME)
-        if recommended == PAGE_ENV and self.library is not None:
-            self.env_page.refresh()  # bez modelů: rovnou zjistit, co chybí
+        if self.library is not None:
+            # Kontrola prostředí na pozadí hned po startu: Spustit pak nečeká na doctor
+            # a lišta jazyků i stav providerů sedí bez návštěvy Prostředí.
+            self.env_page.refresh()
 
     def _page_shown(self, index: int) -> None:
         if index == PAGE_RESULTS:
@@ -946,3 +949,7 @@ class MainWindow(QMainWindow):
         if event.key() == Qt.Key.Key_F5:
             self.env_page.refresh()
         super().keyPressEvent(event)
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        self.env_page.cancel_check()
+        super().closeEvent(event)

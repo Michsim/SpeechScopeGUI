@@ -10,10 +10,17 @@ a tři kliknutí) i výzkumníci (rozšířený režim s výběrem feature
 a parametrů). Cíl: jeden instalátor exe pro Windows.
 
 ## Architektura – neměnit bez domluvy
-- **GUI knihovnu neimportuje.** Volá její CLI jako podproces. Synchronní
-  dotazy (`version`, `list --json`, `doctor --json`, `models list --json`)
-  přes `backend/library.py`, dlouhé běhy (`extract`, `segment`,
-  `transcribe` s `--progress-json`) přes `backend/runner.py` (QProcess).
+- **GUI knihovnu neimportuje.** Volá její CLI jako podproces. Laciné
+  synchronní dotazy (`version`, `list --json`, `models list --json`) přes
+  `backend/library.py` (katalog se načte jednou pro všechny úlohy,
+  `features(task)` filtruje podle `tasks`), `doctor --json` (sekundy, v exe
+  víc) jen na pozadí přes `backend/query.py` (`AsyncQuery`, QProcess):
+  Prostředí ho pustí hned po startu i na Zkontrolovat, výsledek jde signálem
+  `report_changed` do všech stránek. Spustit knihovnu v hlavním vlákně nikdy
+  nevolá; bez zprávy doctor ukáže „Kontroluji prostředí…“ se Storno a pokračuje
+  po jejím příchodu (`BatchPage._run`, `set_doctor`). Dlouhé běhy (`extract`,
+  `segment`, `transcribe` s `--progress-json`) přes `backend/runner.py`
+  (QProcess).
 - **Argumenty CLI skládá jen `backend/command.py`.** Obrazovky příkazovou
   řádku nikdy neskládají.
 - **`contract.py` je jediné místo s vědomostmi o knihovně natvrdo**: úlohy,

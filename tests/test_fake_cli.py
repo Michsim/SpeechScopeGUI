@@ -40,6 +40,16 @@ def test_list_json_filters_by_task() -> None:
     assert all("phonation" in f["tasks"] for f in phonation)
 
 
+def test_features_by_task_equals_list_task(tmp_path: Path) -> None:
+    """`Library.features(task)` filtruje katalog všech úloh; musí dát totéž co `list --task`."""
+    library = Library([sys.executable, "-m", "speechscope_app.fake.cli"], models_dir=tmp_path)
+    for task in contract.TASKS:
+        expected = [
+            item["name"] for item in json.loads(run("list", "--task", task, "--json").stdout)
+        ]
+        assert [f.name for f in library.features(task)] == expected, task
+
+
 def test_params_json_and_unknown() -> None:
     payload = json.loads(run("list", "--params", "acoustic.pitch.f0", "--json").stdout)
     assert payload["params"]["semitone_ref_mode"]["choices"] == ["fmin", "fixed", "median"]

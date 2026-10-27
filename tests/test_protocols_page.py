@@ -101,12 +101,14 @@ def test_basic_mode_shows_summary_only(qtbot: QtBot, settings: AppSettings) -> N
 
 def test_protocol_detail_dialog_lists_features(qtbot: QtBot, settings: AppSettings) -> None:
     """Dvojklik na protokol: strom skupina → feature → sloupec s popisem, parametry zvlášť."""
+    from conftest import wait_doctor
+
     from speechscope_app.backend.protocol import Protocol
     from speechscope_app.ui.main_window import MainWindow
 
     window = MainWindow(settings)
     qtbot.addWidget(window)
-    window.env_page.refresh()
+    wait_doctor(qtbot, window)
     page = window.protocols_page
     proto = next(p for p in page._protocols if p.name == "Fonace, základní")
     dialog = page.make_protocol_detail(proto)

@@ -34,6 +34,16 @@ def recordings(tmp_path: Path) -> Path:
     return folder
 
 
+def wait_doctor(qtbot, window) -> None:  # noqa: ANN001
+    """Počká na zprávu doctor z pozadí (po startu běží sama); bez ní ji spustí."""
+    env = window.env_page
+    if not env.checking and env.report is not None:
+        return
+    with qtbot.waitSignal(env.report_changed, timeout=15000):
+        if not env.checking:
+            env.refresh()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def qt_offscreen() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

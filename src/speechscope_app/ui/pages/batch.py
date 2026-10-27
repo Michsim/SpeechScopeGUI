@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QStackedWidget,
     QTableWidget,
@@ -77,11 +78,15 @@ class BatchPage(QWidget):
         self._library: Library | None = None
         self._protocols: list[Protocol] = []
         self._recordings: list[Recording] = []  # nalezené minus odebrané ze seznamu
+        self._run_after_doctor: Protocol | None = None  # Spustit čeká na kontrolu prostředí
+        self._doctor_wait: QProgressDialog | None = None
+        self._check_requested: Callable[[], None] = lambda: None
         self._found: list[Recording] = []
         self._excluded: set[Path] = set()  # odebrané pro tuto dávku; změna složky je zahodí
         self._scanned_folder: str = ""
         self._manifest: Manifest | None = None
         self._doctor: dict[str, Any] | None = None
+        self._doctor_known = False  # True po první zprávě doctor (i neúspěšné)
         self._advanced = False
         self._manifest_auto = True  # manifest nalezený ve složce, ne vybraný ručně
         self._seconds_per_file: Callable[[str], float | None] = lambda _slug: None
@@ -358,6 +363,8 @@ class BatchPage(QWidget):
 
     def set_library(self, library: Library | None) -> None:
         self._library = library
+        self._doctor = None
+        self._doctor_known = False
         self.editor.set_library(library)
         self._load_languages()
         self._update_run_state()
@@ -376,9 +383,18 @@ class BatchPage(QWidget):
                 self.set_languages([str(code) for code in model["languages"]])
                 return
 
+    def set_check_requester(self, fn: Callable[[], None]) -> None:
+        """Jak si vyžádat kontrolu prostředí na pozadí (Prostředí → refresh)."""
+        self._check_requested = fn
+
     def set_doctor(self, report: dict[str, Any] | None) -> None:
         self._doctor = report
+        self._doctor_known = True
         self.editor.set_doctor(report)
+        if self._run_after_doctor is not None:
+            proto, self._run_after_doctor = self._run_after_doctor, None
+            self._close_doctor_wait()
+            self._run_checked(proto)
         stanza = ((report or {}).get("models") or {}).get("stanza") or {}
         languages = [str(code) for code in stanza.get("languages") or []]
         if languages:
@@ -816,8 +832,7 @@ class BatchPage(QWidget):
                 self.status.setText(tr("Vyber protokol."))
             else:
                 self.status.setText(
-                    self._count_text()
-                    + f" · {contract.TASK_LABELS[proto.task]} · "
+                    self._count_text() + f" · {contract.TASK_LABELS[proto.task]} · "
                     f"{contract.language_label(self.language_code())} · {proto.display_name}"
                 )
 
@@ -846,16 +861,11 @@ class BatchPage(QWidget):
     def missing_providers(self, proto: Protocol) -> list[str]:
         """Providery, které protokol spustí a doctor hlásí jako nepřipravené.
 
-        Bez zprávy doctor se zavolá knihovna přímo (pár sekund), aby klinik
-        nespustil hodinový běh s prázdnými sloupci.
+        Jen z poslední zprávy doctor; bez ní prázdný seznam. Knihovna se tu
+        nikdy nevolá, Spustit si zprávu vyžádá na pozadí (`_run`).
         """
-        if self._library is None:
+        if self._library is None or self._doctor is None:
             return []
-        if self._doctor is None:
-            try:
-                self._doctor = self._library.doctor()
-            except LibraryError:
-                return []
         try:
             catalog = self._library.features(proto.task)
             providers = self._library.providers()
@@ -869,6 +879,33 @@ class BatchPage(QWidget):
         proto = self.effective_protocol()
         if proto is None:
             return
+        if self._library is not None and not self._doctor_known:
+            # Zpráva doctor ještě nedorazila (klik hned po startu): počkat na pozadí,
+            # ať klinik nespustí hodinový běh s prázdnými sloupci. Storno = nespouštět.
+            self._run_after_doctor = proto
+            self._check_requested()
+            dialog = QProgressDialog(tr("Kontroluji prostředí…"), tr("Storno"), 0, 0, self)
+            dialog.setWindowTitle(tr("SpeechScope"))
+            dialog.setWindowModality(Qt.WindowModality.WindowModal)
+            dialog.setMinimumDuration(300)  # rychlá odpověď se bez dialogu obejde
+            dialog.canceled.connect(self._cancel_doctor_wait)
+            self._doctor_wait = dialog
+            dialog.setValue(0)  # od teď běží odpočet do zobrazení
+            return
+        self._run_checked(proto)
+
+    def _cancel_doctor_wait(self) -> None:
+        self._run_after_doctor = None
+        self._close_doctor_wait()
+
+    def _close_doctor_wait(self) -> None:
+        if self._doctor_wait is not None:
+            dialog, self._doctor_wait = self._doctor_wait, None
+            dialog.blockSignals(True)
+            dialog.close()
+            dialog.deleteLater()
+
+    def _run_checked(self, proto: Protocol) -> None:
         missing = self.missing_providers(proto)
         if missing:
             names = ", ".join(contract.PROVIDER_LABELS.get(p, p) for p in missing)

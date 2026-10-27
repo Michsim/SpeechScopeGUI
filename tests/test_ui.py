@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from conftest import wait_doctor
 from PySide6.QtCore import QItemSelectionModel
 from pytestqt.qtbot import QtBot
 
@@ -45,7 +46,7 @@ def test_window_runs_batch_end_to_end(
     monkeypatch.setenv("SPEECHSCOPE_FAKE_DELAY", "0.05")  # ať má statistika co měřit
     window = MainWindow(settings)
     qtbot.addWidget(window)
-    window.env_page.refresh()
+    wait_doctor(qtbot, window)
     assert window.env_page.report and window.env_page.report["all_ready"]
 
     window.batch_page.set_folder(recordings)
@@ -225,7 +226,9 @@ def test_start_page_depends_on_models(settings: AppSettings, qtbot: QtBot) -> No
     assert window.nav.currentRow() == -1
     assert window.pages.currentIndex() == PAGE_WELCOME
     welcome = window.welcome_page
-    assert window.env_page.report is not None  # refresh proběhl sám
+    assert window.env_page.checking  # kontrola se po startu pustila sama, na pozadí
+    wait_doctor(qtbot, window)
+    assert window.env_page.report is not None
     # falešný doctor hlásí vše připravené, doporučení se řídí jeho zprávou
     assert welcome.recommends_environment() == (not window.env_page.report["all_ready"])
     welcome.set_state(library_ok=True, models_ok=False)  # laciný stav před kontrolou
@@ -243,7 +246,7 @@ def test_start_page_depends_on_models(settings: AppSettings, qtbot: QtBot) -> No
     welcome2 = window2.welcome_page
     assert not welcome2.recommends_environment()
     assert welcome2.start_btn.property("role") == "primary"
-    assert window2.env_page.report is None  # bez modelů chybějících se doctor nevolá
+    assert window2.env_page.checking  # doctor běží na pozadí i s modely (kvůli Spustit)
     welcome2.start_btn.click()
     assert window2.nav.currentRow() == PAGE_BATCH
 
@@ -352,7 +355,7 @@ def test_language_from_doctor_goes_to_run(qtbot: QtBot, settings: AppSettings) -
         "en",
         "de",
     ]
-    window.env_page.refresh()  # doctor: totéž
+    wait_doctor(qtbot, window)  # doctor: totéž
     codes = [page.language.itemData(i) for i in range(page.language.count())]
     assert codes == ["cs", "en", "de", "it", "es", "fr"]  # Stanza z doctor, v pořadí knihovny
     labels = [page.language.itemText(i) for i in range(page.language.count())]
@@ -568,10 +571,19 @@ def test_run_asks_when_provider_not_ready(
         return QMessageBox.StandardButton.No
 
     monkeypatch.setattr(QMessageBox, "question", staticmethod(say_no))
+    # Spustit před zprávou doctor: čeká na kontrolu z pozadí (dialog se Storno), neblokuje
     page.run_btn.click()
+    assert page._run_after_doctor is not None and page._doctor_wait is not None
+    assert not asked
+    page._doctor_wait.canceled.emit()  # Storno = nespouštět
+    assert page._run_after_doctor is None and page._doctor_wait is None
+    page.run_btn.click()
+    with qtbot.waitSignal(window.env_page.report_changed, timeout=15000):
+        pass
+    assert page._doctor_wait is None
     assert len(asked) == 1 and "Přepis (Whisper)" in asked[0] and "Stanza" in asked[0]
     assert not window.run_page.runner.running
-    assert page._doctor is not None  # doctor se doptal sám
+    assert page._doctor is not None  # zpráva dorazila z pozadí
 
     # akustický protokol bez modelů se nikoho neptá
     assert page.select_protocol("Fonace, základní")
@@ -610,6 +622,7 @@ def test_runs_queue_up_and_continue(
     monkeypatch.setattr(QMessageBox, "question", staticmethod(ask))
 
     assert page.select_protocol("Fonace, základní")
+    wait_doctor(qtbot, window)  # jinak Spustit čeká na kontrolu prostředí
     page.run_btn.click()
     assert window.run_page.runner.running
     assert page.select_protocol("DDK, základní")
@@ -642,7 +655,7 @@ def test_environment_warns_about_remote_desktop(qtbot: QtBot, settings: AppSetti
     window = MainWindow(settings)
     qtbot.addWidget(window)
     env = window.env_page
-    env.refresh()
+    wait_doctor(qtbot, window)
     report = dict(env.report)
     assert env.gpu_cards["onnx"].pill.text() == "DirectML"
     gpu = dict(report["gpu"])

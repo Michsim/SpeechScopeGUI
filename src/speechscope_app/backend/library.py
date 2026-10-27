@@ -242,12 +242,16 @@ class Library:
         return self.run_json(command.models_list_args(models_dir=self.models_dir, lang=self.lang))
 
     def features(self, task: str | None = None) -> list[FeatureInfo]:
-        if task not in self._features:
-            payload = self.run_json(
-                command.list_args(task=task, models_dir=self.models_dir, lang=self.lang)
-            )
-            self._features[task] = [FeatureInfo.from_json(item) for item in payload]
-        return list(self._features[task])
+        """Katalog feature; s úlohou jen ty, které ji mají v `tasks`.
+
+        Volá se jediný `list --json` pro všechny úlohy a filtruje se tady:
+        `list --task` dává totéž (hlídá `test_fake_cli`) a každý podproces
+        navíc by v hlavním vlákně zdržoval (třeba před Spustit).
+        """
+        if None not in self._features:
+            payload = self.run_json(command.list_args(models_dir=self.models_dir, lang=self.lang))
+            self._features[None] = [FeatureInfo.from_json(item) for item in payload]
+        return [f for f in self._features[None] if task is None or task in f.tasks]
 
     def params(self, name: str) -> FeatureParams:
         """Parametry feature nebo providera; jméno providera je `segments` apod."""

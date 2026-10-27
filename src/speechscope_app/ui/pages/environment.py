@@ -11,9 +11,8 @@ from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QCursor
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QApplication,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -29,8 +28,10 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
+from ...backend import command
 from ...backend.cache import format_size, scan
 from ...backend.library import Library, LibraryError
+from ...backend.query import AsyncQuery, parse_json
 from ...i18n import N_, tr
 from .. import theme
 from ..cache_dialog import CacheDialog
@@ -120,6 +121,8 @@ class EnvironmentPage(QWidget):
         super().__init__(parent)
         self._library: Library | None = None
         self.report: dict[str, Any] | None = None
+        self._query: AsyncQuery | None = None  # běžící kontrola (version, pak doctor)
+        self._version = ""
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -306,6 +309,7 @@ class EnvironmentPage(QWidget):
 
     def set_library(self, library: Library | None) -> None:
         self._library = library
+        self._cancel_check()  # rozběhnutá kontrola by hlásila starou knihovnu nebo složku
         self.check_btn.setEnabled(library is not None)
         self.check_btn.setText(tr("Zkontrolovat"))
         self.settings_btn.setVisible(library is None)
@@ -363,30 +367,76 @@ class EnvironmentPage(QWidget):
             self.refresh_cache()
         return dialog
 
+    @property
+    def checking(self) -> bool:
+        """Kontrola prostředí právě běží na pozadí."""
+        return self._query is not None
+
     def refresh(self) -> None:
-        if self._library is None:
+        """Kontrola prostředí na pozadí: `version`, pak `doctor --json`; výsledek
+        přijde přes `report_changed`. Běžící kontrola se nechá doběhnout."""
+        if self._library is None or self.checking:
             return
         self.check_btn.setEnabled(False)
         self.check_btn.setText(tr("Kontroluji…"))
-        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
-        QApplication.processEvents()
-        try:
-            version = self._library.version()
-            report = self._library.doctor()
-        except LibraryError as exc:
-            self.report = None
-            self._set_status("missing", tr("Knihovnu se nepodařilo spustit."), str(exc))
-            self.download_btn.hide()
-            self._clear_cards()
-            self.report_changed.emit(None)
+        self._start_query(command.version_args(), self._version_done)
+
+    def _start_query(self, args: list[str], handler) -> None:  # noqa: ANN001
+        assert self._library is not None
+        query = AsyncQuery(self._library, args, self)
+        query.finished.connect(lambda code, out, err: handler(args, code, out, err))
+        self._query = query
+        query.start()
+
+    def cancel_check(self) -> None:
+        """Při zavření okna: běžící podproces doctor nesmí přežít aplikaci."""
+        self._cancel_check()
+
+    def _cancel_check(self) -> None:
+        if self._query is not None:
+            self._query.cancel()
+            self._query.deleteLater()
+            self._query = None
+        self.check_btn.setText(tr("Zkontrolovat"))
+        self.check_btn.setEnabled(self._library is not None)
+
+    def _version_done(self, args: list[str], code: int, out: str, err: str) -> None:
+        if code != 0:
+            self._check_failed(LibraryError("`version` selhal", returncode=code, stderr=err))
             return
-        finally:
-            QApplication.restoreOverrideCursor()
-            self.check_btn.setText(tr("Zkontrolovat znovu"))
-            self.check_btn.setEnabled(True)
+        self._version = out.strip()
+        self._start_query(
+            command.doctor_args(models_dir=self._library.models_dir, lang=self._library.lang)
+            if self._library is not None
+            else [],
+            self._doctor_done,
+        )
+
+    def _doctor_done(self, args: list[str], code: int, out: str, err: str) -> None:
+        try:
+            report = parse_json(args, code, out, err, ok_codes=(0, 1))
+        except LibraryError as exc:
+            self._check_failed(exc)
+            return
+        self._check_finished()
         self.report = report
-        self._show(version, report)
+        self._show(self._version, report)
         self.report_changed.emit(report)
+
+    def _check_failed(self, exc: LibraryError) -> None:
+        self._check_finished()
+        self.report = None
+        self._set_status("missing", tr("Knihovnu se nepodařilo spustit."), str(exc))
+        self.download_btn.hide()
+        self._clear_cards()
+        self.report_changed.emit(None)
+
+    def _check_finished(self) -> None:
+        if self._query is not None:
+            self._query.deleteLater()
+            self._query = None
+        self.check_btn.setText(tr("Zkontrolovat znovu"))
+        self.check_btn.setEnabled(True)
 
     # --- vykreslení -----------------------------------------------------------
 
