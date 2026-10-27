@@ -407,29 +407,29 @@ def test_cancel_shows_partial_results(
 
 
 def test_transcribe_only_writes_work_dir(
-    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
+    qtbot: QtBot, settings: AppSettings, recordings: Path
 ) -> None:
-    from speechscope_app.ui.prepare_dialog import SegmentDialog, TranscribeDialog
-
+    """Jen přepis / Jen segmentace jako režim vedle úlohy, volby přímo v kroku 3."""
     window = MainWindow(settings)
     qtbot.addWidget(window)
     page = window.batch_page
     page.set_folder(recordings)
+    page.set_advanced(False)
+    assert page.mode_row.isHidden()  # základní režim: jen výpočet feature
+    page.set_advanced(True)
+    assert not page.mode_row.isHidden() and page.mode == "extract"
     assert page.select_protocol("Pohádka, lingvistika")
-    page.set_language("cs")
-    assert page.transcribe_btn.isEnabled() and page.segment_btn.isEnabled()
+    page.set_language("en")
+    assert page.mode_buttons["transcript"].isEnabled()
 
-    seen: list[object] = []
-
-    def accept_transcribe(self):  # v dialogu přepnout jazyk na angličtinu
-        seen.append(self)
-        self.language.setCurrentIndex(self.language.findData("en"))
-        return 1
-
-    monkeypatch.setattr(TranscribeDialog, "exec", accept_transcribe)
+    page.set_mode("transcript")
+    assert page.mode == "transcript" and page.mode_buttons["transcript"].isChecked()
+    assert page.protocols.isHidden() and not page.prepare_box.isHidden()
+    assert page.advanced_box.isHidden() and page.step3_title.text() == "Přepis (Whisper)"
+    assert page.transcribe_model.text() == "large-v3"
+    assert "Jen přepis · angličtina · large-v3" in page.status.text()
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
-        page.transcribe_btn.click()
-    assert len(seen) == 1 and "large-v3" in seen[0].form.itemAt(3).widget().text()
+        page.run_btn.click()
     state = window.run_page.runner.state
     assert state.finished and state.providers == ["transcript"] and state.n_ok == 3
     work = Path(state.out)
@@ -443,24 +443,29 @@ def test_transcribe_only_writes_work_dir(
     run_dirs = list(settings.work_root.glob("*_pohadka-lingvistika-prepis"))
     assert len(run_dirs) == 1 and (run_dirs[0] / "speechscope.log").is_file()
 
-    def accept_segment(self):  # výchozí conformer (protokol má auto), zapnout cut-audio
-        assert self.model.currentData() == "conformer"
-        assert self.model.findData("auto") == -1
-        self.cut_audio.setChecked(True)
-        return 1
-
-    monkeypatch.setattr(SegmentDialog, "exec", accept_segment)
+    page.set_mode("segments")
+    assert page.step3_title.text() == "Segmentace" and not page.segment_opts.isHidden()
+    assert page.segment_model.currentData() == "conformer"  # protokol má auto → conformer
+    assert page.segment_model.findData("auto") == -1
+    page.cut_audio.setChecked(True)
+    assert "Jen segmentace · conformer" in page.status.text()
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
-        page.segment_btn.click()
+        page.run_btn.click()
     assert window.run_page.runner.state.providers == ["segments"]
     assert (work / "segments" / "p01.txt").is_file()
     first = window.run_page.log.toPlainText().splitlines()[0]
     assert "--model conformer" in first and "--cut-audio" in first
 
-    # Zrušit v dialogu nic nespustí
-    monkeypatch.setattr(SegmentDialog, "exec", lambda self: 0)
-    page.segment_btn.click()
-    assert not window.run_page.runner.running
+    # fonace a DDK: přepis nedává smysl, zůstává jen segmentace
+    page.set_mode("transcript")
+    assert page.select_protocol("Fonace, základní")
+    assert not page.mode_buttons["transcript"].isEnabled() and page.mode == "segments"
+    page.set_mode("transcript")
+    assert page.mode == "extract"  # nepovolený režim spadne na výpočet feature
+    assert not page.protocols.isHidden() and page.step3_title.text() == "Protokol"
+    page.set_mode("segments")
+    page.set_advanced(False)  # základní režim vrátí výpočet feature a řadu schová
+    assert page.mode == "extract" and page.mode_row.isHidden()
 
 
 def test_run_label_names_folder(

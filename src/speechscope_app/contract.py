@@ -105,6 +105,29 @@ TRANSCRIPT_SUFFIX = ".txt"
 MODELS_BUNDLE_FILTER = N_("Balík modelů SpeechScope (*.zip)")
 
 # Pořadí = pořadí, v jakém providery v běhu přicházejí na řadu.
+# Modely segmentace, které samostatný běh (Jen segmentace) umí spočítat.
+# `auto` chybí schválně: bere jen hotovou cache, takže by nic neudělal.
+SEGMENT_MODELS: tuple[str, ...] = ("conformer", "pyannote", "labels")
+SEGMENT_MODEL_LABELS = Labels(
+    {
+        "conformer": N_("conformer (ONNX, doporučený)"),
+        "pyannote": N_("pyannote (potřebuje torch a model pyannote)"),
+        "labels": N_("jen ruční labely vedle nahrávek"),
+    }
+)
+
+# Režimy běhu na Analýze (rozšířený režim): výpočet feature, nebo jen
+# mezivýsledek do pracovní složky. Přepis má smysl jen u souvislé řeči.
+RUN_MODES: tuple[str, ...] = ("extract", "segments", "transcript")
+RUN_MODE_LABELS = Labels(
+    {
+        "extract": N_("Výpočet feature"),
+        "segments": N_("Jen segmentace"),
+        "transcript": N_("Jen přepis"),
+    }
+)
+TRANSCRIPT_TASKS: tuple[str, ...] = ("story", "monologue", "reading")
+
 PROVIDER_LABELS = Labels(
     {
         "segments": N_("Segmentace řeči"),

@@ -14,9 +14,11 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFormLayout,
     QFrame,
     QGroupBox,
     QHBoxLayout,
@@ -43,7 +45,6 @@ from ...i18n import tr
 from .. import theme
 from ..file_actions import file_menu, open_file
 from ..pages.run import format_seconds
-from ..prepare_dialog import SegmentDialog, TranscribeDialog
 from ..protocol_detail import ProtocolDetailDialog
 from ..widgets.elided_label import ElidedLabel
 from ..widgets.protocol_editor import ProtocolEditorDialog
@@ -81,6 +82,7 @@ class BatchPage(QWidget):
         self._run_after_doctor: Protocol | None = None  # Spustit čeká na kontrolu prostředí
         self._doctor_wait: QProgressDialog | None = None
         self._check_requested: Callable[[], None] = lambda: None
+        self._mode = "extract"  # extract | segments | transcript; po startu vždy výpočet
         self._found: list[Recording] = []
         self._excluded: set[Path] = set()  # odebrané pro tuto dávku; změna složky je zahodí
         self._scanned_folder: str = ""
@@ -269,6 +271,38 @@ class BatchPage(QWidget):
         task_row.addWidget(QLabel(tr("Jazyk nahrávek:")))
         task_row.addWidget(self.language)
         task_layout.addLayout(task_row)
+        # Rozšířený režim: co spustit. Přepínače jako úlohy, ať nejsou schované dole.
+        self.mode_row = QWidget()
+        mode_layout = QHBoxLayout(self.mode_row)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(6)
+        mode_layout.addWidget(QLabel(tr("Spustit:")))
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.setExclusive(True)
+        self.mode_buttons: dict[str, QPushButton] = {}
+        for mode in contract.RUN_MODES:
+            btn = QPushButton(contract.RUN_MODE_LABELS[mode])
+            btn.setCheckable(True)
+            btn.clicked.connect(lambda _=False, m=mode: self.set_mode(m))
+            self.mode_group.addButton(btn)
+            mode_layout.addWidget(btn)
+            self.mode_buttons[mode] = btn
+        self.mode_buttons["extract"].setChecked(True)
+        self.mode_buttons["segments"].setToolTip(
+            tr(
+                "Jen segmentace řeči do pracovní složky, žádné feature. Výpočet feature "
+                "ji pak vezme z mezivýsledků."
+            )
+        )
+        self.mode_buttons["transcript"].setToolTip(
+            tr(
+                "Jen přepis Whisperem do pracovní složky, v jazyce z lišty. Přepisy jde "
+                "před výpočtem feature ručně zkontrolovat. Jen u souvislé řeči."
+            )
+        )
+        mode_layout.addStretch(1)
+        self.mode_row.hide()
+        task_layout.addWidget(self.mode_row)
         page2_layout.addWidget(task_card)
 
         right = QFrame()
@@ -278,8 +312,57 @@ class BatchPage(QWidget):
         right_layout.setSpacing(8)
         page2_layout.addWidget(right, 1)
         step3, self.step3_hint = _step(3, tr("Protokol"), tr("Co se má z nahrávek spočítat."))
+        self.step3_title: QLabel = step3.itemAt(1).widget()
         right_layout.addLayout(step3)
         right_layout.addWidget(self.protocols, 1)
+
+        # Jen segmentace / Jen přepis: místo karet protokolů volby mezivýsledku.
+        self.prepare_box = QWidget()
+        prepare_layout = QVBoxLayout(self.prepare_box)
+        prepare_layout.setContentsMargins(0, 4, 0, 0)
+        prepare_layout.setSpacing(8)
+        self.segment_opts = QWidget()
+        seg_form = QFormLayout(self.segment_opts)
+        seg_form.setContentsMargins(0, 0, 0, 0)
+        self.segment_model = QComboBox()
+        for name in contract.SEGMENT_MODELS:
+            self.segment_model.addItem(contract.SEGMENT_MODEL_LABELS.get(name, name), name)
+        self.segment_model.currentIndexChanged.connect(lambda _i: self._update_run_state())
+        seg_form.addRow(tr("Model:"), self.segment_model)
+        self.cut_audio = QCheckBox(tr("uložit i vyříznutou řeč (VAD) jako wav do pracovní složky"))
+        self.cut_audio.setToolTip(tr("Do složky s nahrávkami se nikdy nezapisuje."))
+        seg_form.addRow("", self.cut_audio)
+        seg_note = QLabel(
+            tr(
+                "Žádné feature se nepočítají. Výpočet feature segmentaci potom vezme "
+                "z mezivýsledků; protokol k tomu musí mít stejný model v segments.model "
+                "(auto bere jen hotovou cache)."
+            )
+        )
+        seg_note.setObjectName("muted")
+        seg_note.setWordWrap(True)
+        seg_form.addRow("", seg_note)
+        prepare_layout.addWidget(self.segment_opts)
+        self.transcribe_opts = QWidget()
+        tr_form = QFormLayout(self.transcribe_opts)
+        tr_form.setContentsMargins(0, 0, 0, 0)
+        self.transcribe_model = QLabel("")
+        self.transcribe_model.setObjectName("muted")
+        tr_form.addRow(tr("Model:"), self.transcribe_model)
+        tr_note = QLabel(
+            tr(
+                "Nahrávky se jen přepíší Whisperem do pracovní složky, v jazyce z lišty "
+                "nahoře; model podle vybraného protokolu. Žádné feature se nepočítají; "
+                "přepisy jde před výpočtem ručně zkontrolovat."
+            )
+        )
+        tr_note.setObjectName("muted")
+        tr_note.setWordWrap(True)
+        tr_form.addRow("", tr_note)
+        prepare_layout.addWidget(self.transcribe_opts)
+        prepare_layout.addStretch(1)
+        self.prepare_box.hide()
+        right_layout.addWidget(self.prepare_box, 1)
 
         # rozšířený režim: souhrn výběru; úpravy jdou přes Upravit… na kartě
         # a Nový protokol…, každá změna se uloží do protokolu
@@ -291,26 +374,6 @@ class BatchPage(QWidget):
         self.editor_summary.setWordWrap(True)
         adv.addWidget(self.editor_summary)
         adv_buttons = QHBoxLayout()
-        self.segment_btn = QPushButton(tr("Jen segmentace"))
-        self.segment_btn.setToolTip(
-            tr(
-                "Spustí jen segmentaci řeči do pracovní složky (model z protokolu, "
-                "výchozí conformer). Výpočet feature ji pak vezme z cache."
-            )
-        )
-        self.segment_btn.setEnabled(False)
-        self.segment_btn.clicked.connect(lambda: self._prepare("segments"))
-        adv_buttons.addWidget(self.segment_btn)
-        self.transcribe_btn = QPushButton(tr("Jen přepis"))
-        self.transcribe_btn.setToolTip(
-            tr(
-                "Spustí jen přepis Whisperem do pracovní složky, v jazyce z lišty. "
-                "Přepisy jde před výpočtem ručně zkontrolovat."
-            )
-        )
-        self.transcribe_btn.setEnabled(False)
-        self.transcribe_btn.clicked.connect(lambda: self._prepare("transcript"))
-        adv_buttons.addWidget(self.transcribe_btn)
         adv_buttons.addStretch(1)
         self.new_btn = QPushButton(tr("Nový protokol…"))
         self.new_btn.setToolTip(
@@ -587,9 +650,61 @@ class BatchPage(QWidget):
 
     def set_advanced(self, advanced: bool) -> None:
         self._advanced = advanced
-        self.advanced_box.setVisible(advanced)
+        self.mode_row.setVisible(advanced)
+        if not advanced:
+            self.set_mode("extract")  # základní režim umí jen výpočet feature
+        self.advanced_box.setVisible(advanced and self._mode == "extract")
         self.protocols.set_advanced(advanced)
         self._fill_files()
+
+    # --- režim běhu (rozšířený režim) -------------------------------------------------
+
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    def set_mode(self, mode: str) -> None:
+        """Výpočet feature, jen segmentace, nebo jen přepis; mění obsah kroku 3."""
+        if mode not in contract.RUN_MODES:
+            return
+        if mode == "transcript" and not self._transcript_allowed():
+            mode = "extract"
+        self._mode = mode
+        btn = self.mode_buttons[mode]
+        if not btn.isChecked():
+            btn.setChecked(True)
+        self.protocols.setVisible(mode == "extract")
+        self.prepare_box.setVisible(mode != "extract")
+        self.segment_opts.setVisible(mode == "segments")
+        self.transcribe_opts.setVisible(mode == "transcript")
+        self.advanced_box.setVisible(self._advanced and mode == "extract")
+        self.step3_title.setText(
+            {
+                "extract": tr("Protokol"),
+                "segments": tr("Segmentace"),
+                "transcript": tr("Přepis (Whisper)"),
+            }[mode]
+        )
+        self._update_run_state()
+
+    def _transcript_allowed(self) -> bool:
+        proto = self.current_protocol()
+        return proto is None or proto.task in contract.TRANSCRIPT_TASKS
+
+    def _sync_mode_to_protocol(self) -> None:
+        """Po změně protokolu: přepis jen u souvislé řeči, výchozí modely z protokolu."""
+        proto = self.current_protocol()
+        self.mode_buttons["transcript"].setEnabled(self._transcript_allowed())
+        if self._mode == "transcript" and not self._transcript_allowed():
+            self.set_mode("segments")
+        if proto is not None:
+            model = proto.segments_model()
+            idx = self.segment_model.findData(model if model != "auto" else "conformer")
+            self.segment_model.blockSignals(True)
+            self.segment_model.setCurrentIndex(max(0, idx))
+            self.segment_model.blockSignals(False)
+            transcript = proto.config.get("transcript", {})
+            self.transcribe_model.setText(str(transcript.get("model", "large-v3")))
 
     def set_folder(self, folder: Path) -> None:
         self.folder.setText(str(folder))
@@ -764,6 +879,7 @@ class BatchPage(QWidget):
 
     def _protocol_changed(self, proto: Protocol | None) -> None:
         self.editor.set_protocol(proto)  # kvůli souhrnu v rámečku
+        self._sync_mode_to_protocol()
         self._update_run_state()
 
     def edit_protocol(self, proto: Protocol | None) -> Protocol | None:
@@ -805,8 +921,6 @@ class BatchPage(QWidget):
         proto = self.current_protocol()
         ok = bool(self._recordings) and proto is not None and self._library is not None
         self.run_btn.setEnabled(ok)
-        self.segment_btn.setEnabled(ok)
-        self.transcribe_btn.setEnabled(ok)
         self.new_btn.setEnabled(self.editor.has_catalog())
         self._update_editor_summary()
         self._update_step1_hint()
@@ -816,9 +930,17 @@ class BatchPage(QWidget):
             if proto is not None
             else ""
         )
-        self.step3_hint.setText(
-            proto.display_name if proto is not None else tr("Co se má spočítat.")
-        )
+        work_hint = tr("do mezivýsledků (work)")
+        if self._mode == "segments":
+            self.step3_hint.setText(work_hint)
+        elif self._mode == "transcript":
+            self.step3_hint.setText(
+                f"{contract.language_label(self.language_code())} · {work_hint}"
+            )
+        else:
+            self.step3_hint.setText(
+                proto.display_name if proto is not None else tr("Co se má spočítat.")
+            )
         self.continue_btn.setEnabled(bool(self._recordings))
         if not self._recordings:
             self.status1.setText(tr("Vyber složku s nahrávkami."))
@@ -830,6 +952,18 @@ class BatchPage(QWidget):
             )
             if proto is None:
                 self.status.setText(tr("Vyber protokol."))
+            elif self._mode == "segments":
+                self.status.setText(
+                    self._count_text()
+                    + f" · {contract.RUN_MODE_LABELS['segments']} · "
+                    + str(self.segment_model.currentData())
+                )
+            elif self._mode == "transcript":
+                self.status.setText(
+                    self._count_text() + f" · {contract.RUN_MODE_LABELS['transcript']} · "
+                    f"{contract.language_label(self.language_code())} · "
+                    + self.transcribe_model.text()
+                )
             else:
                 self.status.setText(
                     self._count_text() + f" · {contract.TASK_LABELS[proto.task]} · "
@@ -879,6 +1013,9 @@ class BatchPage(QWidget):
         proto = self.effective_protocol()
         if proto is None:
             return
+        if self._mode != "extract":
+            self._prepare(self._mode)
+            return
         if self._library is not None and not self._doctor_known:
             # Zpráva doctor ještě nedorazila (klik hned po startu): počkat na pozadí,
             # ať klinik nespustí hodinový běh s prázdnými sloupci. Storno = nespouštět.
@@ -925,34 +1062,20 @@ class BatchPage(QWidget):
                 return
         self.run_requested.emit(proto, [r.path for r in self._recordings])
 
+    def prepare_options(self) -> dict[str, object]:
+        """Volby mezivýsledku z kroku 3 (model segmentace, vyříznutá řeč, jazyk přepisu)."""
+        if self._mode == "segments":
+            return {
+                "model": str(self.segment_model.currentData()),
+                "cut_audio": self.cut_audio.isChecked(),
+            }
+        return {"language": self.language_code()}
+
     def _prepare(self, kind: str) -> None:
+        """Jen segmentace nebo jen přepis; volby jsou přímo na stránce, bez dialogu."""
         proto = self.effective_protocol()
         if proto is None:
             return
-        n = len(self._recordings)
-        if kind == "segments":
-            choices: list[str] | None = None
-            if self._library is not None:
-                try:
-                    param = next(
-                        p for p in self._library.params("segments").params if p.name == "model"
-                    )
-                    choices = [str(c) for c in (param.choices or [])] or None
-                except (LibraryError, StopIteration):
-                    choices = None
-            dialog: SegmentDialog | TranscribeDialog = SegmentDialog(
-                n, model=proto.segments_model(), choices=choices, parent=self
-            )
-        else:
-            transcript = proto.config.get("transcript", {})
-            dialog = TranscribeDialog(
-                n,
-                language=self.language_code(),
-                languages=[self.language.itemData(i) for i in range(self.language.count())],
-                model=str(transcript.get("model", "large-v3")),
-                parent=self,
-            )
-        if dialog.exec():
-            self.prepare_requested.emit(
-                kind, proto, [r.path for r in self._recordings], dialog.options()
-            )
+        self.prepare_requested.emit(
+            kind, proto, [r.path for r in self._recordings], self.prepare_options()
+        )

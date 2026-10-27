@@ -115,9 +115,14 @@ i složku (`history.rename_run_dir`, datum a čas zůstávají, prázdný název
 slug protokolu z `protocol.yaml`); běžící běh nebo složku s otevřeným souborem
 (Excel) přejmenovat nejde, pak zůstane jen `label`; stránky si cesty přepíší
 přes `relocate(old, new)`;
-v rozšířeném režimu souhrn feature, Upravit…, Uložit jako protokol…,
-Jen segmentace, Jen přepis; Spustit se před nepřipraveným providerem
-zeptá; délka nahrávek z hlavičky WAV/FLAC (`backend/audio.py`) a odhad
+v rozšířeném režimu souhrn feature, Upravit…, Uložit jako protokol…
+a pod úlohou řada „Spustit:“ Výpočet feature · Jen segmentace · Jen přepis
+(`contract.RUN_MODES`, `BatchPage.set_mode`): krok 3 pak místo karet ukáže
+volby mezivýsledku (model segmentace z `contract.SEGMENT_MODELS`, vyříznutá
+řeč; model Whisperu z protokolu, jazyk z lišty), bez dialogu; přepis jen pro
+story, monologue, reading (`TRANSCRIPT_TASKS`), u fonace a DDK jen
+segmentace; po startu vždy výpočet feature; Spustit se před nepřipraveným
+providerem zeptá; délka nahrávek z hlavičky WAV/FLAC (`backend/audio.py`) a odhad
 dávky podle minut zvuku, statistika `stats/<slug>/seconds_per_audio_minute`) · Protokoly (přibalené ke čtení, kopie, vlastní s editorem, import,
 export, smazání) · Výpočet (tabulka nahrávek × providerů, odhad času, Zrušit
 s potvrzením, fronta dalších dávek: Spustit během běhu zařadí, po konci
