@@ -130,14 +130,18 @@ u DDK žádný mezivýsledek (`SEGMENT_TASKS`, slabiky hledá ddk_events); po st
 vždy výpočet feature; Spustit se před nepřipraveným
 providerem zeptá; délka nahrávek z hlavičky WAV/FLAC (`backend/audio.py`) a odhad
 dávky podle minut zvuku, statistika `stats/<slug>/seconds_per_audio_minute`) · Protokoly (přibalené ke čtení, kopie, vlastní s editorem, import,
-export, smazání) · Výpočet (tabulka nahrávek × providerů, odhad času, Zrušit
+export, smazání) · Výpočet (tabulka nahrávek × providerů bez `ResizeToContents`, šířky přepočítá
+`_fit_columns` po naplnění a po každé nahrávce, při přehrání z historie jednou na
+konci s vypnutým překreslováním, jinak 500 nahrávek trvalo 46 s; odhad času, Zrušit
 s potvrzením, fronta dalších dávek: Spustit během běhu zařadí, po konci
 se pustí další, `Job` v `main_window.py`; stavová karta `widgets/status_header.py` nahoře, tabulka
 nahrávek v kartě, výsledek jako štítek přes buňku) · Výsledky (historie běhů ze složek v Dokumentech přes
 `backend/history.py` a `run.json` jako karty (`widgets/run_history.py`, `RunCard`
 se štítkem stavu, API `count/card/current_row/select_row`), stavová karta se
 štítky počtů (klik přepne filtr), tabulka vybraného běhu v kartě se zmrazeným prvním
-sloupcem (`widgets/frozen_table.py`), hledání sloupce, popis sloupce
+sloupcem (`widgets/frozen_table.py`; šířky sloupců se měří z hlavičky a prvních
+`SAMPLE_ROWS` řádků, celý jen sloupec s názvem souboru, u 500 × 135 buněk trvalo
+měření všech 10 s), hledání sloupce, popis sloupce
 v tooltipu z `list --json`, detail nahrávky (`ui/recording_detail.py`),
 Spočítat znovu chybné = nová dávka `Job.merge_into`, řádky se vrátí do
 původní tabulky přes `backend/results.merge_results`) · Prostředí navíc

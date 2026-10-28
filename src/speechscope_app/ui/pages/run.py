@@ -303,8 +303,10 @@ class RunPage(QWidget):
         self.files.setColumnCount(len(labels))
         self.files.setHorizontalHeaderLabels(labels)
         header = self.files.horizontalHeader()
+        # Šířky se přepočítávají výslovně (_fit_columns) po naplnění a po každé nahrávce;
+        # ResizeToContents by je počítal po každé změněné buňce, u 500 nahrávek desítky sekund.
         for col in range(len(labels) - 1):
-            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(self.col_status, QHeaderView.ResizeMode.Fixed)
         self.files.setColumnWidth(self.col_status, self._status_width())
         header.setStretchLastSection(True)
@@ -341,8 +343,12 @@ class RunPage(QWidget):
             self._set_cell(row, self.COL_FILE, name, tooltip=str(self._row_paths.get(row, "")))
             self._set_cell(row, self.col_status, tr("čeká"), color=theme.MUTED)
             self._set_cell(row, self.col_note, "")
+        self._fit_columns()
+
+    def _fit_columns(self) -> None:
+        """Šířky sloupců podle obsahu, sloupec výsledku pevný (štítek, ne text)."""
         self.files.resizeColumnsToContents()
-        self.files.setColumnWidth(self.col_status, self._status_width())  # ne podle textu
+        self.files.setColumnWidth(self.col_status, self._status_width())
 
     def _ensure_row(self, index: int, path: str) -> None:
         """Knihovna může najít jiné soubory než GUI; řádek se doplní."""
@@ -482,7 +488,8 @@ class RunPage(QWidget):
                 self._stage_started_at = None
                 self._ensure_row(event.index, event.path)
                 self._set_cell(event.index, self.col_status, tr("běží"), color=theme.ACCENT)
-                self.files.scrollToItem(self.files.item(event.index, self.COL_FILE))
+                if self._viewing is None:  # živý běh sleduje počítanou nahrávku
+                    self.files.scrollToItem(self.files.item(event.index, self.COL_FILE))
                 self._update_current()
             case contract.StageEvent():
                 if event.running:
@@ -507,6 +514,7 @@ class RunPage(QWidget):
                 self._set_cell(event.index, self.col_note, event.msg or "", tooltip=event.msg)
                 self.bar.setValue(state.processed)
                 if self._viewing is None:
+                    self._fit_columns()  # při přehrání z historie až jednou na konci
                     self.progress_changed.emit(f"{state.processed}/{state.total}")
                     self.file_done.emit(state.processed, state.total)
                 self._update_timing()
@@ -767,6 +775,7 @@ class RunPage(QWidget):
         events_file = info.dir / "events.jsonl"
         state = contract.BatchState()
         if events_file.is_file():
+            self.files.setUpdatesEnabled(False)  # tisíce buněk najednou, překreslit až na konci
             for line in events_file.read_text(encoding="utf-8").splitlines():
                 if line.startswith('{"event": "inputs"'):
                     try:
@@ -782,6 +791,8 @@ class RunPage(QWidget):
                     continue
                 state.apply(event)
                 self._render_event(event, state)
+            self._fit_columns()
+            self.files.setUpdatesEnabled(True)
             self.bar.setRange(0, max(1, state.total))
             self.bar.setValue(state.processed)
             self.current.setText("")

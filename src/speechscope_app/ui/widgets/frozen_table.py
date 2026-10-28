@@ -10,6 +10,8 @@ from __future__ import annotations
 from PySide6.QtCore import QAbstractItemModel, QModelIndex, Qt
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTableView, QWidget
 
+SAMPLE_ROWS = 25  # kolik řádků se měří při hledání šířky sloupce
+
 
 class FrozenTableView(QTableView):
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -35,6 +37,16 @@ class FrozenTableView(QTableView):
         self.verticalScrollBar().valueChanged.connect(self.frozen.verticalScrollBar().setValue)
         self.frozen.verticalScrollBar().valueChanged.connect(self.verticalScrollBar().setValue)
         self.frozen.doubleClicked.connect(self.doubleClicked)
+        # Šířky sloupců z hlavičky a prvních řádků: u tabulky 500 × 135 trvalo měření
+        # všech buněk přes 10 s. První sloupec (název souboru) se měří celý.
+        self.horizontalHeader().setResizeContentsPrecision(SAMPLE_ROWS)
+
+    def resizeColumnsToContents(self) -> None:  # noqa: N802
+        header = self.horizontalHeader()
+        super().resizeColumnsToContents()
+        header.setResizeContentsPrecision(-1)
+        self.resizeColumnToContents(0)
+        header.setResizeContentsPrecision(SAMPLE_ROWS)
 
     def setModel(self, model: QAbstractItemModel | None) -> None:  # noqa: N802
         super().setModel(model)
