@@ -18,8 +18,8 @@ def test_reads_excel_style_csv(tmp_path: Path) -> None:
     )
     assert find_manifest(tmp_path) == manifest
     m = read_manifest(manifest, tmp_path)
-    assert m.columns == ["pacient", "skupina"]
-    assert m.meta_for(tmp_path / "p01.wav") == {"pacient": "PD001", "skupina": "PD"}
+    assert m.columns == ["subject", "group"]  # aliasy na kanonické názvy
+    assert m.meta_for(tmp_path / "p01.wav") == {"subject": "PD001", "group": "PD"}
     assert m.matched([tmp_path / "p01.wav", tmp_path / "p02.wav", tmp_path / "p03.wav"]) == 2
     assert len(m.problems) == 1 and "chybi.wav" in m.problems[0]
 
@@ -54,5 +54,31 @@ def test_write_normalized_covers_all_recordings(tmp_path: Path) -> None:
     with out.open(encoding="utf-8", newline="") as fh:
         rows = list(csv.DictReader(fh))
     assert [r["task"] for r in rows] == ["spontaneous", "spontaneous"]
-    assert rows[0]["pacient"] == "PD001" and rows[1]["pacient"] == ""
+    assert rows[0]["subject"] == "PD001" and rows[1]["subject"] == ""
     assert Path(rows[1]["path"]).is_absolute()
+
+
+def test_manifest_canonicalizes_metadata_columns(tmp_path: Path) -> None:
+    (tmp_path / "p01.wav").write_bytes(b"RIFF")
+    src = tmp_path / "manifest.csv"
+    src.write_text(
+        "path;Pacient;Věk;Pohlaví;Návštěva;skupina;UPDRS III;id\n"
+        "p01.wav;P-017;64;muž;2026-10-14;PD;31;dup\n",
+        encoding="utf-8",
+    )
+    m = read_manifest(src, tmp_path)
+    # id by bylo druhé subject: kolize nechá původní jméno
+    assert m.columns == ["subject", "age", "sex", "visit", "group", "UPDRS III", "id"]
+    row = m.meta_for(tmp_path / "p01.wav")
+    assert row == {
+        "subject": "P-017",
+        "age": "64",
+        "sex": "muž",
+        "visit": "2026-10-14",
+        "group": "PD",
+        "UPDRS III": "31",
+        "id": "dup",
+    }
+    out = write_normalized(tmp_path / "run" / "manifest.csv", [tmp_path / "p01.wav"], "ddk", m)
+    header = out.read_text(encoding="utf-8").splitlines()[0]
+    assert header == "path,task,subject,age,sex,visit,group,UPDRS III,id"

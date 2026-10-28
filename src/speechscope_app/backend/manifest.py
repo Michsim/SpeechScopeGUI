@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .. import contract
 from ..i18n import tr
+from . import meta
 
 RESERVED = ("path", "task")
 DEFAULT_NAMES = ("manifest.csv", "metadata.csv")
@@ -80,7 +81,15 @@ def read_manifest(path: Path, base: Path | None = None) -> Manifest:
             )
         )
         return manifest
-    manifest.columns = [n for n in names if n not in RESERVED]
+    # Názvy sloupců metadat na kanonické (Pacient -> subject, Věk -> age…), aby
+    # features.csv měl vždy stejné sloupce pro vyšetření a normy. Kolize (dva
+    # sloupce na jedno jméno) nechá druhý sloupec, jak je.
+    originals = [n for n in names if n not in RESERVED]
+    mapping: dict[str, str] = {}
+    for name in originals:
+        canonical = meta.canonical_column(name)
+        mapping[name] = canonical if canonical not in mapping.values() else name
+    manifest.columns = [mapping[n] for n in originals]
     for lineno, raw in enumerate(reader, start=2):
         row = {(k or "").strip(): (v or "").strip() for k, v in raw.items() if k is not None}
         rel = row.get("path", "")
@@ -101,7 +110,7 @@ def read_manifest(path: Path, base: Path | None = None) -> Manifest:
             )
             task = ""
         key = _key(target)
-        manifest.rows[key] = {c: row.get(c, "") for c in manifest.columns}
+        manifest.rows[key] = {mapping[n]: row.get(n, "") for n in originals}
         if task:
             manifest.tasks[key] = task
     if not manifest.rows and not manifest.problems:

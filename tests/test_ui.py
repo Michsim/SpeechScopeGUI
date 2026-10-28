@@ -589,14 +589,14 @@ def test_manifest_metadata_reach_results(
     page.set_folder(recordings)
     assert page.manifest() is not None
     headers = [page.files.horizontalHeaderItem(c).text() for c in range(page.files.columnCount())]
-    assert headers[-2:] == ["pacient", "skupina"]
+    assert headers[-2:] == ["subject", "group"]  # kanonické názvy sloupců
     assert "2 z 4" in page.manifest_label.text()
     assert page.select_protocol("Fonace, základní")
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
         page.run_btn.click()
     frame = window.results_page._frame
-    assert frame is not None and "pacient" in frame.columns
-    by_file = dict(zip(frame["file"], frame["pacient"].fillna(""), strict=True))
+    assert frame is not None and "subject" in frame.columns
+    by_file = dict(zip(frame["file"], frame["subject"].fillna(""), strict=True))
     assert by_file["p01.wav"] == "PD001" and by_file["p02_bad.wav"] == ""
     run_dir = next(settings.work_root.glob("*_fonace-zakladni"))
     assert (run_dir / "manifest.csv").is_file()
