@@ -17,6 +17,8 @@ from speechscope_app.ui.main_window import PAGE_ASSESSMENT, PAGE_RESULTS, MainWi
 from speechscope_app.ui.pages.assessment import format_number, worst_band
 from speechscope_app.ui.widgets.spider_chart import Axis, SpiderChart, format_sd
 
+PAUSE = "acoustic.timing.pauses.median"  # jediná položka dimenze Pauzy a tempo
+
 
 @pytest.fixture
 def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AppSettings:
@@ -73,6 +75,7 @@ def make_runs(root: Path) -> None:
                 "sex": "m",
                 "visit": "2026-10-14",
                 RATE: 2.5,
+                PAUSE: 1.6,
             }
         ],
     )
@@ -91,9 +94,12 @@ def make_runs(root: Path) -> None:
 
 
 def save_norm(folder: Path) -> Norm:
+    controls = controls_frame()
+    reading = controls["task"] == "reading"
+    controls.loc[reading, PAUSE] = [0.3 + 0.01 * i for i in range(int(reading.sum()))]  # 0,3 až 0,9
     norm = Norm(
         NormInfo(name="Testovací norma", names={"en": "Test norm"}, source="SAMI", language="cs"),
-        controls_frame(),
+        controls,
     )
     norm.save(folder / "testovaci-norma")
     return norm
@@ -174,9 +180,9 @@ def test_manual_assessment_create_score_edit_and_delete(
     assert "Jazyk: potřebuje úlohu Spontánní řeč" in page.missing_label.text()
     assert page.tree.topLevelItemCount() == 7
     voice = page.tree.topLevelItem(0)
-    assert voice.text(0) == "Kvalita hlasu" and voice.childCount() == 5 and voice.isExpanded()
-    jitter = voice.child(0)
-    assert jitter.text(1) == "Fonace" and jitter.text(2).startswith("3,00")
+    assert voice.text(0) == "Kvalita hlasu" and voice.childCount() == 3 and voice.isExpanded()
+    hnr = voice.child(0)  # HNR, CPPS, F0 SD z fonace; CPPS ze spontánní řeči tu není
+    assert hnr.text(1) == "Fonace" and hnr.text(2).startswith("12,0")
     assert "Fonace: " in page.selection_label.text() and "jen muži" in page.selection_label.text()
     assert "60 osob" in page.about.text() and page.image_btn.isEnabled()
     assert page.recordings.item(0, 3).text() == ""  # norma protokoly nezná

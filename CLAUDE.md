@@ -195,6 +195,14 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   hodnoty vyšetření po úlohách (víc nahrávek = průměr po feature), skóre dimenze je průměr
   z položek, dimenze bez položky má `reason` a v pavouku není.
   `test_dimensions` hlídá, že každá položka existuje v katalogu falešky.
+  Výběr položek určil uživatel 28. 10. 2026 (klinický rozum, neměnit bez
+  domluvy): Kvalita hlasu = HNR, CPPS, F0 SD z fonace + CPPS ze spontánní
+  řeči; Artikulace = DDK tempo, VOT, délka vokálu + FRI a artikulační tempo
+  ze čtení a spontánní řeči (bez VSA, VAI); Rytmus = DDK regularita,
+  zpomalování, RIRV + variabilita tempa (bez VSDR); Prozódie = F0 SD a SD
+  intenzity ze čtení a spontánní řeči (bez F0 rozsahu a bez DDK); Pauzy
+  a tempo = jen medián pauz; Dýchání = nádechy za minutu a medián; Jazyk =
+  MATTR, hustota obsahových slov, MLU, entropie slov.
 - **Stránka Hodnocení** (`ui/pages/assessment.py`, `AssessmentPage`): vlevo
   uložená hodnocení (`VisitCard` se štítkem nejhoršího pásma `worst_band`:
   v normě, hraniční, mimo normu, bez normy; úlohy s počtem nahrávek

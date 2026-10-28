@@ -12,19 +12,14 @@ dimensions:
     name: Kvalita hlasu
     name_en: Voice quality
     items:
-      - column: acoustic.quality.perturbation.jitter_local
-        tasks: [phonation]
-        direction: higher
-        log: true
-      - column: acoustic.quality.perturbation.shimmer_local
-        tasks: [phonation]
-        direction: higher
-        log: true
       - column: acoustic.quality.perturbation.hnr
         tasks: [phonation]
         direction: lower
       - column: acoustic.quality.cpp.cpps
         tasks: [phonation]
+        direction: lower
+      - column: acoustic.quality.cpp.cpps
+        tasks: [spontaneous]
         direction: lower
       - column: acoustic.pitch.f0.std
         tasks: [phonation]
@@ -45,10 +40,7 @@ dimensions:
       - column: acoustic.ddk.vowel_length
         tasks: [ddk]
         direction: lower
-      - column: acoustic.articulation.vowels.VSA
-        tasks: [spontaneous, reading]
-        direction: lower
-      - column: acoustic.articulation.vowels.VAI
+      - column: acoustic.articulation.vowels.FRI
         tasks: [spontaneous, reading]
         direction: lower
       - column: acoustic.timing.speech_rate.articulation_rate
@@ -69,9 +61,6 @@ dimensions:
       - column: acoustic.ddk.intensity.rirv
         tasks: [ddk]
         direction: higher
-      - column: acoustic.timing.rhythm.vsdr
-        tasks: [spontaneous, reading]
-        direction: higher
       - column: acoustic.timing.speech_rate.speech_rate_variability
         tasks: [spontaneous, reading]
         direction: higher
@@ -83,35 +72,18 @@ dimensions:
       - column: acoustic.pitch.f0.std
         tasks: [reading, spontaneous]
         direction: lower
-      - column: acoustic.pitch.f0.range
-        tasks: [reading, spontaneous]
-        direction: lower
       - column: acoustic.intensity.stats.std
         tasks: [reading, spontaneous]
-        direction: lower
-      - column: acoustic.ddk.intensity.slope
-        tasks: [ddk]
         direction: lower
 
   - key: pauses
     name: Pauzy a tempo
     name_en: Pauses and tempo
     items:
-      - column: acoustic.timing.pauses.ratio
-        tasks: [spontaneous, reading]
-        direction: higher
-        log: true
       - column: acoustic.timing.pauses.median
         tasks: [spontaneous, reading]
         direction: higher
         log: true
-      - column: acoustic.timing.silences.median
-        tasks: [spontaneous, reading]
-        direction: higher
-        log: true
-      - column: acoustic.timing.speech_rate.speech_rate
-        tasks: [spontaneous, reading]
-        direction: lower
 
   - key: breathing
     name: Dýchání
@@ -124,9 +96,6 @@ dimensions:
         tasks: [spontaneous, reading]
         direction: higher
         log: true
-      - column: acoustic.timing.breaths.long_count
-        tasks: [spontaneous, reading]
-        direction: higher
 
   - key: language
     name: Jazyk
