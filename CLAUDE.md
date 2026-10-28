@@ -89,7 +89,8 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   `proto.display_name`, `proto.name` zůstává klíč.
 
 ## Stránky
-Pořadí v nabídce: Analýza · Výpočet · Výsledky · Protokoly · Prostředí.
+Pořadí v nabídce: Analýza · Výpočet · Výsledky · Hodnocení · Protokoly · Prostředí
+(`PAGE_ASSESSMENT`, popis stránky Hodnocení je v sekci Normy a dimenze).
 Po startu je vždy Uvítání (`pages/welcome.py`, v zásobníku jako
 `PAGE_WELCOME`, v nabídce není): logo, dvě věty, tlačítka Začít analýzu
 a Zkontrolovat prostředí; modré je to doporučené (`start_page()`: bez
@@ -154,6 +155,54 @@ protokolu.
 Dvojklik na kartu protokolu (Analýza, Protokoly) nebo odkaz „co se počítá“
 otevře `ui/protocol_detail.py`: strom skupina → feature → sloupec s popisem,
 providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
+
+## Normy a dimenze (srovnání s normou, pavouk)
+- **Norma** = složka `norms/<slug>/` s `norm.yaml` a `controls.csv`
+  (`backend/norms.py`): tabulka kontrol se sloupci `subject`, `task`, `age`,
+  `sex` a feature, žádné cesty ani jména. Přibalené v `speechscope_app/norms/`
+  (zatím žádná), vlastní v `settings.norms_dir()`. `Norm.select(task, age, sex)`
+  vybere kontroly ve věkovém okně ±10 let (`DEFAULT_WINDOW`), pod 15 kontrol
+  (`MIN_CONTROLS`) okno rozšíří na ±15, ±20, bez okna a označí `widened`;
+  `same_sex` se pustí dřív než věk. `Selection.score` dává z-skóre otočené
+  k patologii (kladné = horší), percentil mezi kontrolami a pásmo
+  `ok` < 1 SD < `warn` < 2 SD < `bad`; `log=True` počítá po logaritmu.
+  `build_norm` vyrobí normu z tabulek běhů (filtr podle sloupce skupiny).
+- **Vyhrazené sloupce metadat** (`backend/meta.py`): `subject`, `visit`, `age`,
+  `sex`, `group`, s aliasy bez diakritiky (`pacient`, `vek`, `pohlavi`…);
+  pohlaví se normalizuje na `f`/`m`, věk na číslo. Manifest převádí názvy
+  sloupců na kanonické už při čtení (`read_manifest`), takže `features.csv`
+  má vždy `subject`, `age`…; kolize dvou sloupců na jedno jméno nechá druhý
+  původní.
+- **Index vyšetření** (`backend/visits.py`, `VisitIndex`): řádky všech
+  skončených běhů (běžící se neotvírá) seskupené podle `subject` a `visit`;
+  bez pacienta je pacientem název souboru (`explicit=False`), bez návštěvy
+  datum běhu. Cache v paměti podle cesty, mtime a velikosti `features.csv`,
+  `refresh()` po skončeném, smazaném nebo přejmenovaném běhu.
+  `Visit.rows_by_task()` je vstup pro `dimensions.evaluate`. Návrh stránky
+  Hodnocení je v `docs/navrh-gui-3-norma.md`.
+- **Dimenze** (`assets/dimensions.yaml`, `backend/dimensions.py`): dimenze →
+  položky (sloupec, úlohy, směr `higher`/`lower`, `log`). `evaluate` bere
+  hodnoty vyšetření po úlohách (víc nahrávek = medián), skóre dimenze je průměr
+  z položek, dimenze bez položky má `reason` a v pavouku není.
+  `test_dimensions` hlídá, že každá položka existuje v katalogu falešky.
+- **Stránka Hodnocení** (`ui/pages/assessment.py`, `AssessmentPage`): vlevo
+  karty vyšetření z `VisitIndex` se štítkem nejhoršího pásma (`worst_band`:
+  v normě, hraniční, mimo normu, bez normy) a hledáním pacienta; vpravo
+  hlavička pacienta se štítky dimenzí, výběr normy, věkového okna a „jen stejné
+  pohlaví“ (řádek pod tím říká, kolik kontrol se vybralo po úlohách); pod
+  hlavičkou se roluje (`self.scroll`): pavouk přes celou šířku s legendou vedle,
+  pod ním strom na celou šířku (první sloupec se roztahuje); pavouk
+  (`widgets/spider_chart.py`, `SpiderChart.set_axes`, kružnice 1 a 2 SD, jedna
+  osa = pruh), strom dimenze → položka (úloha, pacient, norma, z, percentil),
+  chybějící dimenze s důvodem, nahrávky vyšetření a O normě. Bez normy ukáže
+  jen nahrávky a kde normu vzít. Uložit obrázek… = PNG pavouka (`save_image`).
+  Přidat nahrávku z jiného běhu… (`AddRecordingDialog`) zařadí nahrávku ručně
+  k vyšetření, ukládá se do `settings.visits_file()` (`visits.json`, klíč
+  `<složka běhu>#<řádek>`), Vyřadit to vrátí. Na Výsledcích pravé tlačítko
+  „Otevřít v Hodnocení“ (`ResultsPage.assess_requested` →
+  `MainWindow.show_assessment` → `show_row`). Stránka se obnoví při zobrazení
+  a po skončeném běhu. Zbývá: Uložit jako normu a Normy na Protokolech, PDF,
+  vývoj v čase.
 
 ## Pasti z knihovny, které GUI hlídá
 - Podproces vždy s `PYTHONUTF8=1` (`library.subprocess_env`). Bez toho

@@ -48,6 +48,7 @@ from ..i18n import tr
 from . import theme
 from .models_dialog import ModelsDownloadDialog
 from .models_install_dialog import ModelsInstallDialog
+from .pages.assessment import AssessmentPage
 from .pages.batch import BatchPage
 from .pages.environment import EnvironmentPage
 from .pages.protocols import ProtocolsPage
@@ -59,8 +60,8 @@ from .widgets.elided_label import ElidedLabel
 from .widgets.sidebar_nav import SidebarNav
 
 # Pořadí v nabídce: od každodenního (analýza) k jednorázovému (prostředí).
-PAGE_BATCH, PAGE_RUN, PAGE_RESULTS, PAGE_PROTOCOLS, PAGE_ENV = range(5)
-PAGE_WELCOME = 5  # uvítání po startu; v zásobníku stránek je, v nabídce ne
+PAGE_BATCH, PAGE_RUN, PAGE_RESULTS, PAGE_ASSESSMENT, PAGE_PROTOCOLS, PAGE_ENV = range(6)
+PAGE_WELCOME = 6  # uvítání po startu; v zásobníku stránek je, v nabídce ne
 
 
 @dataclass(slots=True)
@@ -117,12 +118,14 @@ class MainWindow(QMainWindow):
         self.protocols_page = ProtocolsPage()
         self.run_page = RunPage()
         self.results_page = ResultsPage()
+        self.assessment_page = AssessmentPage()
         self.welcome_page = WelcomePage()
 
         self.nav_labels = (
             tr("Analýza"),
             tr("Výpočet"),
             tr("Výsledky"),
+            tr("Hodnocení"),
             tr("Protokoly"),
             tr("Prostředí"),
         )
@@ -133,6 +136,7 @@ class MainWindow(QMainWindow):
             self.batch_page,
             self.run_page,
             self.results_page,
+            self.assessment_page,
             self.protocols_page,
             self.env_page,
             self.welcome_page,
@@ -218,8 +222,9 @@ class MainWindow(QMainWindow):
         self.batch_page.prepare_requested.connect(self._start_prepare)
         self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
-        for page in (self.batch_page, self.run_page, self.results_page):
+        for page in (self.batch_page, self.run_page, self.results_page, self.assessment_page):
             page.notice.connect(lambda text: self.statusBar().showMessage(text, 6000))
+        self.results_page.assess_requested.connect(self.show_assessment)
         self.run_page.progress_changed.connect(self._show_progress)
         self.run_page.file_done.connect(self._file_done)
         self.run_page.queue_remove.connect(self.remove_queued)
@@ -245,10 +250,20 @@ class MainWindow(QMainWindow):
     def _page_shown(self, index: int) -> None:
         if index == PAGE_RESULTS:
             self.results_page.refresh()
+        elif index == PAGE_ASSESSMENT:
+            self.assessment_page.refresh()
         elif index == PAGE_RUN:
             self.run_page.refresh_history()
         elif index == PAGE_ENV:
             self.env_page.refresh_cache()
+
+    def show_assessment(self, run_dir: Path, row: int) -> bool:
+        """Z Výsledků: vybere vyšetření řádku a přepne na Hodnocení."""
+        if not self.assessment_page.show_row(run_dir, row):
+            self.statusBar().showMessage(tr("Řádek nepatří k žádnému vyšetření."), 6000)
+            return False
+        self.nav.setCurrentRow(PAGE_ASSESSMENT)
+        return True
 
     def start_page(self) -> int:
         """Kam uvítání doporučí: Analýza; bez knihovny nebo bez modelů Prostředí."""
@@ -267,6 +282,7 @@ class MainWindow(QMainWindow):
         self.batch_page.set_advanced(self.settings.advanced)
         self.protocols_page.set_library(self.library)
         self.results_page.set_library(self.library)
+        self.assessment_page.set_library(self.library)
         self._apply_folders()
         self.protocols_page.set_advanced(self.settings.advanced)
         self.reload_protocols(self.settings.last_protocol)
@@ -306,6 +322,8 @@ class MainWindow(QMainWindow):
         """Složky z nastavení do všech stránek, které je ukazují nebo používají."""
         models_dir, work_root = self.settings.models_dir, self.settings.work_root
         self.results_page.set_work_root(work_root)
+        self.assessment_page.set_work_root(work_root, self.settings.visits_file())
+        self.assessment_page.set_norms_dir(self.settings.norms_dir())
         self.run_page.set_work_root(work_root)
         self.batch_page.set_work_root(work_root)
         self.env_page.set_work_dir(work_root / "work")
@@ -898,6 +916,7 @@ class MainWindow(QMainWindow):
                 moved_cut=collected.moved_cut if collected else None,
             )
         self.run_page.refresh_history(select=run_dir)
+        self.assessment_page.refresh()
         merged = self._merge_rerun(state)
         per_file = self.run_page.seconds_per_file()
         if per_file is not None and not cancelled and code == 0 and self._running_slug:

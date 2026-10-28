@@ -88,6 +88,7 @@ class FrameModel(QAbstractTableModel):
 class ResultsPage(QWidget):
     rerun_requested = Signal(object, list)  # složka běhu, cesty nahrávek s chybou
     notice = Signal(str)  # krátká hláška do stavového řádku hlavního okna
+    assess_requested = Signal(object, int)  # složka běhu, řádek ve features.csv → Hodnocení
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -440,7 +441,21 @@ class ResultsPage(QWidget):
         menu = file_menu(self, path, self.notice.emit)
         detail = menu.addAction(tr("Detail nahrávky…"))
         detail.triggered.connect(lambda: self.show_detail(index.row()))
+        assess = menu.addAction(tr("Otevřít v Hodnocení"))
+        assess.triggered.connect(lambda: self.assess_row(index.row()))
         menu.exec(view.viewport().mapToGlobal(pos))
+
+    def assess_row(self, row: int) -> None:
+        """Řádek tabulky → vyšetření na stránce Hodnocení (řádek podle features.csv)."""
+        data = self.detail_row(row)
+        if data is None or self._path is None or self._frame is None:
+            return
+        frame_row = row
+        if "file" in self._frame.columns:
+            hits = self._frame.index[self._frame["file"] == data.get("file")]
+            if len(hits) == 1:
+                frame_row = int(hits[0])
+        self.assess_requested.emit(self._path.parent, frame_row)
 
     def _detail_current(self) -> None:
         rows = self.table.selectionModel().selectedRows() if self.table.model() else []
