@@ -19,8 +19,8 @@ import datetime as dt
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSize, Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices
+from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -73,6 +73,7 @@ from ..widgets.spider_chart import (
     INWARD,
     OUTWARD,
     Axis,
+    ScaleLegend,
     ScoreBar,
     SpiderChart,
     format_sd,
@@ -333,7 +334,7 @@ class AssessmentPage(QWidget):
         self.image_btn = QPushButton(tr("Uložit obrázek…"))
         self.image_btn.setToolTip(tr("Pavouk jako PNG, třeba do zprávy."))
         self.image_btn.setEnabled(False)
-        self.image_btn.clicked.connect(self.save_image)
+        self.image_btn.clicked.connect(lambda: self.save_image())  # bez `checked` jako cesty
         self.header.add_button(self.image_btn)
         self.delete_btn = QPushButton(tr("Smazat…"))
         theme.set_role(self.delete_btn, "danger")
@@ -418,6 +419,8 @@ class AssessmentPage(QWidget):
         chart_row.addWidget(self.chart, 1)
         side = QVBoxLayout()
         side.setSpacing(10)
+        self.scale = ScaleLegend()  # co znamenají kružnice; pavouk má uvnitř jen „norma“
+        side.addWidget(self.scale)
         legend = tr(
             "● do 1 SD v normě · ● 1 až 2 SD hraniční · ● nad 2 SD mimo normu · "
             "● pod −1 SD lepší než kontroly"
@@ -682,6 +685,7 @@ class AssessmentPage(QWidget):
 
     def _apply_orientation(self, orientation: str) -> None:
         self.chart.set_orientation(orientation)
+        self.scale.set_orientation(orientation)
         self.chart_hint.setText(
             tr(
                 "čím větší plocha, tím blíž zdravým: silná kružnice je průměr kontrol, "
@@ -1303,16 +1307,22 @@ class AssessmentPage(QWidget):
 
     # --- export -----------------------------------------------------------------------
 
+    def _chart_image(self) -> QPixmap:
+        """Pavouk se stupnicí vedle, aby PNG do zprávy neslo i význam kružnic."""
+        return _side_by_side(self.chart.grab(self.chart.content_rect()), self.scale.grab())
+
     def save_image(self, path: Path | None = None) -> Path | None:
         if path is None:
             name = (self._current.subject if self._current else "pavouk") + ".png"
+            # výchozí místo: složka výsledků (Dokumenty\SpeechScope), ne pracovní adresář
+            folder = self._index.work_root if self._index is not None else Path.home()
             chosen, _ = QFileDialog.getSaveFileName(
-                self, tr("Uložit obrázek"), name, tr("Obrázek PNG (*.png)")
+                self, tr("Uložit obrázek"), str(folder / name), tr("Obrázek PNG (*.png)")
             )
             if not chosen:
                 return None
             path = Path(chosen)
-        pixmap = self.chart.grab()
+        pixmap = self._chart_image()
         if not pixmap.save(str(path), "PNG"):
             self.notice.emit(tr("Obrázek se nepodařilo uložit."))
             return None
@@ -1322,6 +1332,25 @@ class AssessmentPage(QWidget):
 
 def _open_folder(folder: Path) -> None:
     QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+
+def _side_by_side(left: QPixmap, right: QPixmap, gap: int = 12) -> QPixmap:
+    """Dva obrázky vedle sebe na bílém podkladu, svisle na střed.
+
+    Počítá v logických bodech a zachová poměr pixelů displeje (`grab` při
+    škálování 150 % vrací větší pixmapu), jinak by se obrázky zmenšily."""
+    dpr = left.devicePixelRatio() or 1.0
+    lw, lh = left.width() / dpr, left.height() / dpr
+    rw, rh = right.width() / dpr, right.height() / dpr
+    width, height = lw + gap + rw, max(lh, rh)
+    out = QPixmap(int(round(width * dpr)), int(round(height * dpr)))
+    out.setDevicePixelRatio(dpr)
+    out.fill(QColor(theme.CARD))
+    painter = QPainter(out)
+    painter.drawPixmap(QPointF(0, (height - lh) / 2), left)
+    painter.drawPixmap(QPointF(lw + gap, (height - rh) / 2), right)
+    painter.end()
+    return out
 
 
 def _selection_part(task: str, sel: Selection) -> str:

@@ -213,7 +213,7 @@ class RunHistory(QWidget):
         self.title = QLabel(title)
         self.title.setObjectName("section")
         self.refresh_btn = QPushButton(tr("Obnovit"))
-        self.refresh_btn.clicked.connect(self.refresh)
+        self.refresh_btn.clicked.connect(lambda: self.refresh())  # bez `checked` jako select
         self.delete_btn = QPushButton(tr("Smazat…"))
         self.delete_btn.setToolTip(
             tr("Přesune složku vybraného běhu do Koše. Nahrávek se to netýká.")

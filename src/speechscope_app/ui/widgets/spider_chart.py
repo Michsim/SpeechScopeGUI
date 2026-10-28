@@ -21,10 +21,11 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
+from ...i18n import tr
 from .. import theme
 
 MAX_SD = 3.0  # střed pavouka a pravý okraj pruhu (nejhorší)
@@ -84,6 +85,18 @@ class SpiderChart(QWidget):
 
     def orientation(self) -> str:
         return self._orientation
+
+    def content_rect(self) -> QRect:
+        """Výřez s pavoukem a popisky pro export: widget bývá širší než kresba."""
+        rect = self.rect()
+        if len(self._axes) < 2:
+            return rect
+        font = QFont(self.font())
+        font.setBold(True)
+        metrics = QFontMetrics(font)
+        label_w = max(metrics.horizontalAdvance(a.label) for a in self._axes)
+        width = min(rect.width(), rect.height() + 2 * label_w + 24)
+        return QRect(rect.center().x() - width // 2, rect.top(), width, rect.height())
 
     def set_orientation(self, orientation: str) -> None:
         if orientation in ORIENTATIONS and orientation != self._orientation:
@@ -216,22 +229,7 @@ class SpiderChart(QWidget):
             painter.setBrush(color)
             painter.drawEllipse(point(i, axis.score), 5, 5)
 
-        # popisky kružnic mezi první a druhou osou, na podkladu, aby je čára nepřekryla
-        painter.setFont(small)
-        small_metrics = painter.fontMetrics()
-        half = -math.pi / 2 + step / 2
-        for limit, text in ((2.0, "+2 SD"), (1.0, "+1 SD"), (0.0, "norma"), (-1.0, "−1 SD")):
-            r = ring(limit)
-            at = QPointF(center.x() + r * math.cos(half), center.y() + r * math.sin(half))
-            box = QRectF(small_metrics.boundingRect(text)).adjusted(-3, -1, 3, 1)
-            box.moveCenter(at)
-            back = QColor(theme.CARD)
-            back.setAlphaF(0.85)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(back)
-            painter.drawRoundedRect(box, 3, 3)
-            painter.setPen(QColor(theme.MUTED))
-            painter.drawText(box, int(Qt.AlignmentFlag.AlignCenter), text)
+        # kružnice bez popisků: co znamenají, říká stupnice vedle grafu (ScaleLegend)
 
         # popisky za koncem osy, zarovnané podle strany
         for i, axis in enumerate(self._axes):
@@ -319,6 +317,86 @@ class SpiderChart(QWidget):
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
             f"{axis.label}  {format_sd(axis.score)}",
         )
+
+
+class ScaleLegend(QWidget):
+    """Svislá stupnice k pavouku: pásma −2 až +3 SD s popisky, norma zvýrazněná.
+
+    Říká, co znamenají kružnice, aby pavouk sám nemusel mít popisky uvnitř;
+    podle orientace pavouka píše, který konec je střed a který okraj.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._orientation = INWARD
+        self.setFixedSize(150, 190)
+
+    def set_orientation(self, orientation: str) -> None:
+        if orientation in ORIENTATIONS and orientation != self._orientation:
+            self._orientation = orientation
+            self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: ANN001, N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(self.rect(), QColor(theme.CARD))
+        small = QFont(self.font())
+        small.setPointSizeF(max(7.0, self.font().pointSizeF() - 1))
+        painter.setFont(small)
+        metrics_h = painter.fontMetrics().height()
+        top, bottom = float(metrics_h + 6), float(self.height() - metrics_h - 6)
+        bar = QRectF(10, top, 16, bottom - top)
+
+        def y_of(value: float) -> float:
+            return bottom - (bottom - top) * fraction(value)  # nahoře horší (MAX_SD)
+
+        for start, limit, color in (
+            (MIN_SD, -1.0, BETTER_SOFT),
+            (-1.0, 1.0, BAND_SOFT["ok"]),
+            (1.0, 2.0, BAND_SOFT["warn"]),
+            (2.0, MAX_SD, BAND_SOFT["bad"]),
+        ):
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(color))
+            painter.drawRect(
+                QRectF(bar.left(), y_of(limit), bar.width(), y_of(start) - y_of(limit))
+            )
+        labels = (
+            (2.0, "+2 SD", theme.NEUTRAL, False),
+            (1.0, "+1 SD", theme.NEUTRAL, False),
+            (0.0, tr("norma"), theme.TEXT, True),
+            (-1.0, "−1 SD", theme.NEUTRAL, False),
+        )
+        for value, text, color, solid in labels:
+            y = y_of(value)
+            pen = QPen(QColor(color), 1.5 if solid else 1)
+            if not solid:
+                pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(bar.left() - 3, y), QPointF(bar.right() + 3, y))
+            painter.setPen(QColor(theme.TEXT if solid else theme.MUTED))
+            painter.drawText(
+                QRectF(
+                    bar.right() + 8, y - metrics_h / 2, self.width() - bar.right() - 8, metrics_h
+                ),
+                int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                text,
+            )
+        inward = self._orientation == INWARD
+        worse = tr("horší · střed") if inward else tr("horší · okraj")
+        better = tr("lepší · okraj") if inward else tr("lepší · střed")
+        painter.setPen(QColor(theme.MUTED))
+        painter.drawText(
+            QRectF(0, 0, self.width(), metrics_h),
+            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+            worse,
+        )
+        painter.drawText(
+            QRectF(0, self.height() - metrics_h, self.width(), metrics_h),
+            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+            better,
+        )
+        painter.end()
 
 
 class ScoreBar(QWidget):

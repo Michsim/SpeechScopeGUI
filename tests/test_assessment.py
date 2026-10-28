@@ -205,6 +205,14 @@ def test_manual_assessment_create_score_edit_and_delete(
     page.window_combo.setCurrentIndex(3)  # bez omezení
     assert page.evaluation().selections["phonation"].n == 60
     out = page.save_image(settings.work_root / "pavouk.png")
+    # tlačítko Uložit obrázek… nesmí dostat `checked` jako cestu (ukládalo soubor „False“)
+    target = settings.work_root / "z-tlacitka.png"
+    monkeypatch.setattr(
+        "speechscope_app.ui.pages.assessment.QFileDialog.getSaveFileName",
+        lambda *_a, **_k: (str(target), "Obrázek PNG (*.png)"),
+    )
+    page.image_btn.click()
+    assert target.is_file() and not Path("False").exists()
     assert out is not None and out.is_file() and out.stat().st_size > 0
 
     # úprava: druhá fonace se zprůměruje

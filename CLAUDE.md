@@ -134,8 +134,10 @@ export, smazání) · Výpočet (tabulka nahrávek × providerů bez `ResizeToCo
 `_fit_columns` po naplnění a po každé nahrávce, při přehrání z historie jednou na
 konci s vypnutým překreslováním, jinak 500 nahrávek trvalo 46 s; odhad času, Zrušit
 s potvrzením, fronta dalších dávek: Spustit během běhu zařadí, po konci
-se pustí další, `Job` v `main_window.py`; stavová karta `widgets/status_header.py` nahoře, tabulka
-nahrávek v kartě, výsledek jako štítek přes buňku) · Výsledky (historie běhů ze složek v Dokumentech přes
+se pustí další, `Job` v `main_window.py`; stavová karta `widgets/status_header.py` nahoře (štítky v zalamovaném
+`widgets/flow_layout.py`, řada štítků jinak tlačila minimální šířku okna přes
+obrazovku), tabulka nahrávek v kartě, výsledek jako štítek přes buňku; starý štítek
+se před výměnou skryje, Qt ho maže až z fronty událostí) · Výsledky (historie běhů ze složek v Dokumentech přes
 `backend/history.py` a `run.json` jako karty (`widgets/run_history.py`, `RunCard`
 se štítkem stavu, API `count/card/current_row/select_row`), stavová karta se
 štítky počtů (klik přepne filtr), tabulka vybraného běhu v kartě se zmrazeným prvním
@@ -221,6 +223,10 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   https://claude.ai/artifact/Bgky5AXRhPZvjuBZnixhu7 varianta 2b: otočený „větší =
   zdravější“, okraj −2 SD, silná kružnice 0 SD = norma, střed +3 SD, osa lineární
   v SD, pásma mimo normu / hraniční / v normě / světle modré lepší než kontroly;
+  kružnice bez popisků, význam říká svislá stupnice `ScaleLegend` vedle grafu
+  (do PNG se exportuje výřez pavouka `content_rect` i stupnice, `_chart_image`,
+  se zachovaným poměrem pixelů displeje; dialog Uložit obrázek… začíná ve složce
+  výsledků);
   jedna osa = pruh s nulou uprostřed, `ScoreBar` ve stromu též od nuly;
   dimenze nad 1 SD mají název barvou pásma, tlustší osu od nuly a vybarvenou
   výseč; dočasný přepínač orientace vedle grafu (`set_orientation`, INWARD =
@@ -403,6 +409,10 @@ uv run --with pillow python packaging\make_icon.py   # ikona a wordmark z icon\
 
 ## Styl
 - Typované signatury, `from __future__ import annotations`.
+- Tlačítko nikdy nenapojovat přímo na metodu s nepovinným prvním parametrem
+  (`clicked.connect(self.save_image)`): Qt předá `checked=False` jako argument
+  a metoda dostane `False` místo cesty (ukládalo soubor „False“). Vždy
+  `clicked.connect(lambda: self.save_image())`.
 - Komentáře, docstringy a texty v UI česky, identifikátory anglicky.
 - Nahrávky pacientů nikdy do gitu. `.gitignore` blokuje `data/`, `work/`,
   `out/`, `models/` a všechna audio mimo `tests/data/`.

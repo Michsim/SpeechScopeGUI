@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from .. import theme
+from .flow_layout import FlowLayout, flow_policy
 
 
 class Pill(QLabel):
@@ -51,16 +52,16 @@ class StatusHeader(QFrame):
         self.subtitle.setWordWrap(True)
         text.addWidget(self.title)
         text.addWidget(self.subtitle)
-        self.pills = QHBoxLayout()
-        self.pills.setSpacing(6)
-        self.pills.addStretch(1)
-        text.addLayout(self.pills)
         top.addLayout(text, 1)
         self.buttons = QHBoxLayout()
         self.buttons.setSpacing(8)
         top.addLayout(self.buttons, 0)
         top.setAlignment(self.buttons, Qt.AlignmentFlag.AlignTop)
         outer.addLayout(top)
+        # štítky pod titulkem přes celou šířku karty a zalamované: sedm dimenzí
+        # v jedné řadě vedle tlačítek tlačilo minimální šířku okna přes obrazovku
+        self.pills = FlowLayout(spacing=6)
+        outer.addLayout(self.pills)
         self.body = QVBoxLayout()
         self.body.setSpacing(4)
         outer.addLayout(self.body)
@@ -86,5 +87,6 @@ class StatusHeader(QFrame):
         for text, role, tooltip, action in pills:
             pill = Pill(text, role, action)
             pill.setToolTip(tooltip)
-            self.pills.insertWidget(self.pills.count() - 1, pill)
+            flow_policy(pill)
+            self.pills.addWidget(pill)
             self._pill_widgets.append(pill)

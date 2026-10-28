@@ -334,7 +334,10 @@ class RunPage(QWidget):
         self.files.clearContents()  # buňky ze startu bez sloupců providerů by zůstaly
         for row in range(self.files.rowCount()):
             for col in range(self.files.columnCount()):
-                self.files.removeCellWidget(row, col)
+                old = self.files.cellWidget(row, col)
+                if old is not None:
+                    old.hide()
+                    self.files.removeCellWidget(row, col)
         self.files.setRowCount(len(names))
         self._row_paths = {
             i: p for i, p in enumerate(self._paths) if i < len(names) and p.name == names[i]
@@ -412,6 +415,9 @@ class RunPage(QWidget):
         theme.set_role(pill, role)
         box.addWidget(pill, 0, Qt.AlignmentFlag.AlignVCenter)
         box.addStretch(1)
+        old = self.files.cellWidget(row, self.col_status)
+        if old is not None:
+            old.hide()  # Qt ho maže až z fronty událostí; do té doby by zůstal vidět
         self.files.setCellWidget(row, self.col_status, holder)
 
     def _stage_cell(self, stage: contract.StageEvent, elapsed: float | None = None) -> None:
