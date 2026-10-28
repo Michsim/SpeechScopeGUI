@@ -5,7 +5,9 @@ podmínky nahrávání, kontroly po úlohách (osoby, ženy a muži, věk, sloup
 rozložení věku a varování z `norms.norm_problems`. Přibalené normy jsou
 jen ke čtení. Export je jeden soubor (`.ssnorm`, zip s norm.yaml
 a controls.csv), import ho uloží jako vlastní normu vedle, nikdy nepřepíše.
-Normu ze složek s nahrávkami vyrobí průvodce Nová norma (zvlášť).
+Normu ze složek s nahrávkami vyrobí průvodce Nová norma (`ui/new_norm_dialog.py`);
+dokud se její dávky počítají, je v seznamu jako rozpracovaná (`NormPlan`) s akcemi
+Sestavit z hotových, Dopočítat zbývající a Zahodit. Spouštění řeší hlavní okno.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
+from ...backend.norm_build import CANCELLED, ERROR, OK, PENDING, RUNNING, NormPlan, pending_plans
 from ...backend.norms import (
     NORM_SUFFIX,
     Norm,
@@ -47,12 +50,34 @@ from ...backend.norms import (
     task_summaries,
     trash_norm,
 )
-from ...i18n import tr
+from ...i18n import N_, tr
 from .. import theme
 from ..widgets.elided_label import ElidedLabel
 from ..widgets.status_header import StatusHeader
 
 NORM_FILTER = "Norma SpeechScope (*.ssnorm)"
+
+PLAN_STATUS = {
+    PENDING: (N_("čeká"), "neutral"),
+    RUNNING: (N_("počítá se"), "accent"),
+    OK: (N_("hotovo"), "ok"),
+    ERROR: (N_("chyba"), "missing"),
+    CANCELLED: (N_("zrušeno"), "warn"),
+}
+
+
+def plan_status_text(status: str) -> str:
+    return tr(PLAN_STATUS.get(status, (status, ""))[0])
+
+
+def plan_pill(plan: NormPlan) -> tuple[str, str]:
+    """Štítek rozpracované normy: počítá se, čeká na sestavení, nebo čeká."""
+    n, k = len(plan.tasks), plan.done
+    if any(t.status == RUNNING for t in plan.tasks):
+        return tr("počítá se {k} z {n}").format(k=k, n=n), "accent"
+    if plan.all_finished:
+        return tr("čeká na sestavení"), "warn"
+    return tr("dávky {k} z {n}").format(k=k, n=n), "neutral"
 
 
 def format_age_range(age_range: tuple[float, float] | None) -> str:
@@ -123,6 +148,40 @@ class NormCard(QFrame):
         theme.set_role(self, "selected" if current else self._role)
 
 
+class PlanCard(QFrame):
+    """Karta rozpracované normy (dávky se počítají nebo čekají)."""
+
+    def __init__(self, plan: NormPlan, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.plan = plan
+        self.setObjectName("card")
+        text, self._role = plan_pill(plan)
+        theme.set_role(self, self._role)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(3)
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        self.title = ElidedLabel(plan.info.display_name)
+        self.title.setObjectName("card_title")
+        head.addWidget(self.title, 1)
+        self.pill = QLabel(text)
+        self.pill.setObjectName("pill")
+        theme.set_role(self.pill, self._role)
+        head.addWidget(self.pill, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(head)
+        tasks = ", ".join(contract.TASK_SHORT.get(t.task, t.task) for t in plan.tasks)
+        self.detail = QLabel(
+            tr("rozpracovaná · {n} kontrol · {tasks}").format(n=len(plan.controls), tasks=tasks)
+        )
+        self.detail.setObjectName("muted")
+        self.detail.setWordWrap(True)
+        layout.addWidget(self.detail)
+
+    def set_current(self, current: bool) -> None:
+        theme.set_role(self, "selected" if current else self._role)
+
+
 class AgeHistogram(QWidget):
     """Sloupce osob po desetiletích věku; kreslí se přes QPainter."""
 
@@ -175,13 +234,18 @@ class AgeHistogram(QWidget):
 
 class NormsPage(QWidget):
     norms_changed = Signal()  # import nebo smazání: Hodnocení si normy načte znovu
+    new_norm_requested = Signal()  # průvodce Nová norma (otevírá hlavní okno)
+    build_requested = Signal(object)  # složka plánu: sestavit z hotových dávek
+    resume_requested = Signal(object)  # složka plánu: dopočítat zbývající dávky
+    discard_requested = Signal(object)  # složka plánu: zahodit rozpracovanou normu
     notice = Signal(str)  # krátká hláška do stavového řádku hlavního okna
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._folder: Path | None = None
         self._norms: list[Norm] = []
-        self._cards: list[NormCard] = []
+        self._plans: list[NormPlan] = []
+        self._cards: list[NormCard | PlanCard] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -190,6 +254,11 @@ class NormsPage(QWidget):
         title = QLabel(tr("Normy"))
         title.setObjectName("page_title")
         head.addWidget(title, 1)
+        self.new_btn = QPushButton(tr("Nová norma…"))
+        self.new_btn.setToolTip(tr("Norma ze složek s nahrávkami zdravých kontrol"))
+        theme.set_role(self.new_btn, "primary")
+        self.new_btn.clicked.connect(self.new_norm_requested.emit)
+        head.addWidget(self.new_btn)
         self.import_btn = QPushButton(tr("Import…"))
         self.import_btn.setToolTip(
             tr("Přidat normu ze souboru .ssnorm, třeba od jiného pracoviště")
@@ -229,8 +298,8 @@ class NormsPage(QWidget):
         left_layout.addWidget(self.list, 1)
         self.empty = QLabel(
             tr(
-                "Zatím žádná norma. Normu dodá pracoviště jako soubor (Import…), "
-                "nebo ji vyrobíte z nahrávek zdravých kontrol."
+                "Zatím žádná norma. Vyrobte ji z nahrávek zdravých kontrol (Nová norma…), "
+                "nebo ji dodá pracoviště jako soubor (Import…)."
             )
         )
         self.empty.setObjectName("muted")
@@ -316,10 +385,102 @@ class NormsPage(QWidget):
         right_layout.addStretch(1)
         self.detail = right
         self.splitter.addWidget(right)
+        self.plan_detail = self._build_plan_detail()
+        self.splitter.addWidget(self.plan_detail)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([320, 800])
+        self.splitter.setStretchFactor(2, 1)
+        self.splitter.setSizes([320, 800, 800])
         self._show(None)
+
+    def _build_plan_detail(self) -> QWidget:
+        """Detail rozpracované normy: dávky po úlohách se stavem a akce."""
+        box = QWidget()
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(12, 0, 0, 0)
+        layout.setSpacing(10)
+        self.plan_header = StatusHeader()
+        self.build_btn = QPushButton(tr("Sestavit z hotových"))
+        self.build_btn.setToolTip(tr("Norma jen z dávek, které doběhly"))
+        self.build_btn.clicked.connect(lambda: self._plan_action(self.build_requested))
+        self.resume_btn = QPushButton(tr("Dopočítat zbývající"))
+        self.resume_btn.setToolTip(tr("Nespuštěné, spadlé a zrušené dávky znovu do fronty"))
+        theme.set_role(self.resume_btn, "primary")
+        self.resume_btn.clicked.connect(lambda: self._plan_action(self.resume_requested))
+        self.discard_btn = QPushButton(tr("Zahodit…"))
+        theme.set_role(self.discard_btn, "danger")
+        self.discard_btn.clicked.connect(lambda: self._plan_action(self.discard_requested))
+        for btn in (self.resume_btn, self.build_btn, self.discard_btn):
+            self.plan_header.add_button(btn)
+        layout.addWidget(self.plan_header)
+        card = QFrame()
+        card.setObjectName("card")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 10, 12, 10)
+        title = QLabel(tr("Dávky normy"))
+        title.setObjectName("card_title")
+        card_layout.addWidget(title)
+        self.plan_table = QTableWidget()
+        self.plan_table.setColumnCount(4)
+        self.plan_table.setHorizontalHeaderLabels(
+            [tr("úloha"), tr("nahrávek"), tr("protokol"), tr("stav")]
+        )
+        self.plan_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.plan_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.plan_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.plan_table.verticalHeader().setVisible(False)
+        header = self.plan_table.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        card_layout.addWidget(self.plan_table)
+        layout.addWidget(card)
+        self.plan_note = QLabel(
+            tr(
+                "Dávky se počítají na stránce Výpočet. Po poslední se norma sestaví sama. "
+                "Když některá spadla nebo se zrušila, dopočítejte ji, nebo normu sestavte "
+                "z hotových."
+            )
+        )
+        self.plan_note.setObjectName("muted")
+        self.plan_note.setWordWrap(True)
+        layout.addWidget(self.plan_note)
+        layout.addStretch(1)
+        return box
+
+    def _plan_action(self, signal) -> None:  # noqa: ANN001
+        plan = self.current_plan()
+        if plan is not None:
+            signal.emit(plan.folder)
+
+    def _show_plan(self, plan: NormPlan) -> None:
+        self.plan_header.title.setText(plan.info.display_name)
+        self.plan_header.subtitle.setText(
+            tr("Rozpracovaná norma · {n} kontrol").format(n=len(plan.controls))
+        )
+        self.plan_header.subtitle.setToolTip(str(plan.folder))
+        text, role = plan_pill(plan)
+        self.plan_header.set_pills([(text, role, "", None)])
+        self.plan_header.set_role(role)
+        self.plan_table.setRowCount(len(plan.tasks))
+        for row, task in enumerate(plan.tasks):
+            cells = [
+                contract.TASK_LABELS.get(task.task, task.task),
+                str(len(task.inputs)),
+                task.proto().display_name,
+                plan_status_text(task.status),
+            ]
+            for col, value in enumerate(cells):
+                self.plan_table.setItem(row, col, QTableWidgetItem(value))
+        height = self.plan_table.horizontalHeader().height() + 4
+        height += sum(self.plan_table.rowHeight(r) for r in range(len(plan.tasks)))
+        self.plan_table.setFixedHeight(height)
+        running = any(t.status == RUNNING for t in plan.tasks)
+        self.build_btn.setEnabled(plan.buildable and not running)
+        self.resume_btn.setEnabled(bool(plan.remaining()))
+        self.discard_btn.setEnabled(not running)
 
     # --- napojení -------------------------------------------------------------
 
@@ -328,47 +489,63 @@ class NormsPage(QWidget):
         self.reload()
 
     def reload(self, select: Path | None = None) -> None:
-        """Znovu načte normy; výběr zůstane na téže složce (nebo na `select`)."""
-        current = self.current()
-        keep = select or (current.path if current is not None else None)
+        """Znovu načte normy; výběr zůstane na téže složce (nebo na `select`).
+
+        Nahoře rozpracované (počítají se), pak vlastní, nakonec přibalené.
+        """
+        keep = select or self._current_path()
+        self._plans = pending_plans(self._folder) if self._folder is not None else []
         self._norms = all_norms(self._folder) if self._folder is not None else []
-        # vlastní napřed: s nimi se pracuje, přibalené jsou jen ke čtení
         self._norms.sort(key=lambda n: (n.builtin, n.info.display_name.lower()))
         self.list.blockSignals(True)
         self.list.clear()
         self._cards = []
         row_to_select = 0
-        for row, norm in enumerate(self._norms):
+        entries: list[tuple[Path | None, NormCard | PlanCard]] = [
+            (plan.folder, PlanCard(plan)) for plan in self._plans
+        ] + [(norm.path, NormCard(norm)) for norm in self._norms]
+        for row, (path, card) in enumerate(entries):
             item = QListWidgetItem()
-            card = NormCard(norm)
             item.setSizeHint(card.sizeHint())
             self.list.addItem(item)
             self.list.setItemWidget(item, card)
             self._cards.append(card)
-            if keep is not None and norm.path == keep:
+            if keep is not None and path == keep:
                 row_to_select = row
         self._fit_cards()
         self.list.blockSignals(False)
-        self.empty.setVisible(not self._norms)
-        if self._norms:
+        self.empty.setVisible(not entries)
+        if entries:
             self.list.setCurrentRow(row_to_select)
             self._row_changed(row_to_select)
         else:
             self._show(None)
 
+    def _current_path(self) -> Path | None:
+        plan = self.current_plan()
+        if plan is not None:
+            return plan.folder
+        norm = self.current()
+        return norm.path if norm is not None else None
+
     def count(self) -> int:
         return self.list.count()
 
-    def card(self, row: int) -> NormCard | None:
+    def card(self, row: int) -> NormCard | PlanCard | None:
         return self._cards[row] if 0 <= row < len(self._cards) else None
 
-    def current(self) -> Norm | None:
+    def current_plan(self) -> NormPlan | None:
         row = self.list.currentRow()
+        return self._plans[row] if 0 <= row < len(self._plans) else None
+
+    def current(self) -> Norm | None:
+        row = self.list.currentRow() - len(self._plans)
         return self._norms[row] if 0 <= row < len(self._norms) else None
 
     def select(self, path: Path) -> bool:
-        for row, norm in enumerate(self._norms):
-            if norm.path == path:
+        paths = [p.folder for p in self._plans] + [n.path for n in self._norms]
+        for row, candidate in enumerate(paths):
+            if candidate == path:
                 self.list.setCurrentRow(row)
                 return True
         return False
@@ -394,11 +571,18 @@ class NormsPage(QWidget):
     def _row_changed(self, row: int) -> None:
         for i, card in enumerate(self._cards):
             card.set_current(i == row)
+        plan = self.current_plan()
+        if plan is not None:
+            self.detail.setVisible(False)
+            self.plan_detail.setVisible(True)
+            self._show_plan(plan)
+            return
         self._show(self.current())
 
     # --- detail ---------------------------------------------------------------
 
     def _show(self, norm: Norm | None) -> None:
+        self.plan_detail.setVisible(False)
         self.detail.setVisible(norm is not None)
         self.export_btn.setEnabled(norm is not None)
         self.delete_btn.setEnabled(norm is not None and not norm.builtin)

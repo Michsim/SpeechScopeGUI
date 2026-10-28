@@ -66,6 +66,7 @@ class NormInfo:
     conditions: str = ""  # nahrávací podmínky (místnost, mikrofon)
     library_version: str = ""
     created: str = ""  # ISO datum
+    protocols: dict[str, str] = field(default_factory=dict)  # úloha -> jméno protokolu kontrol
     names: dict[str, str] = field(default_factory=dict)
     descriptions: dict[str, str] = field(default_factory=dict)
 
@@ -91,6 +92,8 @@ class NormInfo:
             library_version=self.library_version,
             created=self.created,
         )
+        if self.protocols:
+            data["protocols"] = dict(self.protocols)
         return data
 
     @classmethod
@@ -105,6 +108,7 @@ class NormInfo:
             conditions=str(data.get("conditions", "")),
             library_version=str(data.get("library_version", "")),
             created=str(data.get("created", "")),
+            protocols={str(k): str(v) for k, v in (data.get("protocols") or {}).items()},
             names={
                 k[len("name_") :]: str(v)
                 for k, v in data.items()

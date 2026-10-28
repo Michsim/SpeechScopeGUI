@@ -40,14 +40,17 @@ from ..backend.history import (
     write_run_file,
 )
 from ..backend.manifest import Manifest, read_manifest, write_normalized
+from ..backend.norm_build import CANCELLED, ERROR, OK, RUNNING, NormPlan, finish_plan
 from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.results import merge_results
 from ..backend.settings import AppSettings
+from ..backend.trash import send_to_trash
 from ..backend.work import collect_prepare_outputs, work_dir_for
 from ..i18n import tr
 from . import theme
 from .models_dialog import ModelsDownloadDialog
 from .models_install_dialog import ModelsInstallDialog
+from .new_norm_dialog import NewNormDialog
 from .pages.assessment import AssessmentPage
 from .pages.batch import BatchPage
 from .pages.environment import EnvironmentPage
@@ -78,6 +81,7 @@ class Job:
     durations: list[float | None] = field(default_factory=list)  # délky zvuku k inputs
     merge_into: Path | None = None  # znovu chybné: tabulka, do které se řádky vrátí
     label: str = ""  # vlastní název běhu z Analýzy; prázdné = podle protokolu
+    norm_plan: Path | None = None  # dávka nové normy: složka jejího plánu
 
     def title(self) -> str:
         name = self.label or self.proto.display_name
@@ -236,6 +240,10 @@ class MainWindow(QMainWindow):
             page.notice.connect(lambda text: self.statusBar().showMessage(text, 6000))
         self.results_page.assess_requested.connect(self.show_assessment)
         self.norms_page.norms_changed.connect(self.assessment_page.reload_norms)
+        self.norms_page.new_norm_requested.connect(self.new_norm)
+        self.norms_page.build_requested.connect(self.build_norm)
+        self.norms_page.resume_requested.connect(self.resume_norm)
+        self.norms_page.discard_requested.connect(self.discard_norm)
         self.run_page.progress_changed.connect(self._show_progress)
         self.run_page.file_done.connect(self._file_done)
         self.run_page.queue_remove.connect(self.remove_queued)
@@ -596,6 +604,181 @@ class MainWindow(QMainWindow):
         )
         return True
 
+    # --- nová norma -------------------------------------------------------------
+
+    def make_new_norm_dialog(self) -> NewNormDialog:
+        combo = self.batch_page.language
+        languages = [str(combo.itemData(i)) for i in range(combo.count())]
+        return NewNormDialog(
+            all_protocols(self.settings.protocols_dir()),
+            self.settings.norms_dir(),
+            advanced=self.settings.advanced,
+            languages=languages,
+            language=self.batch_page.language_code() or "cs",
+            rate_lookup=self.settings.seconds_per_audio_minute,
+            parent=self,
+        )
+
+    def new_norm(self) -> None:
+        """Průvodce Nová norma; po Spustit dávky po úlohách do fronty."""
+        if self.library is None:
+            QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
+            return
+        dialog = self.make_new_norm_dialog()
+        if dialog.exec():
+            self.start_norm(dialog.plan())
+
+    def start_norm(self, plan: NormPlan) -> int:
+        """Uloží plán a zařadí jeho nespočítané dávky; vrátí, kolik jich zařadil."""
+        plan.save()
+        queued = {(j.norm_plan, j.proto.task) for j in self._queue}
+        running = getattr(self, "_running_norm", None) if self.run_page.runner.running else None
+        jobs = [
+            self._norm_job(plan, task)
+            for task in plan.remaining()
+            if (plan.folder, task.task) not in queued and (plan.folder, task.task) != running
+        ]
+        self._submit_all(jobs)
+        self.norms_page.reload(select=plan.folder)
+        return len(jobs)
+
+    def _norm_job(self, plan: NormPlan, task) -> Job:  # noqa: ANN001
+        name = tr("Norma {name} · {task}").format(
+            name=plan.info.display_name, task=contract.TASK_SHORT.get(task.task, task.task)
+        )
+        return Job(
+            kind="extract",
+            proto=task.proto(),
+            inputs=list(task.inputs),
+            manifest=plan.manifest_for(task),
+            language=plan.info.language,
+            durations=[duration_seconds(p) for p in task.inputs],
+            label=name,
+            norm_plan=plan.folder,
+        )
+
+    def _submit_all(self, jobs: list[Job]) -> None:
+        """Víc dávek naráz (nová norma): jedna otázka na frontu, ne za každou dávku."""
+        if not jobs:
+            return
+        if self.run_page.runner.running:
+            answer = QMessageBox.question(
+                self,
+                tr("Zařadit do fronty"),
+                tr(
+                    "Právě běží: {running}.\n"
+                    "Zařadit {n} dávek do fronty? Spustí se samy, až běžící dávka skončí."
+                ).format(running=self._running_name, n=len(jobs)),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            self._queue.extend(jobs)
+        else:
+            self._queue.extend(jobs[1:])
+            self._launch(jobs[0])
+        self._show_queue()
+
+    def _norm_status(self, status: str, run_dir: Path | None) -> NormPlan | None:
+        folder, task = self._running_norm or (None, "")
+        if folder is None:
+            return None
+        try:
+            plan = NormPlan.load(folder)
+        except (OSError, ValueError, KeyError):
+            return None  # plán mezitím zahozený
+        plan.set_status(task, status, run_dir)
+        return plan
+
+    def _norm_finished(self, status: str, run_dir: Path | None) -> None:
+        plan = self._norm_status(status, run_dir)
+        self._running_norm = None
+        if plan is not None and plan.all_finished and plan.all_ok:
+            self._finish_norm(plan)
+        self.norms_page.reload()
+
+    def _finish_norm(self, plan: NormPlan) -> bool:
+        version = ""
+        if self.library is not None:
+            try:
+                version = self.library.version()
+            except Exception:  # noqa: BLE001  verze je jen popisek normy
+                version = ""
+        try:
+            norm = finish_plan(plan, version)
+        except (ValueError, OSError) as exc:
+            self.statusBar().showMessage(
+                tr("Normu se nepodařilo sestavit: {error}").format(error=exc), 10000
+            )
+            return False
+        self.statusBar().showMessage(
+            tr("Norma {name} je hotová: {n} kontrol.").format(
+                name=norm.info.display_name, n=norm.subjects
+            ),
+            10000,
+        )
+        self.norms_page.reload(select=plan.folder)
+        self.assessment_page.reload_norms()
+        return True
+
+    def _norm_busy(self, folder: Path) -> bool:
+        running = getattr(self, "_running_norm", None)
+        return bool(self.run_page.runner.running and running and running[0] == folder)
+
+    def build_norm(self, folder: Path) -> bool:
+        """Sestavit z hotových dávek (Normy, rozpracovaná norma)."""
+        if self._norm_busy(folder):
+            self.statusBar().showMessage(tr("Dávka normy ještě běží."), 6000)
+            return False
+        try:
+            plan = NormPlan.load(folder)
+        except (OSError, ValueError, KeyError) as exc:
+            self.statusBar().showMessage(str(exc), 6000)
+            return False
+        self._queue = [j for j in self._queue if j.norm_plan != folder]
+        self._show_queue()
+        return self._finish_norm(plan)
+
+    def resume_norm(self, folder: Path) -> int:
+        try:
+            plan = NormPlan.load(folder)
+        except (OSError, ValueError, KeyError) as exc:
+            self.statusBar().showMessage(str(exc), 6000)
+            return 0
+        queued = self.start_norm(plan)
+        if not queued:
+            self.statusBar().showMessage(
+                tr("Zbývající dávky normy už běží nebo čekají ve frontě."), 6000
+            )
+        return queued
+
+    def discard_norm(self, folder: Path, *, confirm: bool = True) -> bool:
+        """Rozpracovanou normu do Koše; spočítané běhy zůstávají ve Výsledcích."""
+        if self._norm_busy(folder):
+            self.statusBar().showMessage(tr("Dávka normy ještě běží, nejdřív ji zrušte."), 6000)
+            return False
+        if confirm:
+            answer = QMessageBox.question(
+                self,
+                tr("Zahodit normu"),
+                tr(
+                    "Zahodit rozpracovanou normu? Plán půjde do Koše, spočítané běhy "
+                    "zůstanou ve Výsledcích.\n{path}"
+                ).format(path=folder),
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+        self._queue = [j for j in self._queue if j.norm_plan != folder]
+        self._show_queue()
+        try:
+            send_to_trash(folder)
+        except OSError as exc:
+            self.statusBar().showMessage(str(exc), 8000)
+            return False
+        self.norms_page.reload()
+        return True
+
     # --- mazání běhů ---------------------------------------------------------------
 
     def rename_run(self, info: RunInfo, label: str | None = None) -> bool:
@@ -793,6 +976,7 @@ class MainWindow(QMainWindow):
         if job.merge_into is not None:
             suffix = "-znovu"
         self._running_merge = job.merge_into
+        self._running_norm = (job.norm_plan, proto.task) if job.norm_plan else None
         dir_slug = slugify(job.label) if job.label.strip() else slug
         run_dir = unique_run_dir(self.settings.work_root, f"{stamp}_{dir_slug}{suffix}")
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -868,6 +1052,8 @@ class MainWindow(QMainWindow):
             label=self._running_label,
             total=len(inputs),
         )
+        if self._running_norm is not None:
+            self._norm_status(RUNNING, run_dir)
         self.nav.setCurrentRow(PAGE_RUN)
         self.run_page.start(
             argv,
@@ -931,6 +1117,10 @@ class MainWindow(QMainWindow):
             )
         self.run_page.refresh_history(select=run_dir)
         self.assessment_page.refresh()
+        if getattr(self, "_running_norm", None) is not None:
+            self._norm_finished(
+                OK if code == 0 and not cancelled else (CANCELLED if cancelled else ERROR), run_dir
+            )
         merged = self._merge_rerun(state)
         per_file = self.run_page.seconds_per_file()
         if per_file is not None and not cancelled and code == 0 and self._running_slug:

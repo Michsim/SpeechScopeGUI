@@ -214,10 +214,29 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   z paměti (`read_norm_file`, nic se nerozbaluje) a uloží vedle pod
   `unique_norm_dir`, nikdy nepřepíše; Smazat jde do Koše (`trash_norm`),
   přibalená se nemaže. Po importu a smazání `norms_changed` →
-  `AssessmentPage.reload_norms`. Další krok: průvodce Nová norma (složky po
-  úlohách s protokolem, jedna tabulka kontrol s věkem a pohlavím, dávky do
-  fronty Výpočtu, norma se sestaví sama a zapíše protokol a verzi knihovny),
-  pak varianta z hotových běhů a Přidat kontroly….
+  `AssessmentPage.reload_norms`.
+- **Nová norma** (`ui/new_norm_dialog.py`, `NewNormDialog`, backend
+  `backend/norm_build.py`): 1 název, zdroj, podmínky, jazyk nahrávek a pro
+  každou úlohu složka (bez podsložek, pokud se nezaškrtne) a protokol
+  (`DEFAULT_PROTOCOLS`, spontánní řeč i s lingvistikou kvůli dimenzi Jazyk;
+  jiný jen v rozšířeném režimu; jazyk přes `with_language` jako na Analýze),
+  2 jedna tabulka kontrol pro všechny úlohy: kontrola z názvu souboru
+  (`SUBJECT_RULES`) nebo z `manifest.csv` složky, věk a pohlaví ručně nebo
+  z CSV (`read_controls_csv`), 3 souhrn s odhadem podle
+  `seconds_per_audio_minute`. Výsledek `NormPlan` se uloží jako `plan.json`
+  do budoucí složky normy (`unique_norm_dir`); bez `norm.yaml` je norma
+  rozpracovaná (`pending_plans`, `PlanCard` na stránce Normy). Hlavní okno
+  (`new_norm`, `start_norm`, `_submit_all` = jedna otázka na frontu) zařadí
+  jednu běžnou dávku na úlohu (`Job.norm_plan`, manifest z tabulky kontrol přes
+  `NormPlan.manifest_for`, takže `features.csv` má subject, age, sex); stav
+  dávky jde do plánu v `_launch` a `_batch_finished`. Po poslední dávce bez
+  chyby `finish_plan` sestaví normu z tabulek běhů a zapíše
+  `NormInfo.protocols` (úloha → protokol) a verzi knihovny. Rozpracovaná
+  norma má Dopočítat zbývající (`resume_norm`, přeskočí, co běží nebo čeká),
+  Sestavit z hotových (`build_norm`) a Zahodit… (`discard_norm`, plán do
+  Koše, běhy zůstávají). Do složek s nahrávkami se nic nezapisuje. Zbývá:
+  varianta z hotových běhů, Přidat kontroly… a varování na Hodnocení, když
+  pacient nemá protokol z `NormInfo.protocols`.
 
 ## Pasti z knihovny, které GUI hlídá
 - Podproces vždy s `PYTHONUTF8=1` (`library.subprocess_env`). Bez toho
