@@ -1,0 +1,232 @@
+"""Hodnocení z nahrávek: rozdělení složky po úlohách, plán, dokončení; průvodce a dávky."""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+import pandas as pd
+import pytest
+from pytestqt.qtbot import QtBot
+
+from speechscope_app.backend.assessment_build import (
+    AssessmentPlan,
+    Patient,
+    finish_plan,
+    new_plan,
+    patient_from_scan,
+    pending_plans,
+    split_by_task,
+)
+from speechscope_app.backend.assessments import AssessmentStore
+from speechscope_app.backend.history import RunGroup
+from speechscope_app.backend.norm_build import ERROR, OK, TaskPlan, default_protocol
+from speechscope_app.backend.protocol import builtin_protocols
+from speechscope_app.backend.settings import AppSettings
+from speechscope_app.ui.main_window import PAGE_ASSESSMENT, PAGE_RESULTS, MainWindow
+
+
+def make_folder(root: Path, names: dict[str, list[str]], manifest: str = "") -> Path:
+    for sub, files in names.items():
+        folder = root / sub if sub else root
+        folder.mkdir(parents=True, exist_ok=True)
+        for name in files:
+            (folder / name).write_bytes(b"RIFF")
+    if manifest:
+        (root / "manifest.csv").write_text(manifest, encoding="utf-8")
+    return root
+
+
+def test_split_by_task_and_patient_from_manifest(tmp_path: Path) -> None:
+    plain = make_folder(tmp_path / "fonace", {"": ["P1_a.wav", "P1_b.wav"]})
+    split = split_by_task(plain, "phonation")
+    assert list(split) == ["phonation"] and len(split["phonation"].recordings) == 2
+    assert patient_from_scan(split["phonation"]) == Patient()
+
+    mixed = make_folder(
+        tmp_path / "pacient",
+        {"": ["aaa.wav", "pataka.wav", "pohadka.wav", "bez.wav"]},
+        "path;task;Pacient;Věk;Pohlaví;visit\n"
+        "aaa.wav;phonation;P1;64;muž;2026-10-14\n"
+        "pataka.wav;ddk;P1;64;muž;2026-10-14\n"
+        "pohadka.wav;story;P1;64;muž;2026-10-14\n",
+    )
+    split = split_by_task(mixed, "phonation")
+    assert {t: [r.name for r in s.recordings] for t, s in split.items()} == {
+        "phonation": ["aaa.wav", "bez.wav"],  # bez řádku v manifestu = výchozí úloha
+        "ddk": ["pataka.wav"],
+        "spontaneous": ["pohadka.wav"],  # alias story
+    }
+    assert patient_from_scan(split["ddk"]) == Patient("P1", 64.0, "m", "2026-10-14")
+
+
+def make_plan(tmp_path: Path, folder: Path) -> AssessmentPlan:
+    protocols = builtin_protocols()
+    recs = sorted(folder.glob("*.wav"))
+    return new_plan(
+        tmp_path / "assessments",
+        Patient("P1", 64, "m", "2026-10-14"),
+        "cs",
+        [
+            TaskPlan("phonation", default_protocol("phonation", protocols).to_dict(), recs),
+            TaskPlan("ddk", default_protocol("ddk", protocols).to_dict(), []),
+        ],
+    )
+
+
+def test_plan_roundtrip_manifest_and_finish(tmp_path: Path) -> None:
+    folder = make_folder(tmp_path / "fonace", {"": ["P1_a.wav", "P1_b.wav"]})
+    plan = make_plan(tmp_path, folder)
+    plan.save()
+    assert plan.path.name.endswith(".plan.json") and plan.created
+    assert [p.id for p in pending_plans(tmp_path / "assessments")] == [plan.id]
+    loaded = AssessmentPlan.load(plan.path)
+    assert loaded.patient == plan.patient and loaded.key == plan.path
+    manifest = loaded.manifest_for(loaded.tasks[0])
+    row = manifest.meta_for(folder / "P1_a.wav")
+    assert row == {"subject": "P1", "age": "64", "sex": "m", "visit": "2026-10-14"}
+    assert "Hodnocení P1 · Fonace" == loaded.title(loaded.tasks[0])
+
+    run = tmp_path / "work" / "2026-10-14_10-00-00_fonace"
+    run.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {"file": "P1_a.wav", "task": "phonation", "subject": "P1"},
+            {"file": "P1_b.wav", "task": "phonation", "subject": "P1", "error": "spadlo"},
+        ]
+    ).to_csv(run / "features.csv", index=False)
+    loaded.set_status("phonation", OK, run)
+    loaded.set_status("ddk", ERROR)
+    assert loaded.all_finished and not loaded.all_ok and loaded.buildable
+    store = AssessmentStore(tmp_path / "assessments")
+    assessment = finish_plan(loaded, store)
+    assert assessment.id == plan.id and assessment.subject == "P1" and assessment.age == 64
+    assert [r.file for r in assessment.recordings] == ["P1_a.wav"]  # chybná nahrávka ne
+    assert assessment.recordings[0].run == run.name and assessment.recordings[0].row == 0
+    assert not plan.path.exists() and store.all()[0].id == plan.id
+    assert pending_plans(tmp_path / "assessments") == []
+    with pytest.raises(ValueError):
+        finish_plan(make_plan(tmp_path, folder), store)  # bez tabulek
+
+
+@pytest.fixture
+def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AppSettings:
+    monkeypatch.setattr(
+        "speechscope_app.backend.settings.app_data_dir", lambda: tmp_path / "appdata"
+    )
+    s = AppSettings(tmp_path / "settings.ini")
+    s.use_fake_library = True
+    s.models_dir = tmp_path / "models"
+    s.work_root = tmp_path / "work"
+    return s
+
+
+def test_wizard_runs_batches_and_creates_assessment(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    data = tmp_path / "pacient"
+    make_folder(
+        data,
+        {"": ["aaa1.wav", "aaa2.wav", "pataka.wav"]},
+        "path;task;subject;age;sex;visit\n"
+        "aaa1.wav;phonation;RBD239;65;m;2026-10-28\n"
+        "aaa2.wav;phonation;RBD239;65;m;2026-10-28\n"
+        "pataka.wav;ddk;RBD239;65;m;2026-10-28\n",
+    )
+    before = {p.name for p in data.rglob("*")}
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.nav.setCurrentRow(PAGE_ASSESSMENT)
+    page = window.assessment_page
+
+    dialog = window.make_assessment_build_dialog()
+    qtbot.addWidget(dialog)
+    assert not dialog.next_btn.isEnabled()
+    dialog.set_folder("phonation", data)  # manifest rozdělí úlohy a vyplní pacienta
+    assert dialog.rows["phonation"].count.text() == "2 ✓"
+    assert dialog.rows["ddk"].count.text() == "1 ✓" and dialog.rows["ddk"].folder.text()
+    assert dialog.rows["reading"].count.text() == "–"
+    assert dialog.subject.text() == "RBD239" and dialog.age.text() == "65"
+    assert dialog.sex.currentData() == "m"
+    assert dialog.date.date().toString("yyyy-MM-dd") == "2026-10-28"
+    assert not dialog.prefill_note.isHidden() and "manifest.csv" in dialog.prefill_note.text()
+    assert dialog.next_btn.isEnabled() and "nahrávek: 3" in dialog.hint.text()
+    dialog.go_next()
+    assert dialog.step() == 1 and dialog.batches.rowCount() == 2
+    assert "Čtení" in dialog.warnings.text() and "Spontánní řeč" in dialog.warnings.text()
+    plan = dialog.plan()
+    assert [t.task for t in plan.tasks] == ["phonation", "ddk"]
+    assert plan.patient == Patient("RBD239", 65.0, "m", "2026-10-28")
+
+    assert window.start_plan("assessment", plan) == 2
+    assert page.count() == 1 and page.current_plan() is not None
+    assert "počítá se" in page.card(0).pill.text() and not page.plan_detail.isHidden()
+    assert page.plan_table.rowCount() == 2
+    qtbot.waitUntil(lambda: not plan.path.exists(), timeout=30000)
+    qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=10000)
+    assert window.nav.currentRow() == PAGE_ASSESSMENT
+    page.refresh()
+    assert page.count() == 1 and page.current_plan() is None
+    assessment = page.current_assessment()
+    assert assessment is not None and assessment.subject == "RBD239" and assessment.age == 65
+    assert assessment.tasks == ["phonation", "ddk"] and len(assessment.recordings) == 3
+    visit = page.current_visit()
+    assert visit is not None and visit.count("phonation") == 2 and visit.sex == "m"
+    assert page.recordings.rowCount() == 3
+    # běhy vyšetření jsou po poslední dávce v jedné složce, v historii jedna karta
+    groups = list(settings.work_root.glob("*_hodnoceni-rbd239"))
+    assert len(groups) == 1 and sorted(p.name for p in groups[0].iterdir()) == [
+        "ddk",
+        "fonace",
+        "run.json",
+    ]
+    assert not list(settings.work_root.glob("*_hodnoceni-rbd239-*"))  # ploché už nejsou
+    assert {r.run for r in assessment.recordings} == {
+        f"{groups[0].name}/fonace",
+        f"{groups[0].name}/ddk",
+    }
+    runs = window.results_page.history
+    runs.refresh()
+    assert runs.filter() == "assessment" and runs.count() == 1
+    group = runs.current()
+    assert isinstance(group, RunGroup) and group.dir == groups[0] and group.status == "ok"
+    assert [r.task for r in group.runs] == ["phonation", "ddk"]
+    assert runs.card(0).title.text() == "RBD239" and runs.card(0).kind_pill.text() == "hodnocení"
+    assert "2 úlohy" in runs.card(0).detail.text()
+    assert all(not r.norm for r in runs.all_runs()) and len(runs.all_runs()) == 2
+    runs.set_filter("analysis")
+    assert runs.count() == 0 and runs.filter_buttons["assessment"].text() == "Hodnocení (1)"
+    # Výsledky: karta vyšetření, řada úloh, Otevřít v Hodnocení
+    results = window.results_page
+    window.nav.setCurrentRow(PAGE_RESULTS)
+    assert results.open_run(groups[0] / "ddk") and runs.filter() == "assessment"
+    assert not results.task_bar.isHidden() and len(results.task_buttons) == 2
+    assert results.task_buttons[1].isChecked() and results.task_buttons[1].text() == "DDK (1)"
+    assert results.title_label.text().startswith("Hodnocení RBD239")
+    assert results.current_dir() == groups[0] / "ddk"
+    results.task_buttons[0].click()
+    assert results.current_dir() == groups[0] / "fonace" and results.table.model().rowCount() == 2
+    results.assess_btn.click()
+    assert window.nav.currentRow() == PAGE_ASSESSMENT
+    assert page.current_assessment().id == assessment.id
+    assert {p.name for p in data.rglob("*")} == before  # do složky s nahrávkami nic
+
+
+def test_pending_assessment_plan_discard(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    folder = make_folder(tmp_path / "fonace", {"": ["P1_a.wav"]})
+    plan = make_plan(tmp_path, folder)
+    plan.path = settings.assessments_dir() / plan.path.name
+    plan.save()
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.nav.setCurrentRow(PAGE_ASSESSMENT)
+    page = window.assessment_page
+    assert page.count() == 1 and page.current_plan() is not None
+    assert page.card(0).pill.text() == "dávky 0 z 2"
+    assert page.resume_btn.isEnabled() and not page.build_btn.isEnabled()
+    assert not window.build_plan("assessment", plan.path)  # nic hotového
+    assert window.discard_assessment_plan(plan.path, confirm=False)
+    assert page.count() == 0 and not plan.path.exists()
+    shutil.rmtree(tmp_path / "assessments", ignore_errors=True)

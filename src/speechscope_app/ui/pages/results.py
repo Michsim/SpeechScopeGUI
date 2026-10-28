@@ -8,6 +8,10 @@ a odkaz na složku.
 Tabulka má zmrazený první sloupec (název nahrávky), hledání sloupce,
 popis sloupce v tooltipu hlavičky (z `list --json`), detail jedné
 nahrávky po dvojkliku a „Spočítat znovu chybné“ pro řádky s chybou.
+
+Vyšetření z Hodnocení z nahrávek (`RunGroup`) je jedna karta: nad tabulkou
+je řada úloh (`task_bar`), která přepíná mezi běhy vyšetření, v hlavičce
+odkaz Otevřít v Hodnocení (`open_assessment_requested`).
 """
 
 from __future__ import annotations
@@ -19,18 +23,21 @@ import pandas as pd
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
-from ...backend.history import RunInfo, read_run
+from ... import contract
+from ...backend.history import RunGroup, RunInfo, read_run
 from ...backend.library import FeatureInfo, Library, LibraryError
 from ...backend.results import failed_paths
 from ...backend.work import CUT_DIR, PREPARE_OUTPUTS
@@ -89,6 +96,7 @@ class ResultsPage(QWidget):
     rerun_requested = Signal(object, list)  # složka běhu, cesty nahrávek s chybou
     notice = Signal(str)  # krátká hláška do stavového řádku hlavního okna
     assess_requested = Signal(object, int)  # složka běhu, řádek ve features.csv → Hodnocení
+    open_assessment_requested = Signal(str)  # id hodnocení: Otevřít v Hodnocení
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -97,6 +105,7 @@ class ResultsPage(QWidget):
         self._note = ""
         self._library: Library | None = None
         self._catalog: list[FeatureInfo] | None = None
+        self._group: RunGroup | None = None  # vyšetření, jehož běh je otevřený
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -142,7 +151,28 @@ class ResultsPage(QWidget):
         self.work_btn.hide()
         self.header.add_button(self.work_btn)
         self._work_dir: Path | None = None
+        self.assess_btn = QPushButton(tr("Otevřít v Hodnocení"))
+        self.assess_btn.setToolTip(tr("Hodnocení pacienta, ke kterému tyto běhy patří."))
+        self.assess_btn.clicked.connect(self._open_assessment)
+        self.assess_btn.hide()
+        self.header.add_button(self.assess_btn)
         right_layout.addWidget(self.header)
+
+        # řada úloh vyšetření: jeden přepínač na běh, vpravo protokol a datum vybraného
+        self.task_bar = QWidget()
+        task_layout = QHBoxLayout(self.task_bar)
+        task_layout.setContentsMargins(0, 0, 0, 0)
+        task_layout.setSpacing(6)
+        self.task_group = QButtonGroup(self)
+        self.task_group.setExclusive(True)
+        self.task_buttons: list[QPushButton] = []
+        self.task_layout = task_layout
+        self.task_note = QLabel("")
+        self.task_note.setObjectName("muted")
+        task_layout.addStretch(1)
+        task_layout.addWidget(self.task_note)
+        self.task_bar.hide()
+        right_layout.addWidget(self.task_bar)
 
         tools = QHBoxLayout()
         self.search = QLineEdit()
@@ -225,11 +255,117 @@ class ResultsPage(QWidget):
         self.history.set_work_root(root)
 
     def refresh(self) -> None:
-        """Znovu načte seznam běhů; výběr zůstane na složce otevřené tabulky."""
-        self.history.refresh(select=self._path.parent if self._path else None)
+        """Znovu načte seznam běhů; výběr zůstane na složce otevřené tabulky.
 
-    def show_run(self, info: RunInfo) -> None:
-        self.title_label.setText(info.display_name)
+        Když otevřený běh patří do vyšetření, které stránka ještě neukazuje jako
+        skupinu (běh se načetl přímo po dávce), doplní se řada úloh."""
+        current_dir = self._path.parent if self._path else None
+        self.history.refresh(select=current_dir)
+        entry = self.history.current()
+        if isinstance(entry, RunGroup) and current_dir is not None and entry.contains(current_dir):
+            if self._group is None or self._group.key != entry.key:
+                self._show_group(entry, prefer=current_dir)
+            else:
+                self._group = entry
+                self._fill_task_bar(entry, current_dir)
+        elif isinstance(entry, RunInfo) and entry.dir == current_dir and self._group is not None:
+            self._leave_group()
+
+    def open_run(self, run_dir: Path) -> bool:
+        """Z Hodnocení: vybere kartu běhu (u vyšetření jeho úlohu) a ukáže tabulku."""
+        if not self.history.select_dir(run_dir):
+            return False
+        entry = self.history.current()
+        if isinstance(entry, RunGroup):
+            self._show_group(entry, prefer=run_dir)
+        return True
+
+    def show_run(self, entry: RunInfo | RunGroup) -> None:
+        if isinstance(entry, RunGroup):
+            self._show_group(entry)
+            return
+        if self._group is not None:
+            self._leave_group()
+        self._show_single(entry)
+
+    # --- vyšetření (skupina běhů) -------------------------------------------------------
+
+    def _show_group(self, group: RunGroup, prefer: Path | None = None) -> None:
+        self._group = group
+        run = group.run_for(prefer) if prefer is not None else None
+        if run is None:
+            run = next((r for r in group.runs if r.status == "ok"), group.runs[0])
+        self._show_single(run)
+        self._fill_task_bar(group, run.dir)
+        self.assess_btn.show()
+        self.task_bar.show()
+
+    def _leave_group(self) -> None:
+        self._group = None
+        self.assess_btn.hide()
+        self.task_bar.hide()
+
+    def _fill_task_bar(self, group: RunGroup, current: Path) -> None:
+        for btn in self.task_buttons:
+            self.task_group.removeButton(btn)
+            self.task_layout.removeWidget(btn)
+            btn.hide()
+            btn.setParent(None)
+            btn.deleteLater()
+        self.task_buttons = []
+        for i, run in enumerate(group.runs):
+            count = run.rows if run.rows is not None else run.total
+            label = contract.TASK_SHORT.get(run.task, run.task) or run.protocol_name
+            btn = QPushButton(f"{label} ({count})" if count else label)
+            btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            btn.setCheckable(True)
+            btn.setChecked(run.dir == current)
+            btn.setToolTip(f"{run.protocol_name} · {run.status_label}")
+            btn.clicked.connect(lambda _=False, r=run: self._show_task(r))
+            self.task_group.addButton(btn)
+            self.task_layout.insertWidget(i, btn)
+            self.task_buttons.append(btn)
+        for task in group.waiting_tasks():
+            # úloha plánu, která ještě nemá běh: jen informace, nejde na ni kliknout
+            btn = QPushButton(tr("{task} · čeká").format(task=contract.TASK_SHORT.get(task, task)))
+            btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            btn.setEnabled(False)
+            self.task_layout.insertWidget(len(self.task_buttons), btn)
+            self.task_buttons.append(btn)
+        self._set_task_note(group.run_for(current))
+
+    def _set_task_note(self, run: RunInfo | None) -> None:
+        if run is None:
+            self.task_note.setText("")
+            return
+        parts = [run.protocol_name, run.started.strftime("%d.%m. %H:%M") if run.started else ""]
+        if run.status != "ok":
+            parts.append(run.status_label)
+        self.task_note.setText(" · ".join(p for p in parts if p))
+
+    def _show_task(self, run: RunInfo) -> None:
+        if self._group is None:
+            return
+        self._show_single(run)
+        self._set_task_note(run)
+
+    def _group_title(self, group: RunGroup) -> str:
+        when = group.started.strftime("%d. %m. %Y") if group.started else ""
+        return tr("Hodnocení {subject}, {date}").format(subject=group.display_name, date=when)
+
+    def _title_for(self, info: RunInfo | None, fallback: str) -> str:
+        if self._group is not None and info is not None and self._group.contains(info.dir):
+            return self._group_title(self._group)
+        return info.display_name if info else fallback
+
+    def _open_assessment(self) -> None:
+        if self._group is not None:
+            self.open_assessment_requested.emit(self._group.key)
+
+    # --- jeden běh ------------------------------------------------------------------------
+
+    def _show_single(self, info: RunInfo) -> None:
+        self.title_label.setText(self._title_for(info, info.display_name))
         self.header.set_role(STATUS_ROLES.get(info.status, "neutral"))
         note = ""
         if info.status == "cancelled" and info.total:
@@ -290,7 +426,7 @@ class ResultsPage(QWidget):
             return
         info = read_run(path.parent)
         self._set_work(info)
-        self.title_label.setText(info.display_name if info else path.parent.name)
+        self.title_label.setText(self._title_for(info, path.parent.name))
         self.header.set_role(STATUS_ROLES.get(info.status, "neutral") if info else "neutral")
         self.open_btn.setEnabled(True)
         self._refresh()
@@ -307,6 +443,7 @@ class ResultsPage(QWidget):
 
     def clear(self) -> None:
         """Po smazání běhu, který byl otevřený: bez tabulky, výběr na nejnovějším."""
+        self._leave_group()
         self._path = None
         self._frame = None
         self._note = ""

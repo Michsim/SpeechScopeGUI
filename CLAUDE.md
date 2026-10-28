@@ -145,7 +145,8 @@ Mezivýsledky (`backend/cache.py`, dialog Uvolnit místo). Dvojklik na
 nahrávku (Analýza, Výpočet) ji otevře přiřazeným programem, pravé tlačítko
 nabídne přehrát, zobrazit ve složce, kopírovat cestu (`ui/file_actions.py`);
 na Výsledcích je dvojklik detail a přehrání je v pravém tlačítku.
-Historie (Výpočet i Výsledky) umí Smazat… (tlačítko, Delete, pravé tlačítko)
+Historie (Výpočet i Výsledky) má přepínač Analýzy · Hodnocení · Normy (viz
+Běhy hodnocení v historii) a umí Smazat… (tlačítko, Delete, pravé tlačítko)
 a nabídka Aplikace „Smazat všechny běhy…“: složky běhů jdou do Koše přes
 `backend/trash.py` (SHFileOperationW), běžící běh se přeskočí, potvrzení
 řeší hlavní okno (`delete_run`, `delete_all_runs`); `work` se nemaže.
@@ -225,8 +226,60 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `visit`, jinak z běhu). Na Výsledcích pravé tlačítko „Otevřít v Hodnocení“
   (`ResultsPage.assess_requested` → `MainWindow.show_assessment` →
   `show_row`) otevře dialog s tou nahrávkou; po uložení přepne na Hodnocení.
-  Stránka se obnoví při zobrazení a po skončeném běhu. Zbývá: PDF, vývoj
-  v čase.
+  Stránka se obnoví při zobrazení a po skončeném běhu.
+- **Hodnocení z nahrávek** (mockup https://claude.ai/artifact/EELCDHfXjB8aHzdxxV2DJ5,
+  `docs/mockups/hodnoceni-z-nahravek/` mimo git): Nové hodnocení… se nejdřív
+  zeptá (`NewAssessmentChoiceDialog`: z nahrávek / z hotových běhů; z Výsledků
+  rovnou z hotových). Průvodce `ui/assessment_build_dialog.py`
+  (`AssessmentFromRecordingsDialog`): pacient, věk, pohlaví, datum, jazyk a
+  složka s nahrávkami na úlohu (sdílí `TaskRow` s Novou normou; složka
+  s `manifest.csv` se sloupcem `task` vyplní i ostatní úlohy a údaje
+  pacienta přes `assessment_build.split_by_task` a `patient_from_scan`),
+  pak souhrn dávek. Výsledek `AssessmentPlan` (`backend/assessment_build.py`,
+  `assessments/<id>.plan.json`, `AssessmentStore.all` tyto soubory
+  přeskakuje) jede obecnou cestou plánů v hlavním okně (`Job.plan_kind`
+  „assessment“, `start_plan`, `build_plan`, `resume_plan`,
+  `discard_assessment_plan`; stav dávek `norm_build.PlanState`); dávky mají
+  manifest se `subject`, `age`, `sex`, `visit`, takže běhy jsou běžné běhy
+  pacienta (ne `RunInfo.norm`). Po poslední dávce `finish_plan` založí
+  hodnocení z řádků tabulek (chybné nahrávky vynechá), smaže plán a
+  `_after_batch_page` přepne na Hodnocení místo Výsledků. Rozpracované
+  hodnocení je na stránce jako `PendingCard` („počítá se k z n“) s detailem
+  dávek a Dopočítat zbývající, Založit z hotových, Zahodit…. Zbývá: PDF,
+  vývoj v čase, složka s víc pacienty.
+- **Běhy hodnocení v historii** (mockup https://claude.ai/artifact/FMkyX9ddZ6WNv2kMoXTSYt,
+  `docs/mockups/historie-filtr/` mimo git, rozhodnuto 28. 10. večer): dávky
+  hodnocení mají v `run.json` `assessment` (id) a `patient` (`Job.subject`,
+  `MainWindow._plan_run_fields`). Historie Výpočtu i Výsledků má přepínač
+  Analýzy · Hodnocení · Normy (`RunHistory.set_filter`, `RunInfo.kind`,
+  počty v tlačítkách; výchozí Analýzy, společný oběma stránkám a uložený
+  v `ui/history_filter`); výběr běhu z jiné skupiny (`select_dir`,
+  `refresh(select=…)`, tedy i po skončené dávce) filtr přepne sám. Běhy
+  jednoho hodnocení jsou jedna karta (`history.RunGroup` z `group_runs`:
+  pacient, štítek „hodnocení“, souhrnný stav, „k z n úloh hotové · DDK běží ·
+  čeká: čtení“); dokud existuje plán hodnocení, dostane `group_runs` jeho
+  úlohy (`RunHistory.set_plans_lookup` ← `MainWindow._pending_assessment_tasks`),
+  takže karta hlásí „počítá se“ i mezi dávkami a zná úlohy bez běhu
+  (`RunGroup.planned`, `waiting_tasks`, v řadě úloh Výsledků jako neaktivní
+  „Čtení · čeká“); historie se obnoví i při spuštění dávky (`_launch`) a po
+  dávce až po zápisu stavu do plánu. `selected` nese skupinu, Výsledky ukážou řadu úloh nad tabulkou
+  (`ResultsPage.task_bar`, `_show_group`, `open_run(run_dir)`) a tlačítko
+  Otevřít v Hodnocení (`open_assessment_requested` → `MainWindow.open_assessment`),
+  Výpočet přehraje běžící, jinak nejnovější běh (`RunGroup.latest`). Smazat
+  smaže všechny běhy vyšetření (`_delete_group`), Přejmenovat skupina nemá.
+  Po založení hodnocení se ploché běhy přesunou do jedné složky
+  `<datum>_<čas>_hodnoceni-<pacient>\<fonace|ddk|cteni|spontanni-rec>\`
+  (`merge_assessment_runs`: nahoře `run.json` s `group`, podsložky jsou úplné
+  běhy, `list_runs` je vrací s `group_dir`, datum berou ze složky vyšetření);
+  když přesun nejde (otevřený Excel), vrátí se zpět a zkusí se při příštím
+  otevření Výsledků (`_merge_finished_groups`, přeskočí rozpracované plány
+  a běžící dávky). Odkazy na běh (`RecordingRef.run`, `Recording.ref`,
+  `AssessmentStore.relocate`) jsou `RunInfo.key`: název složky, u vnořeného
+  `<vyšetření>/<úloha>` (`history.run_key`); `_run_moved` přepíše i
+  `_running_out`, aby `_batch_finished` po sloučení našel tabulku. Na
+  Hodnocení je dvojklik na nahrávku detail hodnot (přehrání v nabídce) a
+  v nabídce „Otevřít běh ve Výsledcích“ (`open_run_requested` →
+  `MainWindow.open_run`). Běhy norem zůstávají ploché, jen pod filtrem Normy.
 - **Stránka Normy** (`ui/pages/norms.py`, `NormsPage`; mockup schválený 28. 10.
   je artefakt https://claude.ai/artifact/XTwhcSUAjC5vUuq5MPMZzn, soubory
   `docs/mockups/normy/` mimo git): vlevo karty norem (`NormCard`, vlastní

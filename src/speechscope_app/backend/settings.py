@@ -185,6 +185,16 @@ class AppSettings:
     def advanced(self, value: bool) -> None:
         self._q.setValue("ui/advanced", bool(value))
 
+    @property
+    def history_filter(self) -> str:
+        """Skupina v historii Výpočtu a Výsledků: analysis (výchozí), assessment, norm."""
+        raw = str(self._q.value("ui/history_filter", "analysis") or "analysis")
+        return raw if raw in ("analysis", "assessment", "norm") else "analysis"
+
+    @history_filter.setter
+    def history_filter(self, value: str) -> None:
+        self._q.setValue("ui/history_filter", value)
+
     def protocols_dir(self) -> Path:
         return app_data_dir() / "protocols"
 

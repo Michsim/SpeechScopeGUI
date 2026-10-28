@@ -84,6 +84,10 @@ QFrame#card[role="warn"] {{ border-left: 4px solid {WARN}; }}
 QFrame#card[role="neutral"] {{ border-left: 4px solid {NEUTRAL}; }}
 QFrame#card[role="selected"] {{ border: 1px solid {ACCENT}; border-left: 4px solid {ACCENT}; }}
 QFrame#card[role="accent"] {{ border-left: 4px solid {ACCENT}; }}
+/* volba v dialogu: celá karta je přepínač */
+QFrame#card[role="option"] {{ border: 1px solid {BORDER}; }}
+QFrame#card[role="chosen"] {{ border: 2px solid {ACCENT}; background: #eff6ff; }}
+QFrame#card[role="chosen"] QRadioButton {{ background: transparent; }}
 QFrame#card QTableView, QFrame#card QTableWidget, QFrame#card QPlainTextEdit {{
     border: none; border-radius: 0; background: transparent;
 }}

@@ -131,10 +131,25 @@ def test_manual_assessment_create_score_edit_and_delete(
         opened.append(dialog)
         return QDialog.DialogCode.Rejected
 
+    choice_dialog = "speechscope_app.ui.pages.assessment.NewAssessmentChoiceDialog"
     with monkeypatch.context() as patch:  # undo() by vrátilo i podvržené AppData z fixtury
         patch.setattr("speechscope_app.ui.pages.assessment.AssessmentDialog.exec", fake_exec)
+        patch.setattr(choice_dialog + ".exec", lambda self: QDialog.DialogCode.Accepted)
+        patch.setattr(choice_dialog + ".choice", lambda self: "runs")
         page.new_btn.click()
     assert len(opened) == 1 and opened[0].summary.text() == "" and page.count() == 0
+    # volba „z nahrávek“ jen požádá hlavní okno o průvodce
+    asked: list = []
+    page.new_from_recordings_requested.connect(lambda: asked.append(True))
+    with monkeypatch.context() as patch:
+        patch.setattr(choice_dialog + ".exec", lambda self: QDialog.DialogCode.Accepted)
+        patch.setattr(choice_dialog + ".choice", lambda self: "recordings")
+        patch.setattr(  # hlavní okno by jinak otevřelo modální průvodce
+            "speechscope_app.ui.main_window.AssessmentFromRecordingsDialog.exec",
+            lambda self: QDialog.DialogCode.Rejected,
+        )
+        assert page.new_assessment() is None
+    assert asked == [True] and len(opened) == 1
 
     # nové hodnocení: první nahrávka předvyplní pacienta z manifestu
     dialog = page.make_dialog()

@@ -173,6 +173,10 @@ class NormPlan(PlanState):
     def key(self) -> Path:
         return self.folder
 
+    @property
+    def language(self) -> str:
+        return self.info.language
+
     def title(self, task: TaskPlan) -> str:
         return tr("Norma {name} · {task}").format(
             name=self.info.display_name, task=contract.TASK_SHORT.get(task.task, task.task)

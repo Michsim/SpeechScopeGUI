@@ -25,12 +25,19 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__, contract
+from ..backend.assessment_build import PLAN_SUFFIX, AssessmentPlan, pending_plans
+from ..backend.assessment_build import finish_plan as finish_assessment_plan
+from ..backend.assessments import AssessmentStore
 from ..backend.audio import duration_seconds
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
 from ..backend.diagnostics import build_bundle, default_name
 from ..backend.history import (
+    RunGroup,
     RunInfo,
+    group_runs,
+    list_runs,
     mark_orphans,
+    merge_assessment_runs,
     read_run,
     rename_run,
     rename_run_dir,
@@ -48,6 +55,7 @@ from ..backend.trash import send_to_trash
 from ..backend.work import collect_prepare_outputs, work_dir_for
 from ..i18n import tr
 from . import theme
+from .assessment_build_dialog import AssessmentFromRecordingsDialog
 from .models_dialog import ModelsDownloadDialog
 from .models_install_dialog import ModelsInstallDialog
 from .new_norm_dialog import NewNormDialog
@@ -81,8 +89,9 @@ class Job:
     durations: list[float | None] = field(default_factory=list)  # délky zvuku k inputs
     merge_into: Path | None = None  # znovu chybné: tabulka, do které se řádky vrátí
     label: str = ""  # vlastní název běhu z Analýzy; prázdné = podle protokolu
-    plan_kind: str = ""  # dávka plánu: "norm" (nová norma); prázdné = běžná dávka
-    plan: Path | None = None  # klíč plánu (složka normy)
+    plan_kind: str = ""  # dávka plánu: "norm" (nová norma), "assessment"; prázdné = běžná
+    plan: Path | None = None  # klíč plánu (složka normy, soubor plánu hodnocení)
+    subject: str = ""  # pacient dávky hodnocení (do run.json jako `patient`)
 
     def title(self) -> str:
         name = self.label or self.proto.display_name
@@ -226,6 +235,12 @@ class MainWindow(QMainWindow):
         self.run_page.history.delete_requested.connect(self.delete_run)
         self.results_page.history.rename_requested.connect(self.rename_run)
         self.run_page.history.rename_requested.connect(self.rename_run)
+        for history in (self.results_page.history, self.run_page.history):
+            history.set_plans_lookup(self._pending_assessment_tasks)
+            history.set_filter(self.settings.history_filter)
+            history.filter_changed.connect(self._history_filter_changed)
+        self.results_page.open_assessment_requested.connect(self.open_assessment)
+        self.assessment_page.open_run_requested.connect(self.open_run)
         self.protocols_page.protocols_changed.connect(self.reload_protocols)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.prepare_requested.connect(self._start_prepare)
@@ -245,6 +260,14 @@ class MainWindow(QMainWindow):
         self.norms_page.build_requested.connect(self.build_norm)
         self.norms_page.resume_requested.connect(self.resume_norm)
         self.norms_page.discard_requested.connect(self.discard_norm)
+        self.assessment_page.new_from_recordings_requested.connect(
+            self.new_assessment_from_recordings
+        )
+        self.assessment_page.build_requested.connect(lambda key: self.build_plan("assessment", key))
+        self.assessment_page.resume_requested.connect(
+            lambda key: self.resume_plan("assessment", key)
+        )
+        self.assessment_page.discard_requested.connect(self.discard_assessment_plan)
         self.run_page.progress_changed.connect(self._show_progress)
         self.run_page.file_done.connect(self._file_done)
         self.run_page.queue_remove.connect(self.remove_queued)
@@ -269,6 +292,7 @@ class MainWindow(QMainWindow):
 
     def _page_shown(self, index: int) -> None:
         if index == PAGE_RESULTS:
+            self._merge_finished_groups()
             self.results_page.refresh()
         elif index == PAGE_ASSESSMENT:
             self.assessment_page.refresh()
@@ -289,6 +313,33 @@ class MainWindow(QMainWindow):
         if not self.assessment_page.show_row(run_dir, row):
             return False
         self.nav.setCurrentRow(PAGE_ASSESSMENT)
+        return True
+
+    def _pending_assessment_tasks(self) -> dict[str, list[tuple[str, str]]]:
+        """Rozpracovaná hodnocení pro historii: id → (úloha, stav dávky)."""
+        return {
+            plan.id: [(t.task, t.status) for t in plan.tasks]
+            for plan in pending_plans(self.settings.assessments_dir())
+        }
+
+    def _history_filter_changed(self, kind: str) -> None:
+        """Přepínač Analýzy · Hodnocení · Normy je společný oběma historiím a pamatuje se."""
+        self.settings.history_filter = kind
+        for history in (self.results_page.history, self.run_page.history):
+            if history.filter() != kind:
+                history.set_filter(kind)
+
+    def open_assessment(self, assessment_id: str) -> None:
+        """Z Výsledků (Otevřít v Hodnocení): stránka Hodnocení s tím hodnocením."""
+        self.nav.setCurrentRow(PAGE_ASSESSMENT)
+        self.assessment_page.refresh(select=assessment_id)
+
+    def open_run(self, run_dir: Path) -> bool:
+        """Z Hodnocení (Otevřít běh ve Výsledcích): karta běhu, u vyšetření jeho úloha."""
+        self.nav.setCurrentRow(PAGE_RESULTS)
+        if not self.results_page.open_run(run_dir):
+            self.statusBar().showMessage(tr("Běh už v historii není."), 6000)
+            return False
         return True
 
     def start_page(self) -> int:
@@ -337,7 +388,7 @@ class MainWindow(QMainWindow):
                 kind=self._running_kind,
                 protocol=self._running_name,
                 label=getattr(self, "_running_label", ""),
-                norm=self._running_norm_text(),
+                **self._plan_run_fields(),
                 processed=processed,
                 total=total,
             )
@@ -644,11 +695,17 @@ class MainWindow(QMainWindow):
         """Plán podle druhu a klíče; výjimka, když plán mezitím zmizel."""
         if kind == "norm":
             return NormPlan.load(key)
+        if kind == "assessment":
+            return AssessmentPlan.load(key)
         raise ValueError(tr("Neznámý druh plánu: {kind}").format(kind=kind))
 
     def _plans_changed(self, kind: str, select: Path | None = None) -> None:
         if kind == "norm":
             self.norms_page.reload(select=select)
+        elif kind == "assessment":
+            self.assessment_page.refresh(
+                select=select.name.removesuffix(PLAN_SUFFIX) if select is not None else None
+            )
 
     def start_plan(self, kind: str, plan) -> int:  # noqa: ANN001
         """Uloží plán a zařadí jeho nespočítané dávky; vrátí, kolik jich zařadil."""
@@ -671,11 +728,12 @@ class MainWindow(QMainWindow):
             proto=task.proto(),
             inputs=list(task.inputs),
             manifest=plan.manifest_for(task),
-            language=plan.info.language,
+            language=plan.language,
             durations=[duration_seconds(p) for p in task.inputs],
             label=plan.title(task),
             plan_kind=kind,
             plan=plan.key,
+            subject=plan.patient.subject if kind == "assessment" else "",
         )
 
     def _submit_all(self, jobs: list[Job]) -> None:
@@ -706,6 +764,18 @@ class MainWindow(QMainWindow):
         running = getattr(self, "_running_plan", None)
         return str(running[1]) if running and running[0] == "norm" else ""
 
+    def _plan_run_fields(self) -> dict[str, str]:
+        """Do run.json: `norm` u dávky normy, `assessment` a `patient` u dávky hodnocení."""
+        running = getattr(self, "_running_plan", None)
+        assessment = ""
+        if running and running[0] == "assessment":
+            assessment = Path(running[1]).name.removesuffix(PLAN_SUFFIX)
+        return {
+            "norm": self._running_norm_text(),
+            "assessment": assessment,
+            "patient": getattr(self, "_running_subject", "") if assessment else "",
+        }
+
     def _plan_status(self, status: str, run_dir: Path | None):  # noqa: ANN202
         kind, key, task = self._running_plan or ("", None, "")
         if key is None:
@@ -728,6 +798,8 @@ class MainWindow(QMainWindow):
     def _finish_plan(self, kind: str, plan) -> bool:  # noqa: ANN001
         if kind == "norm":
             return self._finish_norm(plan)
+        if kind == "assessment":
+            return self._finish_assessment(plan)
         return False
 
     def _finish_norm(self, plan: NormPlan) -> bool:
@@ -752,6 +824,106 @@ class MainWindow(QMainWindow):
         )
         self.norms_page.reload(select=plan.folder)
         self.assessment_page.reload_norms()
+        return True
+
+    # --- hodnocení z nahrávek -----------------------------------------------------
+
+    def make_assessment_build_dialog(self) -> AssessmentFromRecordingsDialog:
+        combo = self.batch_page.language
+        languages = [str(combo.itemData(i)) for i in range(combo.count())]
+        return AssessmentFromRecordingsDialog(
+            all_protocols(self.settings.protocols_dir()),
+            self.settings.assessments_dir(),
+            advanced=self.settings.advanced,
+            languages=languages,
+            language=self.batch_page.language_code() or "cs",
+            rate_lookup=self.settings.seconds_per_audio_minute,
+            parent=self,
+        )
+
+    def new_assessment_from_recordings(self) -> None:
+        """Průvodce Hodnocení z nahrávek; po Spustit dávky po úlohách do fronty."""
+        if self.library is None:
+            QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
+            return
+        dialog = self.make_assessment_build_dialog()
+        if dialog.exec():
+            self.start_plan("assessment", dialog.plan())
+
+    def _finish_assessment(self, plan: AssessmentPlan) -> bool:
+        try:
+            assessment = finish_assessment_plan(
+                plan, AssessmentStore(self.settings.assessments_dir())
+            )
+        except (ValueError, OSError) as exc:
+            self.statusBar().showMessage(
+                tr("Hodnocení se nepodařilo založit: {error}").format(error=exc), 10000
+            )
+            return False
+        self.statusBar().showMessage(
+            tr("Hodnocení {subject} je hotové.").format(subject=assessment.subject), 10000
+        )
+        self._merge_finished_groups(only=assessment.id)
+        self.assessment_page.refresh(select=assessment.id)
+        if not self._queue:
+            self._after_batch_page = PAGE_ASSESSMENT  # _batch_finished místo Výsledků
+        return True
+
+    def _merge_finished_groups(self, *, only: str | None = None) -> int:
+        """Hotová vyšetření s plochými běhy přesune do jedné složky; vrátí, kolik jich sloučil.
+
+        Rozpracované (plán ještě existuje, dávka běží nebo čeká) se nechají. Když
+        přesun nejde (otevřený soubor), zůstanou ploché a zkusí se při příštím
+        otevření Výsledků."""
+        merged = 0
+        running = getattr(self, "_running_plan", None) if self.run_page.runner.running else None
+        for entry in group_runs(list_runs(self.settings.work_root)):
+            if not isinstance(entry, RunGroup) or entry.dir is not None:
+                continue
+            if only is not None and entry.key != only:
+                continue
+            plan_path = self.settings.assessments_dir() / f"{entry.key}{PLAN_SUFFIX}"
+            if plan_path.exists() or entry.status == "running":
+                continue
+            if running and running[0] == "assessment" and running[1] == plan_path:
+                continue
+            if any(j.plan_kind == "assessment" and j.plan == plan_path for j in self._queue):
+                continue
+            try:
+                _group_dir, moved = merge_assessment_runs(self.settings.work_root, entry)
+            except OSError as exc:
+                self.statusBar().showMessage(
+                    tr("Běhy vyšetření {name} zatím nejde sloučit do jedné složky: {error}").format(
+                        name=entry.display_name, error=exc
+                    ),
+                    8000,
+                )
+                continue
+            for old, new in moved:
+                self._run_moved(old, new)
+            merged += 1
+        return merged
+
+    def discard_assessment_plan(self, key: Path, *, confirm: bool = True) -> bool:
+        """Rozpracované hodnocení zahodit; spočítané běhy zůstávají ve Výsledcích."""
+        if self._plan_busy("assessment", key):
+            self.statusBar().showMessage(tr("Dávka hodnocení ještě běží, nejdřív ji zrušte."), 6000)
+            return False
+        if confirm:
+            answer = QMessageBox.question(
+                self,
+                tr("Zahodit hodnocení"),
+                tr("Zahodit rozpracované hodnocení? Spočítané běhy zůstanou ve Výsledcích."),
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+        self._drop_queued("assessment", key)
+        try:
+            key.unlink(missing_ok=True)
+        except OSError as exc:
+            self.statusBar().showMessage(str(exc), 8000)
+            return False
+        self.assessment_page.refresh()
         return True
 
     def _plan_busy(self, kind: str, key: Path) -> bool:
@@ -821,8 +993,10 @@ class MainWindow(QMainWindow):
 
     # --- mazání běhů ---------------------------------------------------------------
 
-    def rename_run(self, info: RunInfo, label: str | None = None) -> bool:
+    def rename_run(self, info: RunInfo | RunGroup, label: str | None = None) -> bool:
         """Vlastní název běhu (dialog, nebo daný text v testech); prázdný = podle protokolu."""
+        if isinstance(info, RunGroup):
+            return False  # vyšetření se jmenuje podle pacienta
         if label is None:
             text, ok = QInputDialog.getText(
                 self,
@@ -868,6 +1042,9 @@ class MainWindow(QMainWindow):
         """Po přejmenování složky běhu: všechny cesty, které na ni ukazovaly, na novou."""
         if getattr(self, "_running_dir", None) == old:
             self._running_dir = new
+        out = getattr(self, "_running_out", None)
+        if out is not None and out.parent == old:
+            self._running_out = new / out.name
         for job in self._queue:
             if job.merge_into is not None and job.merge_into.parent == old:
                 job.merge_into = new / job.merge_into.name
@@ -875,8 +1052,10 @@ class MainWindow(QMainWindow):
         self.run_page.relocate(old, new)
         self.assessment_page.relocate(old, new)
 
-    def delete_run(self, info: RunInfo, *, confirm: bool = True) -> bool:
+    def delete_run(self, info: RunInfo | RunGroup, *, confirm: bool = True) -> bool:
         """Složka běhu do Koše po potvrzení; běžící běh smazat nejde."""
+        if isinstance(info, RunGroup):
+            return self._delete_group(info, confirm=confirm)
         running_dir = getattr(self, "_running_dir", None)
         if self.run_page.runner.running and running_dir == info.dir:
             self.statusBar().showMessage(tr("Běžící výpočet smazat nejde."), 6000)
@@ -907,6 +1086,46 @@ class MainWindow(QMainWindow):
         self._after_runs_deleted({info.dir})
         self.statusBar().showMessage(
             tr("Běh přesunut do Koše: {name}").format(name=info.dir.name), 6000
+        )
+        return True
+
+    def _delete_group(self, group: RunGroup, *, confirm: bool = True) -> bool:
+        """Všechny běhy vyšetření (nebo jeho složku) do Koše; hodnocení samo zůstává."""
+        if group.status == "running":
+            self.statusBar().showMessage(tr("Běžící výpočet smazat nejde."), 6000)
+            return False
+        if confirm:
+            when = group.started.strftime("%d.%m. %H:%M") if group.started else ""
+            answer = QMessageBox.question(
+                self,
+                tr("Smazat vyšetření"),
+                tr(
+                    "Smazat běhy vyšetření {name} z {when}?\n"
+                    "Složky {n} běhů s tabulkami, protokoly a logy půjdou do Koše. "
+                    "Uložené hodnocení na stránce Hodnocení zůstane, ale bez nahrávek. "
+                    "Nahrávek na disku se to netýká."
+                ).format(name=group.display_name, when=when, n=len(group.runs)),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+        targets = [group.dir] if group.dir is not None else [r.dir for r in group.runs]
+        failed: list[str] = []
+        for target in targets:
+            try:
+                trash_run(target)
+            except OSError as exc:
+                failed.append(str(exc))
+        self._after_runs_deleted({r.dir for r in group.runs} | set(targets))
+        if failed:
+            self.statusBar().showMessage(
+                tr("Běh se nepodařilo smazat (otevřený soubor?): {error}").format(error=failed[0]),
+                8000,
+            )
+            return False
+        self.statusBar().showMessage(
+            tr("Vyšetření {name} přesunuto do Koše.").format(name=group.display_name), 6000
         )
         return True
 
@@ -1082,6 +1301,7 @@ class MainWindow(QMainWindow):
         self._running_inputs = list(inputs)
         self._running_name = proto.display_name
         self._running_label = job.label.strip()
+        self._running_subject = job.subject
         # Stav „běží“ hned: tabulka roste průběžně a bez záznamu by běh vypadal hotový.
         write_run_file(
             run_dir,
@@ -1091,11 +1311,14 @@ class MainWindow(QMainWindow):
             work_dir=str(work_dir),
             protocol=proto.display_name,
             label=self._running_label,
-            norm=self._running_norm_text(),
+            **self._plan_run_fields(),
             total=len(inputs),
         )
         if self._running_plan is not None:
             self._plan_status(RUNNING, run_dir)
+        # karta běhu hned, ať vyšetření neukazuje „hotovo“, dokud běží další úloha
+        self.run_page.refresh_history(select=run_dir)
+        self.results_page.refresh()
         self.nav.setCurrentRow(PAGE_RUN)
         self.run_page.start(
             argv,
@@ -1125,7 +1348,14 @@ class MainWindow(QMainWindow):
             total += per_file * unknown
         return total
 
+    def _page_after_batch(self) -> int:
+        """Kam po poslední dávce: Výsledky, po hotovém hodnocení z nahrávek Hodnocení."""
+        page = getattr(self, "_after_batch_page", PAGE_RESULTS)
+        self._after_batch_page = PAGE_RESULTS
+        return page
+
     def _batch_finished(self, state: contract.BatchState, code: int, cancelled: bool) -> None:
+        self._after_batch_page = PAGE_RESULTS
         run_dir = getattr(self, "_running_dir", None)
         if run_dir is not None and run_dir.is_dir():
             if cancelled:
@@ -1150,7 +1380,7 @@ class MainWindow(QMainWindow):
                 work_dir=str(self._running_work_dir),
                 protocol=self._running_name,
                 label=getattr(self, "_running_label", ""),
-                norm=self._running_norm_text(),
+                **self._plan_run_fields(),
                 processed=state.processed,
                 total=state.total,
                 seconds=self.run_page.elapsed_seconds(),
@@ -1158,12 +1388,14 @@ class MainWindow(QMainWindow):
                 copied=collected.copied if collected else None,
                 moved_cut=collected.moved_cut if collected else None,
             )
-        self.run_page.refresh_history(select=run_dir)
-        self.assessment_page.refresh()
         if getattr(self, "_running_plan", None) is not None:
+            # stav dávky do plánu dřív, než se karta vyšetření překreslí
             self._plan_finished(
                 OK if code == 0 and not cancelled else (CANCELLED if cancelled else ERROR), run_dir
             )
+            run_dir = getattr(self, "_running_dir", run_dir)  # po sloučení do složky vyšetření
+        self.run_page.refresh_history(select=run_dir)
+        self.assessment_page.refresh()
         merged = self._merge_rerun(state)
         per_file = self.run_page.seconds_per_file()
         if per_file is not None and not cancelled and code == 0 and self._running_slug:
@@ -1183,7 +1415,7 @@ class MainWindow(QMainWindow):
                 note=tr("Znovu spočítané chybné nahrávky: {n} řádků nahrazeno.").format(n=n),
             )
             if not more:
-                self.nav.setCurrentRow(PAGE_RESULTS)
+                self.nav.setCurrentRow(self._page_after_batch())
             return
         if cancelled or code != 0:
             partial = self._running_out
@@ -1196,15 +1428,16 @@ class MainWindow(QMainWindow):
                     ),
                 )
                 if not more:
-                    self.nav.setCurrentRow(PAGE_RESULTS)
+                    self.nav.setCurrentRow(self._page_after_batch())
             return
         if not state.out:
             return
-        out = Path(state.out)
+        # po sloučení vyšetření do jedné složky je tabulka jinde než hlásí knihovna
+        out = self._running_out if self._running_out is not None else Path(state.out)
         if out.is_file():
             self.results_page.load(out)
             if not more:
-                self.nav.setCurrentRow(PAGE_RESULTS)
+                self.nav.setCurrentRow(self._page_after_batch())
         elif out.is_dir():  # jen segmentace nebo přepis: kopie v běhu, živé ve work
             self.statusBar().showMessage(
                 tr(

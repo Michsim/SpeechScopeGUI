@@ -2,8 +2,11 @@
 
 Vlevo uložená hodnocení (`backend/assessments.py`); nic se neskládá samo
 ze všech běhů. Nové hodnocení… (`ui/assessment_dialog.py`) vybere pacienta,
-věk, pohlaví, datum a nahrávky po úlohách; z Výsledků (pravé tlačítko na
-nahrávce) se otevře týž dialog s nahrávkou předvyplněnou. Vpravo norma
+věk, pohlaví, datum a nahrávky po úlohách, nebo rovnou z nahrávek
+(`ui/assessment_build_dialog.py`: dávky po úlohách do fronty, po poslední se
+hodnocení založí samo; rozpracované je v seznamu jako „počítá se“ s Dopočítat
+zbývající, Založit z hotových a Zahodit, plány `assessments/<id>.plan.json`);
+z Výsledků (pravé tlačítko na nahrávce) se otevře dialog s nahrávkou předvyplněnou. Vpravo norma
 s věkovým oknem a pohlavím (volí se při prohlížení), pavouk po dimenzích,
 strom dimenzí a položek, nahrávky hodnocení se stavem vůči normě a popis
 normy. Skóre počítá `dimensions.evaluate` z `assessments.resolve`.
@@ -43,6 +46,7 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
+from ...backend.assessment_build import AssessmentPlan, pending_plans
 from ...backend.assessments import (
     Assessment,
     AssessmentStore,
@@ -51,11 +55,14 @@ from ...backend.assessments import (
     resolve,
 )
 from ...backend.dimensions import Dimension, DimensionResult, Evaluation, evaluate, load_dimensions
+from ...backend.history import run_key
 from ...backend.library import FeatureInfo, Library, LibraryError
+from ...backend.norm_build import RUNNING
 from ...backend.norms import Norm, Selection, all_norms
 from ...backend.visits import Recording, Visit, VisitIndex
 from ...i18n import tr
 from .. import theme
+from ..assessment_build_dialog import NewAssessmentChoiceDialog
 from ..assessment_dialog import AssessmentDialog, match_text
 from ..feature_detail import split_unit
 from ..file_actions import file_menu, open_file
@@ -173,8 +180,61 @@ class VisitCard(QFrame):
         theme.set_role(self, "selected" if current else self._role)
 
 
+def plan_pill(plan: AssessmentPlan) -> tuple[str, str]:
+    n, k = len(plan.tasks), plan.done
+    if any(t.status == RUNNING for t in plan.tasks):
+        return tr("počítá se {k} z {n}").format(k=k, n=n), "accent"
+    if plan.all_finished:
+        return tr("čeká na založení"), "warn"
+    return tr("dávky {k} z {n}").format(k=k, n=n), "neutral"
+
+
+class PendingCard(QFrame):
+    """Karta rozpracovaného hodnocení (dávky se počítají nebo čekají)."""
+
+    def __init__(self, plan: AssessmentPlan, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.plan = plan
+        self.setObjectName("card")
+        text, self._role = plan_pill(plan)
+        theme.set_role(self, self._role)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(3)
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        self.title = ElidedLabel(plan.patient.subject)
+        self.title.setObjectName("card_title")
+        head.addWidget(self.title, 1)
+        self.pill = QLabel(text)
+        self.pill.setObjectName("pill")
+        theme.set_role(self.pill, self._role)
+        head.addWidget(self.pill, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(head)
+        visit = Visit(
+            plan.patient.subject,
+            plan.patient.date,
+            True,
+            age=plan.patient.age,
+            sex=plan.patient.sex,
+        )
+        tasks = ", ".join(contract.TASK_SHORT.get(t.task, t.task) for t in plan.tasks)
+        self.detail = QLabel(visit_subtitle(visit).rsplit(" · ", 1)[0] + " · " + tasks)
+        self.detail.setObjectName("muted")
+        self.detail.setWordWrap(True)
+        layout.addWidget(self.detail)
+
+    def set_current(self, current: bool) -> None:
+        theme.set_role(self, "selected" if current else self._role)
+
+
 class AssessmentPage(QWidget):
     notice = Signal(str)
+    new_from_recordings_requested = Signal()  # průvodce Hodnocení z nahrávek (hlavní okno)
+    build_requested = Signal(object)  # plán: založit z hotových dávek
+    resume_requested = Signal(object)  # plán: dopočítat zbývající dávky
+    discard_requested = Signal(object)  # plán: zahodit rozpracované hodnocení
+    open_run_requested = Signal(object)  # složka běhu: Otevřít běh ve Výsledcích
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -183,6 +243,8 @@ class AssessmentPage(QWidget):
         self._entries: list[tuple[Assessment, Visit, list[RecordingRef]]] = []
         self._shown: list[tuple[Assessment, Visit, list[RecordingRef]]] = []
         self._missing: list[RecordingRef] = []
+        self._plans: list[AssessmentPlan] = []
+        self._shown_plans: list[AssessmentPlan] = []
         self._norms: list[Norm] = []
         self._norms_dir: Path | None = None
         self._library: Library | None = None
@@ -441,7 +503,7 @@ class AssessmentPage(QWidget):
         rec_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         rec_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.recordings.setMaximumHeight(170)
-        self.recordings.cellDoubleClicked.connect(lambda row, _col: self._open_recording(row))
+        self.recordings.cellDoubleClicked.connect(lambda row, _col: self._detail_row(row))
         self.recordings.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.recordings.customContextMenuRequested.connect(self._recording_menu)
         rec_layout.addWidget(self.recordings)
@@ -477,11 +539,105 @@ class AssessmentPage(QWidget):
         self.bottom.setLayout(bottom)
         right_layout.addWidget(self.bottom)
 
+        self.right = right
         self.splitter.addWidget(right)
+        self.plan_detail = self._build_plan_detail()
+        self.splitter.addWidget(self.plan_detail)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([320, 800])
+        self.splitter.setStretchFactor(2, 1)
+        self.splitter.setSizes([320, 800, 800])
         self._show_empty_state()
+
+    def _build_plan_detail(self) -> QWidget:
+        """Detail rozpracovaného hodnocení: dávky po úlohách se stavem a akce."""
+        box = QWidget()
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(12, 0, 0, 0)
+        layout.setSpacing(10)
+        self.plan_header = StatusHeader()
+        self.resume_btn = QPushButton(tr("Dopočítat zbývající"))
+        theme.set_role(self.resume_btn, "primary")
+        self.resume_btn.clicked.connect(lambda: self._plan_action(self.resume_requested))
+        self.build_btn = QPushButton(tr("Založit z hotových"))
+        self.build_btn.setToolTip(tr("Hodnocení jen z dávek, které doběhly"))
+        self.build_btn.clicked.connect(lambda: self._plan_action(self.build_requested))
+        self.discard_btn = QPushButton(tr("Zahodit…"))
+        theme.set_role(self.discard_btn, "danger")
+        self.discard_btn.clicked.connect(lambda: self._plan_action(self.discard_requested))
+        for btn in (self.resume_btn, self.build_btn, self.discard_btn):
+            self.plan_header.add_button(btn)
+        layout.addWidget(self.plan_header)
+        card = QFrame()
+        card.setObjectName("card")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 10, 12, 10)
+        title = QLabel(tr("Dávky hodnocení"))
+        title.setObjectName("card_title")
+        card_layout.addWidget(title)
+        self.plan_table = QTableWidget()
+        self.plan_table.setColumnCount(4)
+        self.plan_table.setHorizontalHeaderLabels(
+            [tr("úloha"), tr("nahrávek"), tr("protokol"), tr("stav")]
+        )
+        self.plan_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.plan_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.plan_table.verticalHeader().setVisible(False)
+        header = self.plan_table.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        card_layout.addWidget(self.plan_table)
+        layout.addWidget(card)
+        note = QLabel(
+            tr(
+                "Dávky se počítají na stránce Výpočet. Po poslední se hodnocení založí samo "
+                "a ukáže se pavouk. Když některá dávka spadla nebo se zrušila, dopočítejte "
+                "ji, nebo hodnocení založte z hotových."
+            )
+        )
+        note.setObjectName("muted")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        layout.addStretch(1)
+        return box
+
+    def _plan_action(self, signal) -> None:  # noqa: ANN001
+        plan = self.current_plan()
+        if plan is not None:
+            signal.emit(plan.key)
+
+    def _show_plan(self, plan: AssessmentPlan) -> None:
+        from .norms import plan_status_text  # stejné popisky stavů jako u normy
+
+        p = plan.patient
+        self.plan_header.title.setText(p.subject)
+        visit = Visit(p.subject, p.date, True, age=p.age, sex=p.sex)
+        self.plan_header.subtitle.setText(
+            visit_subtitle(visit).rsplit(" · ", 1)[0] + tr(" · rozpracované hodnocení")
+        )
+        text, role = plan_pill(plan)
+        self.plan_header.set_pills([(text, role, "", None)])
+        self.plan_header.set_role(role)
+        self.plan_table.setRowCount(len(plan.tasks))
+        for row, task in enumerate(plan.tasks):
+            cells = [
+                contract.TASK_LABELS.get(task.task, task.task),
+                str(len(task.inputs)),
+                task.proto().display_name,
+                plan_status_text(task.status),
+            ]
+            for col, value in enumerate(cells):
+                self.plan_table.setItem(row, col, QTableWidgetItem(value))
+        height = self.plan_table.horizontalHeader().height() + 4
+        height += sum(self.plan_table.rowHeight(r) for r in range(len(plan.tasks)))
+        self.plan_table.setFixedHeight(height)
+        running = any(t.status == RUNNING for t in plan.tasks)
+        self.build_btn.setEnabled(plan.buildable and not running)
+        self.resume_btn.setEnabled(bool(plan.remaining()))
+        self.discard_btn.setEnabled(not running)
 
     # --- napojení --------------------------------------------------------------------------
 
@@ -535,7 +691,7 @@ class AssessmentPage(QWidget):
         return self._current
 
     def current_assessment(self) -> Assessment | None:
-        row = self.visits.currentRow()
+        row = self.visits.currentRow() - len(self._shown_plans)
         return self._shown[row][0] if 0 <= row < len(self._shown) else None
 
     def assessments(self) -> list[Assessment]:
@@ -583,6 +739,7 @@ class AssessmentPage(QWidget):
             recordings = self._index.all_recordings()
         stored = self._store.all() if self._store is not None else []
         self._entries = [(a, *resolve(a, recordings)) for a in stored]
+        self._plans = pending_plans(self._store.folder) if self._store is not None else []
         self._fill_list(keep=keep)
 
     def recordings_pool(self) -> list[Recording]:
@@ -608,6 +765,19 @@ class AssessmentPage(QWidget):
         self._cards = []
         shown: list[tuple[Assessment, Visit, list[RecordingRef]]] = []
         select_row: int | None = None
+        self._shown_plans = []
+        for plan in self._plans:  # rozpracovaná nahoře
+            if needle and needle not in plan.patient.subject.lower():
+                continue
+            item = QListWidgetItem()
+            card = PendingCard(plan)
+            item.setSizeHint(card.sizeHint())
+            self.visits.addItem(item)
+            self.visits.setItemWidget(item, card)
+            self._cards.append(card)
+            if keep is not None and plan.id == keep:
+                select_row = len(self._shown_plans)
+            self._shown_plans.append(plan)
         for entry in self._entries:
             assessment, visit, _missing = entry
             if needle and needle not in assessment.subject.lower():
@@ -619,18 +789,17 @@ class AssessmentPage(QWidget):
             self.visits.setItemWidget(item, card)
             self._cards.append(card)
             if keep is not None and assessment.id == keep:
-                select_row = len(shown)
+                select_row = len(self._shown_plans) + len(shown)
             shown.append(entry)
         self._shown = shown
         self._fit_cards()
         self.visits.blockSignals(False)
-        self.list_title.setText(
-            tr("Hodnocení ({n})").format(n=len(self._entries)) if self._entries else tr("Hodnocení")
-        )
-        self.empty.setVisible(not self._entries)
+        total = len(self._entries) + len(self._plans)
+        self.list_title.setText(tr("Hodnocení ({n})").format(n=total) if total else tr("Hodnocení"))
+        self.empty.setVisible(not total)
         if select_row is not None:
             self.visits.setCurrentRow(select_row)
-        elif shown:
+        elif shown or self._shown_plans:
             self.visits.setCurrentRow(0)
         else:
             self._current = None
@@ -640,7 +809,14 @@ class AssessmentPage(QWidget):
     def count(self) -> int:
         return self.visits.count()
 
-    def card(self, row: int) -> VisitCard | None:
+    def current_plan(self) -> AssessmentPlan | None:
+        row = self.visits.currentRow()
+        return self._shown_plans[row] if 0 <= row < len(self._shown_plans) else None
+
+    def plans(self) -> list[AssessmentPlan]:
+        return list(self._plans)
+
+    def card(self, row: int) -> VisitCard | PendingCard | None:
         return self._cards[row] if 0 <= row < len(self._cards) else None
 
     def select_row(self, row: int) -> None:
@@ -648,8 +824,13 @@ class AssessmentPage(QWidget):
             self.visits.setCurrentRow(row)
 
     def select_assessment(self, assessment_id: str) -> bool:
+        offset = len(self._shown_plans)
         for row, (assessment, _v, _m) in enumerate(self._shown):
             if assessment.id == assessment_id:
+                self.visits.setCurrentRow(offset + row)
+                return True
+        for row, plan in enumerate(self._shown_plans):
+            if plan.id == assessment_id:
                 self.visits.setCurrentRow(row)
                 return True
         return False
@@ -679,6 +860,14 @@ class AssessmentPage(QWidget):
         return assessment
 
     def new_assessment(self, initial: Recording | None = None) -> Assessment | None:
+        """Nové hodnocení: s nahrávkou z Výsledků rovnou dialog, jinak volba zdroje."""
+        if initial is None:
+            choice = NewAssessmentChoiceDialog(self)
+            if choice.exec() != QDialog.DialogCode.Accepted:
+                return None
+            if choice.choice() == "recordings":
+                self.new_from_recordings_requested.emit()
+                return None
         dialog = self.make_dialog(initial=initial)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
@@ -712,8 +901,11 @@ class AssessmentPage(QWidget):
         return True
 
     def relocate(self, old: Path, new: Path) -> None:
-        """Přejmenovaný běh: odkazy hodnocení na jeho složku se přepíšou."""
-        if self._store is not None and self._store.relocate(old.name, new.name):
+        """Přejmenovaný nebo přesunutý běh: odkazy hodnocení na něj se přepíšou (`RunInfo.key`)."""
+        if self._store is None or self._index is None:
+            return
+        root = self._index.work_root
+        if self._store.relocate(run_key(root, old), run_key(root, new)):
             self.refresh()
 
     def show_row(self, run_dir: Path, row: int) -> bool:
@@ -733,7 +925,17 @@ class AssessmentPage(QWidget):
     ) -> None:
         for row, card in enumerate(self._cards):
             card.set_current(self.visits.item(row) is current)
-        row = self.visits.currentRow()
+        plan = self.current_plan()
+        if plan is not None:
+            self._current = None
+            self._missing = []
+            self.right.setVisible(False)
+            self.plan_detail.setVisible(True)
+            self._show_plan(plan)
+            return
+        self.plan_detail.setVisible(False)
+        self.right.setVisible(True)
+        row = self.visits.currentRow() - len(self._shown_plans)
         entry = self._shown[row] if 0 <= row < len(self._shown) else None
         self._current = entry[1] if entry else None
         self._missing = entry[2] if entry else []
@@ -805,6 +1007,8 @@ class AssessmentPage(QWidget):
 
     def _show_empty_state(self) -> None:
         self._evaluation = None
+        self.plan_detail.setVisible(False)
+        self.right.setVisible(True)
         self.header.title.setText(tr("Hodnocení"))
         self.header.subtitle.setText(tr("Vyberte hodnocení vlevo, nebo založte nové."))
         self.header.set_role("neutral")
@@ -1020,6 +1224,12 @@ class AssessmentPage(QWidget):
         if rec is not None and rec.path is not None:
             open_file(rec.path, self.notice.emit)
 
+    def _detail_row(self, row: int) -> None:
+        """Dvojklik na nahrávku = detail hodnot (jako na Výsledcích); přehrání je v nabídce."""
+        rec = self.recording_at(row)
+        if rec is not None:
+            self._open_detail(rec)
+
     def _recording_menu(self, pos) -> None:  # noqa: ANN001
         index = self.recordings.indexAt(pos)
         rec = self.recording_at(index.row()) if index.isValid() else None
@@ -1028,6 +1238,8 @@ class AssessmentPage(QWidget):
         menu = file_menu(self, rec.path, self.notice.emit)
         detail = menu.addAction(tr("Detail nahrávky…"))
         detail.triggered.connect(lambda: self._open_detail(rec))
+        run_action = menu.addAction(tr("Otevřít běh ve Výsledcích"))
+        run_action.triggered.connect(lambda: self.open_run_requested.emit(rec.run.dir))
         folder = menu.addAction(tr("Otevřít složku běhu"))
         folder.triggered.connect(lambda: _open_folder(rec.run.dir))
         menu.exec(self.recordings.viewport().mapToGlobal(pos))
@@ -1092,4 +1304,11 @@ def _colorize(item: QTreeWidgetItem, band: str) -> None:
         item.setBackground(col, color)
 
 
-__all__ = ["AssessmentPage", "VisitCard", "worst_band", "format_number", "task_count"]
+__all__ = [
+    "AssessmentPage",
+    "VisitCard",
+    "PendingCard",
+    "worst_band",
+    "format_number",
+    "task_count",
+]

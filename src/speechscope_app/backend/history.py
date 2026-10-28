@@ -18,6 +18,15 @@ označí jako přerušený (`mark_orphans`).
 Tabulka běžícího běhu se tu nikdy neotvírá: knihovna ji píše přes `.part`
 a přejmenování, a Windows přejmenování odmítnou, dokud má soubor někdo
 otevřený. Počet řádků se počítá až u skončených běhů.
+
+Běhy z Hodnocení z nahrávek mají v `run.json` `assessment` (id hodnocení)
+a `patient`; historie je skládá do jedné skupiny na vyšetření (`RunGroup`,
+`group_runs`). Po poslední dávce se jejich složky přesunou do jedné složky
+vyšetření `<datum>_<čas>_hodnoceni-<pacient>\<úloha>\` (`merge_assessment_runs`);
+nahoře leží `run.json` skupiny (`group`), podsložky jsou dál úplné běhy
+a `list_runs` je vrací s `group_dir`. Odkazy na běh (hodnocení, index
+nahrávek) používají `RunInfo.key`, u plochého běhu název složky, u vnořeného
+`<skupina>/<úloha>`.
 """
 
 from __future__ import annotations
@@ -25,17 +34,25 @@ from __future__ import annotations
 import csv
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .. import contract
 from ..i18n import N_, tr
 from .protocol import Protocol, slugify
 from .trash import send_to_trash
 
 RUN_FILE = "run.json"
 STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})_(.+)$")
+GROUP_ASSESSMENT = "assessment"  # hodnota `group` v run.json složky vyšetření
+
+# Skupiny v historii (přepínač Analýzy · Hodnocení · Normy)
+KIND_ANALYSIS = "analysis"
+KIND_ASSESSMENT = "assessment"
+KIND_NORM = "norm"
+KINDS = (KIND_ANALYSIS, KIND_ASSESSMENT, KIND_NORM)
 
 STATUS_LABELS = {
     "ok": N_("hotovo"),
@@ -63,6 +80,26 @@ class RunInfo:
     work_dir: Path | None = None  # pracovní složka knihovny (work\<úloha>), z run.json
     prepare: str = ""  # jen segmentace ("segments") nebo přepis ("transcript"), jinak ""
     norm: str = ""  # dávka nové normy: složka jejího plánu; takový běh není pacient
+    assessment: str = ""  # dávka hodnocení z nahrávek: id hodnocení
+    patient: str = ""  # pacient dávky hodnocení (subject)
+    task: str = ""  # úloha z protocol.yaml
+    group_dir: Path | None = None  # složka vyšetření, když je běh v ní vnořený
+
+    @property
+    def key(self) -> str:
+        """Odkaz na běh v hodnocení a indexu: název složky, u vnořeného `<skupina>/<úloha>`."""
+        if self.group_dir is not None:
+            return f"{self.group_dir.name}/{self.dir.name}"
+        return self.dir.name
+
+    @property
+    def kind(self) -> str:
+        """Skupina v historii: analýza, hodnocení, nebo norma."""
+        if self.norm:
+            return KIND_NORM
+        if self.assessment:
+            return KIND_ASSESSMENT
+        return KIND_ANALYSIS
 
     @property
     def csv_path(self) -> Path | None:
@@ -94,32 +131,65 @@ def _count_rows(path: Path) -> int | None:
         return None
 
 
-def read_run(run_dir: Path) -> RunInfo | None:
-    """Jedna složka běhu; `None`, když to složka běhu není."""
-    match = STAMP.match(run_dir.name)
-    if not run_dir.is_dir() or match is None:
-        return None
-    if not (run_dir / "protocol.yaml").is_file() and not (run_dir / "speechscope.log").is_file():
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _started_from(name: str) -> tuple[datetime | None, str] | None:
+    """Datum, čas a slug z názvu složky `<datum>_<čas>_<slug>`; None, když tak nevypadá."""
+    match = STAMP.match(name)
+    if match is None:
         return None
     date, hh, mm, ss, slug = match.groups()
     try:
         started: datetime | None = datetime.strptime(f"{date} {hh}:{mm}:{ss}", "%Y-%m-%d %H:%M:%S")
     except ValueError:
         started = None
+    return started, slug
+
+
+def read_group(group_dir: Path) -> dict[str, Any] | None:
+    """`run.json` složky vyšetření (má `group`); None, když to složka vyšetření není."""
+    if not group_dir.is_dir() or _started_from(group_dir.name) is None:
+        return None
+    data = _read_json(group_dir / RUN_FILE)
+    return data if data.get("group") else None
+
+
+def read_run(run_dir: Path, *, group_dir: Path | None = None) -> RunInfo | None:
+    """Jedna složka běhu; `None`, když to složka běhu není.
+
+    Vnořený běh ve složce vyšetření (`group_dir`) nemá datum v názvu, bere ho
+    ze složky vyšetření; bez `group_dir` se vnoření pozná podle rodiče.
+    """
+    if not run_dir.is_dir():
+        return None
+    if group_dir is None and read_group(run_dir.parent) is not None:
+        group_dir = run_dir.parent
+    stamp = _started_from(group_dir.name if group_dir is not None else run_dir.name)
+    if stamp is None:
+        return None
+    if not (run_dir / "protocol.yaml").is_file() and not (run_dir / "speechscope.log").is_file():
+        return None
+    started, slug = stamp
+    if group_dir is not None:
+        slug = run_dir.name
     protocol_name = slug
+    task = ""
     proto_path = run_dir / "protocol.yaml"
     if proto_path.is_file():
         try:
-            protocol_name = Protocol.load(proto_path).display_name
+            proto = Protocol.load(proto_path)
+            protocol_name, task = proto.display_name, proto.task
         except Exception:  # rozbitý soubor nesmí shodit seznam  # noqa: BLE001
             pass
-    data: dict[str, Any] = {}
-    run_file = run_dir / RUN_FILE
-    if run_file.is_file():
-        try:
-            data = json.loads(run_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            data = {}
+    data = _read_json(run_dir / RUN_FILE)
     csv_path = run_dir / "features.csv"
     running = data.get("status") == "running"
     rows = _count_rows(csv_path) if csv_path.is_file() and not running else None
@@ -141,6 +211,10 @@ def read_run(run_dir: Path) -> RunInfo | None:
         work_dir=Path(data["work_dir"]) if data.get("work_dir") else None,
         prepare=str(data.get("prepare") or ""),
         norm=str(data.get("norm") or ""),
+        assessment=str(data.get("assessment") or ""),
+        patient=str(data.get("patient") or ""),
+        task=task,
+        group_dir=group_dir,
     )
 
 
@@ -220,8 +294,8 @@ def mark_orphans(work_root: Path) -> list[Path]:
 
 
 def trash_run(run_dir: Path) -> None:
-    """Celá složka běhu do Koše; `OSError`, když to nejde (otevřený soubor)."""
-    if read_run(run_dir) is None:
+    """Celá složka běhu (nebo vyšetření) do Koše; `OSError`, když to nejde (otevřený soubor)."""
+    if read_run(run_dir) is None and read_group(run_dir) is None:
         raise OSError(0, f"není složka běhu: {run_dir}")
     send_to_trash(run_dir)
 
@@ -231,21 +305,215 @@ def trash_all(work_root: Path, *, keep: set[Path] | None = None) -> tuple[int, l
     skipped = {p.resolve() for p in (keep or set())}
     done = 0
     failed: list[Path] = []
+    trashed: set[Path] = set()
     for info in list_runs(work_root):
         if info.dir.resolve() in skipped or info.status == "running":
             continue
+        target = info.group_dir or info.dir  # vnořené běhy i se složkou vyšetření, jednou
+        if target in trashed:
+            continue
         try:
-            send_to_trash(info.dir)
+            send_to_trash(target)
+            trashed.add(target)
             done += 1
         except OSError:
-            failed.append(info.dir)
+            failed.append(target)
     return done, failed
 
 
 def list_runs(work_root: Path) -> list[RunInfo]:
-    """Všechny běhy pod pracovní složkou, nejnovější první."""
+    """Všechny běhy pod pracovní složkou, nejnovější první; vnořené běhy vyšetření také."""
     if not work_root.is_dir():
         return []
-    runs = [info for d in work_root.iterdir() if (info := read_run(d)) is not None]
+    runs: list[RunInfo] = []
+    for d in work_root.iterdir():
+        if read_group(d) is not None:
+            runs.extend(
+                info
+                for sub in sorted(d.iterdir())
+                if (info := read_run(sub, group_dir=d)) is not None
+            )
+        elif (info := read_run(d)) is not None:
+            runs.append(info)
     runs.sort(key=lambda r: (r.started or datetime.min, r.dir.name), reverse=True)
     return runs
+
+
+def run_key(work_root: Path, run_dir: Path) -> str:
+    """Klíč běhu pro odkazy (`RunInfo.key`) z cesty, i když složka už neexistuje."""
+    try:
+        rel = run_dir.relative_to(work_root)
+    except ValueError:
+        return run_dir.name
+    return rel.as_posix()
+
+
+# --- vyšetření: skupina běhů jednoho hodnocení ---------------------------------------
+
+
+@dataclass(slots=True)
+class RunGroup:
+    """Běhy jednoho hodnocení z nahrávek: jedna karta v historii, úlohy uvnitř."""
+
+    key: str  # id hodnocení
+    runs: list[RunInfo]  # pořadí podle úloh ze smlouvy
+    dir: Path | None  # složka vyšetření, když už jsou běhy sloučené
+    patient: str
+    # úlohy rozpracovaného plánu (úloha, stav pending/running/ok/error/cancelled);
+    # prázdné = hodnocení už založené, karta zná jen běhy
+    planned: list[tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def kind(self) -> str:
+        return KIND_ASSESSMENT
+
+    @property
+    def in_progress(self) -> bool:
+        return bool(self.planned)
+
+    @property
+    def task_count(self) -> int:
+        return len(self.planned) if self.planned else len(self.runs)
+
+    def waiting_tasks(self) -> list[str]:
+        """Úlohy plánu, které ještě nemají běh (čekají ve frontě)."""
+        have = {r.task for r in self.runs}
+        return [t for t, status in self.planned if status == "pending" and t not in have]
+
+    @property
+    def started(self) -> datetime | None:
+        starts = [r.started for r in self.runs if r.started]
+        return min(starts) if starts else None
+
+    @property
+    def status(self) -> str:
+        """Souhrn: běží, chyba, zrušeno či přerušeno má přednost před hotovo.
+
+        Dokud plán hodnocení existuje a některá úloha čeká nebo běží, je to
+        „běží“, i když právě žádná dávka nepíše (další je ve frontě)."""
+        statuses = {r.status for r in self.runs}
+        if "running" in statuses:
+            return "running"
+        if self.planned and (self.waiting_tasks() or any(s == "running" for _t, s in self.planned)):
+            return "running"
+        for status in ("error", "interrupted", "cancelled"):
+            if status in statuses:
+                return status
+        return "ok"
+
+    @property
+    def status_label(self) -> str:
+        if self.status == "running" and self.planned:
+            return tr("počítá se")
+        return tr(STATUS_LABELS.get(self.status, self.status))
+
+    @property
+    def display_name(self) -> str:
+        return self.patient or tr("Hodnocení")
+
+    @property
+    def total(self) -> int:
+        return sum(r.total or 0 for r in self.runs)
+
+    @property
+    def processed(self) -> int:
+        done = 0
+        for r in self.runs:
+            if r.processed is not None:
+                done += r.processed
+            elif r.status == "ok":
+                done += r.total or r.rows or 0
+        return done
+
+    @property
+    def seconds(self) -> float | None:
+        known = [r.seconds for r in self.runs if r.seconds]
+        return sum(known) if known else None
+
+    @property
+    def done(self) -> int:
+        return sum(1 for r in self.runs if r.status == "ok")
+
+    def run_for(self, run_dir: Path) -> RunInfo | None:
+        return next((r for r in self.runs if r.dir == run_dir), None)
+
+    def contains(self, run_dir: Path) -> bool:
+        return self.dir == run_dir or self.run_for(run_dir) is not None
+
+    def latest(self) -> RunInfo:
+        """Běh na stránku Výpočet: běžící, jinak nejnovější."""
+        running = next((r for r in self.runs if r.status == "running"), None)
+        return running or max(self.runs, key=lambda r: r.started or datetime.min)
+
+
+def group_runs(
+    runs: list[RunInfo], plans: dict[str, list[tuple[str, str]]] | None = None
+) -> list[RunInfo | RunGroup]:
+    """Běhy hodnocení složí podle `assessment` do skupin, ostatní nechá; nejnovější první.
+
+    `plans` jsou rozpracovaná hodnocení (id → úlohy se stavem): skupina pak ví
+    i o úlohách, které ještě běh nemají, a hlásí „počítá se“ místo „hotovo“."""
+    order = {t: i for i, t in enumerate(contract.TASKS)}
+    groups: dict[str, list[RunInfo]] = {}
+    entries: list[RunInfo | RunGroup] = []
+    for run in runs:
+        if run.assessment:
+            groups.setdefault(run.assessment, []).append(run)
+        else:
+            entries.append(run)
+    for key, members in groups.items():
+        members.sort(key=lambda r: (order.get(r.task, 99), r.started or datetime.min))
+        group_dir = members[0].group_dir if all(r.group_dir for r in members) else None
+        patient = next((r.patient for r in members if r.patient), "")
+        planned = list((plans or {}).get(key, []))
+        entries.append(RunGroup(key, members, group_dir, patient, planned))
+    entries.sort(
+        key=lambda e: (e.started or datetime.min, e.dir.name if e.dir else ""), reverse=True
+    )
+    return entries
+
+
+def merge_assessment_runs(work_root: Path, group: RunGroup) -> tuple[Path, list[tuple[Path, Path]]]:
+    """Ploché běhy vyšetření přesune do jedné složky `<datum>_<čas>_hodnoceni-<pacient>`.
+
+    Vrací složku vyšetření a dvojice (stará, nová) složka běhu. Když některý
+    přesun selže (otevřený soubor), vrátí už přesunuté zpět a vyhodí `OSError`;
+    volající pak nechá běhy ploché a zkusí to příště.
+    """
+    if group.dir is not None or group.status == "running":
+        raise OSError(0, "vyšetření už je sloučené, nebo ještě běží")
+    started = group.started or datetime.now()
+    slug = slugify(group.patient) if group.patient.strip() else group.key
+    group_dir = unique_run_dir(work_root, f"{started:%Y-%m-%d_%H-%M-%S}_hodnoceni-{slug}")
+    group_dir.mkdir(parents=True)
+    write_run_file(
+        group_dir,
+        group=GROUP_ASSESSMENT,
+        assessment=group.key,
+        patient=group.patient,
+        tasks=[r.task for r in group.runs],
+    )
+    moved: list[tuple[Path, Path]] = []
+    try:
+        for run in group.runs:
+            name = slugify(contract.TASK_SHORT.get(run.task, run.task) or run.dir.name)
+            target = group_dir / name
+            n = 2
+            while target.exists():
+                target = group_dir / f"{name}-{n}"
+                n += 1
+            run.dir.rename(target)
+            moved.append((run.dir, target))
+    except OSError:
+        for old, new in reversed(moved):
+            try:
+                new.rename(old)
+            except OSError:
+                pass
+        try:
+            (group_dir / RUN_FILE).unlink(missing_ok=True)
+            group_dir.rmdir()
+        except OSError:
+            pass
+        raise
+    return group_dir, moved

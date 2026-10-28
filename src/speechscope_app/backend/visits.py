@@ -46,7 +46,7 @@ class Recording:
     @property
     def ref(self) -> str:
         """Klíč nahrávky pro ruční přiřazení: název složky běhu a řádek."""
-        return f"{self.run.dir.name}#{self.row}"
+        return f"{self.run.key}#{self.row}"
 
     @property
     def values(self) -> dict[str, float]:

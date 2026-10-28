@@ -31,17 +31,17 @@ FORMAT_VERSION = 1
 class RecordingRef:
     """Odkaz na nahrávku: řádek features.csv v jednom běhu."""
 
-    run: str  # název složky běhu (pod pracovní složkou)
+    run: str  # klíč běhu (`RunInfo.key`: název složky, u vnořeného `<vyšetření>/<úloha>`)
     row: int
     file: str
     task: str
 
     @classmethod
     def of(cls, rec: Recording) -> RecordingRef:
-        return cls(rec.run.dir.name, rec.row, rec.file, rec.task)
+        return cls(rec.run.key, rec.row, rec.file, rec.task)
 
     def matches(self, rec: Recording) -> bool:
-        return rec.run.dir.name == self.run and rec.row == self.row
+        return rec.run.key == self.run and rec.row == self.row
 
 
 @dataclass(slots=True)
@@ -111,6 +111,8 @@ class AssessmentStore:
             return []
         out: list[Assessment] = []
         for path in sorted(self.folder.glob("*.json")):
+            if path.name.endswith(".plan.json"):
+                continue  # rozpracované hodnocení (assessment_build), ne hotové
             try:
                 out.append(Assessment.from_dict(json.loads(path.read_text(encoding="utf-8"))))
             except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
@@ -166,7 +168,7 @@ def resolve(
     missing: list[RecordingRef] = []
     by_run: dict[str, list[Recording]] = {}
     for rec in recordings:
-        by_run.setdefault(rec.run.dir.name, []).append(rec)
+        by_run.setdefault(rec.run.key, []).append(rec)
     for ref in assessment.recordings:
         candidates = by_run.get(ref.run, [])
         found = next((r for r in candidates if ref.matches(r) and r.file == ref.file), None)

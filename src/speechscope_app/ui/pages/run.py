@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
-from ...backend.history import RunInfo
+from ...backend.history import RunGroup, RunInfo
 from ...backend.protocol import provider_order
 from ...backend.runner import Runner
 from ...i18n import tr
@@ -730,8 +730,12 @@ class RunPage(QWidget):
         self.bar.setValue(0)
         self.log.clear()
 
-    def show_recorded(self, info: RunInfo) -> None:
-        """Průběh starého běhu z events.jsonl a jeho log; při živém běhu se nic nemění."""
+    def show_recorded(self, info: RunInfo | RunGroup) -> None:
+        """Průběh starého běhu z events.jsonl a jeho log; při živém běhu se nic nemění.
+
+        Vyšetření (skupina běhů) ukáže svůj běžící, jinak nejnovější běh."""
+        if isinstance(info, RunGroup):
+            info = info.latest()
         if self.runner.running:
             return
         if self._viewing is None and self._live_dir == info.dir:
