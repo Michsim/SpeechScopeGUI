@@ -17,7 +17,11 @@ nebo stejně, tedy vyšší = horší.
 from __future__ import annotations
 
 import datetime as dt
+import io
 import math
+import re
+import unicodedata
+import zipfile
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
@@ -29,6 +33,7 @@ import yaml
 from .. import contract, i18n
 from ..i18n import tr
 from . import meta
+from .trash import send_to_trash
 
 NORM_FILE = "norm.yaml"
 CONTROLS_FILE = "controls.csv"
@@ -426,3 +431,131 @@ def user_norms(folder: Path) -> list[Norm]:
 
 def all_norms(folder: Path) -> list[Norm]:
     return builtin_norms() + user_norms(folder)
+
+
+# --- přehled a správa (stránka Normy) -------------------------------------------
+
+NORM_SUFFIX = ".ssnorm"  # export: zip s norm.yaml a controls.csv
+
+
+@dataclass(slots=True)
+class TaskSummary:
+    """Kontroly jedné úlohy: kolik osob, kolik žen a mužů, rozpětí věku."""
+
+    task: str
+    subjects: int
+    female: int
+    male: int
+    age_range: tuple[float, float] | None
+    columns: int  # sloupce feature s aspoň jednou hodnotou
+
+
+def task_summaries(norm: Norm) -> list[TaskSummary]:
+    """Přehled po úlohách v pořadí úloh knihovny; osoby se počítají jednou."""
+    order = {t: i for i, t in enumerate(contract.TASKS)}
+    out: list[TaskSummary] = []
+    for task in sorted(norm.tasks, key=lambda t: (order.get(t, len(order)), t)):
+        rows = norm.controls[norm.controls["task"] == task]
+        people = rows.drop_duplicates(meta.SUBJECT)
+        sexes = people[meta.SEX] if meta.SEX in people else pd.Series(dtype=str)
+        ages = (
+            pd.to_numeric(people[meta.AGE], errors="coerce").dropna()
+            if meta.AGE in people
+            else pd.Series(dtype=float)
+        )
+        filled = [
+            c for c in norm.feature_columns if pd.to_numeric(rows[c], errors="coerce").notna().any()
+        ]
+        out.append(
+            TaskSummary(
+                task=task,
+                subjects=int(people[meta.SUBJECT].nunique()),
+                female=int((sexes == meta.FEMALE).sum()),
+                male=int((sexes == meta.MALE).sum()),
+                age_range=(float(ages.min()), float(ages.max())) if not ages.empty else None,
+                columns=len(filled),
+            )
+        )
+    return out
+
+
+def age_histogram(norm: Norm, step: int = 10) -> list[tuple[int, int]]:
+    """Počet osob po věkových pásmech (dolní mez pásma, počet); bez věku prázdné."""
+    if meta.AGE not in norm.controls or not len(norm.controls):
+        return []
+    people = norm.controls.drop_duplicates(meta.SUBJECT)
+    ages = pd.to_numeric(people[meta.AGE], errors="coerce").dropna()
+    if ages.empty:
+        return []
+    low, high = int(ages.min()) // step * step, int(ages.max()) // step * step
+    return [
+        (start, int(((ages >= start) & (ages < start + step)).sum()))
+        for start in range(low, high + step, step)
+    ]
+
+
+def norm_slug(name: str) -> str:
+    """Jméno normy jako název složky: bez diakritiky a mezer."""
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", plain.lower()).strip("-") or "norma"
+
+
+def unique_norm_dir(folder: Path, name: str) -> Path:
+    """Volná složka pro novou normu: slug jména, případně s číslem."""
+    base = norm_slug(name)
+    target = folder / base
+    n = 2
+    while target.exists():
+        target = folder / f"{base}-{n}"
+        n += 1
+    return target
+
+
+def export_norm(norm: Norm, target: Path) -> Path:
+    """Norma jako jeden soubor (zip) pro kolegu nebo jiné pracoviště."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            NORM_FILE,
+            yaml.safe_dump(norm.info.to_dict(), allow_unicode=True, sort_keys=False),
+        )
+        zf.writestr(CONTROLS_FILE, norm.controls.to_csv(index=False))
+    return target
+
+
+def read_norm_file(source: Path) -> Norm:
+    """Norma ze souboru exportu; jen dva známé soubory, nic se nerozbaluje na disk.
+
+    Soubory smějí být i v jedné podsložce zipu (zabalená složka normy).
+    """
+    try:
+        with zipfile.ZipFile(source) as zf:
+            names = {Path(n).name: n for n in zf.namelist() if not n.endswith("/")}
+            if NORM_FILE not in names or CONTROLS_FILE not in names:
+                raise ValueError(tr("V souboru chybí norm.yaml nebo controls.csv."))
+            data = yaml.safe_load(zf.read(names[NORM_FILE]).decode("utf-8")) or {}
+            controls = pd.read_csv(io.BytesIO(zf.read(names[CONTROLS_FILE])))
+    except zipfile.BadZipFile as exc:
+        raise ValueError(tr("Soubor není export normy.")) from exc
+    if not isinstance(data, dict) or "name" not in data:
+        raise ValueError(tr("norm.yaml nemá jméno normy."))
+    controls = normalize_controls(controls)
+    if meta.SUBJECT not in controls or "task" not in controls:
+        raise ValueError(tr("Tabulka kontrol nemá sloupce subject a task."))
+    return Norm(NormInfo.from_dict(data), controls)
+
+
+def import_norm(source: Path, folder: Path) -> Norm:
+    """Uloží normu ze souboru exportu jako vlastní (vedle, nikdy nepřepíše)."""
+    norm = read_norm_file(source)
+    norm.save(unique_norm_dir(folder, norm.info.name))
+    return norm
+
+
+def trash_norm(norm: Norm) -> None:
+    """Vlastní normu do Koše; přibalená se nemaže."""
+    if norm.builtin or norm.path is None:
+        raise ValueError(tr("Přibalenou normu nejde smazat."))
+    if not (norm.path / NORM_FILE).is_file():
+        raise ValueError(tr("Složka není norma: {path}").format(path=norm.path))
+    send_to_trash(norm.path)

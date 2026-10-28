@@ -51,6 +51,7 @@ from .models_install_dialog import ModelsInstallDialog
 from .pages.assessment import AssessmentPage
 from .pages.batch import BatchPage
 from .pages.environment import EnvironmentPage
+from .pages.norms import NormsPage
 from .pages.protocols import ProtocolsPage
 from .pages.results import ResultsPage
 from .pages.run import RunPage
@@ -60,8 +61,8 @@ from .widgets.elided_label import ElidedLabel
 from .widgets.sidebar_nav import SidebarNav
 
 # Pořadí v nabídce: od každodenního (analýza) k jednorázovému (prostředí).
-PAGE_BATCH, PAGE_RUN, PAGE_RESULTS, PAGE_ASSESSMENT, PAGE_PROTOCOLS, PAGE_ENV = range(6)
-PAGE_WELCOME = 6  # uvítání po startu; v zásobníku stránek je, v nabídce ne
+PAGE_BATCH, PAGE_RUN, PAGE_RESULTS, PAGE_ASSESSMENT, PAGE_PROTOCOLS, PAGE_NORMS, PAGE_ENV = range(7)
+PAGE_WELCOME = 7  # uvítání po startu; v zásobníku stránek je, v nabídce ne
 
 
 @dataclass(slots=True)
@@ -119,6 +120,7 @@ class MainWindow(QMainWindow):
         self.run_page = RunPage()
         self.results_page = ResultsPage()
         self.assessment_page = AssessmentPage()
+        self.norms_page = NormsPage()
         self.welcome_page = WelcomePage()
 
         self.nav_labels = (
@@ -127,9 +129,10 @@ class MainWindow(QMainWindow):
             tr("Výsledky"),
             tr("Hodnocení"),
             tr("Protokoly"),
+            tr("Normy"),
             tr("Prostředí"),
         )
-        # Protokoly a Prostředí sedí u dolního okraje, nad nimi je mezera.
+        # Protokoly, Normy a Prostředí sedí u dolního okraje, nad nimi je mezera.
         self.nav = SidebarNav(self.nav_labels, bottom_from=PAGE_PROTOCOLS)
         self.pages = QStackedWidget()
         for page in (
@@ -138,6 +141,7 @@ class MainWindow(QMainWindow):
             self.results_page,
             self.assessment_page,
             self.protocols_page,
+            self.norms_page,
             self.env_page,
             self.welcome_page,
         ):
@@ -222,9 +226,16 @@ class MainWindow(QMainWindow):
         self.batch_page.prepare_requested.connect(self._start_prepare)
         self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
-        for page in (self.batch_page, self.run_page, self.results_page, self.assessment_page):
+        for page in (
+            self.batch_page,
+            self.run_page,
+            self.results_page,
+            self.assessment_page,
+            self.norms_page,
+        ):
             page.notice.connect(lambda text: self.statusBar().showMessage(text, 6000))
         self.results_page.assess_requested.connect(self.show_assessment)
+        self.norms_page.norms_changed.connect(self.assessment_page.reload_norms)
         self.run_page.progress_changed.connect(self._show_progress)
         self.run_page.file_done.connect(self._file_done)
         self.run_page.queue_remove.connect(self.remove_queued)
@@ -252,6 +263,8 @@ class MainWindow(QMainWindow):
             self.results_page.refresh()
         elif index == PAGE_ASSESSMENT:
             self.assessment_page.refresh()
+        elif index == PAGE_NORMS:
+            self.norms_page.reload()
         elif index == PAGE_RUN:
             self.run_page.refresh_history()
         elif index == PAGE_ENV:
@@ -324,6 +337,7 @@ class MainWindow(QMainWindow):
         self.results_page.set_work_root(work_root)
         self.assessment_page.set_work_root(work_root, self.settings.visits_file())
         self.assessment_page.set_norms_dir(self.settings.norms_dir())
+        self.norms_page.set_norms_dir(self.settings.norms_dir())
         self.run_page.set_work_root(work_root)
         self.batch_page.set_work_root(work_root)
         self.env_page.set_work_dir(work_root / "work")

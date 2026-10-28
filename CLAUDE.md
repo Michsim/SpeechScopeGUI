@@ -89,8 +89,9 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   `proto.display_name`, `proto.name` zůstává klíč.
 
 ## Stránky
-Pořadí v nabídce: Analýza · Výpočet · Výsledky · Hodnocení · Protokoly · Prostředí
-(`PAGE_ASSESSMENT`, popis stránky Hodnocení je v sekci Normy a dimenze).
+Pořadí v nabídce: Analýza · Výpočet · Výsledky · Hodnocení, dole Protokoly · Normy ·
+Prostředí (`PAGE_ASSESSMENT`, `PAGE_NORMS`; popis stránek Hodnocení a Normy je v sekci
+Normy a dimenze).
 Po startu je vždy Uvítání (`pages/welcome.py`, v zásobníku jako
 `PAGE_WELCOME`, v nabídce není): logo, dvě věty, tlačítka Začít analýzu
 a Zkontrolovat prostředí; modré je to doporučené (`start_page()`: bez
@@ -201,8 +202,22 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `<složka běhu>#<řádek>`), Vyřadit to vrátí. Na Výsledcích pravé tlačítko
   „Otevřít v Hodnocení“ (`ResultsPage.assess_requested` →
   `MainWindow.show_assessment` → `show_row`). Stránka se obnoví při zobrazení
-  a po skončeném běhu. Zbývá: Uložit jako normu a Normy na Protokolech, PDF,
-  vývoj v čase.
+  a po skončeném běhu. Zbývá: PDF, vývoj v čase.
+- **Stránka Normy** (`ui/pages/norms.py`, `NormsPage`; mockup schválený 28. 10.
+  je artefakt https://claude.ai/artifact/XTwhcSUAjC5vUuq5MPMZzn, soubory
+  `docs/mockups/normy/` mimo git): vlevo karty norem (`NormCard`, vlastní
+  napřed, štítek varování z `norm_problems`), vpravo hlavička s Export…
+  a Smazat…, varování, tabulka Kontroly po úlohách (`norms.task_summaries`:
+  osoby jednou, ženy / muži, věk, sloupce s hodnotou), histogram věku
+  (`age_histogram`, `AgeHistogram`) a O normě. Export = jeden soubor
+  `.ssnorm` (zip s norm.yaml a controls.csv, `export_norm`); import ho čte
+  z paměti (`read_norm_file`, nic se nerozbaluje) a uloží vedle pod
+  `unique_norm_dir`, nikdy nepřepíše; Smazat jde do Koše (`trash_norm`),
+  přibalená se nemaže. Po importu a smazání `norms_changed` →
+  `AssessmentPage.reload_norms`. Další krok: průvodce Nová norma (složky po
+  úlohách s protokolem, jedna tabulka kontrol s věkem a pohlavím, dávky do
+  fronty Výpočtu, norma se sestaví sama a zapíše protokol a verzi knihovny),
+  pak varianta z hotových běhů a Přidat kontroly….
 
 ## Pasti z knihovny, které GUI hlídá
 - Podproces vždy s `PYTHONUTF8=1` (`library.subprocess_env`). Bez toho

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -10,14 +11,21 @@ import pandas as pd
 import pytest
 
 from speechscope_app.backend import meta
+from speechscope_app.backend import norms as norms_mod
 from speechscope_app.backend.norms import (
     HIGHER,
     LOWER,
     Norm,
     NormInfo,
+    age_histogram,
     band,
     build_norm,
+    export_norm,
+    import_norm,
     norm_problems,
+    read_norm_file,
+    task_summaries,
+    trash_norm,
     user_norms,
 )
 
@@ -152,3 +160,43 @@ def test_norm_info_roundtrip_and_display_name() -> None:
     assert copy == info
     with pytest.raises(ValueError):
         NormInfo.from_dict({"name": "x", "format": 99})
+
+
+def test_task_summaries_and_age_histogram(norm: Norm) -> None:
+    summaries = task_summaries(norm)
+    assert [s.task for s in summaries] == ["phonation", "reading"]  # pořadí úloh knihovny
+    phon = summaries[0]
+    assert phon.subjects == 60 and phon.female == 30 and phon.male == 30
+    assert phon.age_range == (40.0, 85.0) and phon.columns == 2
+    assert summaries[1].columns == 1
+    bins = age_histogram(norm)
+    assert bins[0][0] == 40 and bins[-1][0] == 80 and sum(n for _s, n in bins) == 60
+    assert age_histogram(Norm(NormInfo(name="x"), norm.controls.drop(columns=["age"]))) == []
+
+
+def test_export_import_and_trash(tmp_path: Path, norm: Norm, monkeypatch) -> None:
+    norm.info = NormInfo(name="Zdravé kontroly", source="SAMI")
+    target = export_norm(norm, tmp_path / "out" / "kontroly.ssnorm")
+    folder = tmp_path / "norms"
+    first = import_norm(target, folder)
+    second = import_norm(target, folder)  # podruhé vedle, nepřepíše
+    assert first.path == folder / "zdrave-kontroly" and second.path == folder / "zdrave-kontroly-2"
+    loaded = user_norms(folder)
+    assert len(loaded) == 2 and loaded[0].subjects == 60 and loaded[0].info.source == "SAMI"
+
+    broken = tmp_path / "rozbita.ssnorm"
+    broken.write_text("není zip", encoding="utf-8")
+    with pytest.raises(ValueError):
+        read_norm_file(broken)
+    with zipfile.ZipFile(tmp_path / "pul.ssnorm", "w") as zf:
+        zf.writestr("norm.yaml", "name: jen popis\n")
+    with pytest.raises(ValueError):
+        read_norm_file(tmp_path / "pul.ssnorm")
+
+    trashed: list[Path] = []
+    monkeypatch.setattr(norms_mod, "send_to_trash", trashed.append)
+    trash_norm(first)
+    assert trashed == [first.path]
+    first.builtin = True
+    with pytest.raises(ValueError):
+        trash_norm(first)

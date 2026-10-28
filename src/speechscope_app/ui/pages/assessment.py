@@ -329,8 +329,8 @@ class AssessmentPage(QWidget):
         self.no_norm = QLabel(
             tr(
                 "Není k dispozici žádná norma zdravých kontrol. Normu dodá pracoviště "
-                "(import na stránce Protokoly), nebo ji uděláte z vlastních kontrol na "
-                "Výsledcích přes Uložit jako normu…"
+                "jako soubor, nebo ji vyrobíte z nahrávek zdravých kontrol; obojí je "
+                "na stránce Normy."
             )
         )
         self.no_norm.setObjectName("muted")
