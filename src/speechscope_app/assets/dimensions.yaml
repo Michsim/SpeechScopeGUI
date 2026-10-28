@@ -15,10 +15,10 @@ dimensions:
       - column: acoustic.quality.perturbation.hnr
         tasks: [phonation]
         direction: lower
-      - column: acoustic.quality.cpp.cpps
+      - column: acoustic.quality.cpp.cpp
         tasks: [phonation]
         direction: lower
-      - column: acoustic.quality.cpp.cpps
+      - column: acoustic.quality.cpp.cpp
         tasks: [spontaneous]
         direction: lower
       - column: acoustic.pitch.f0.std
@@ -36,16 +36,16 @@ dimensions:
       - column: acoustic.ddk.vot.median
         tasks: [ddk]
         direction: higher
-        log: true
-      - column: acoustic.ddk.vowel_length
-        tasks: [ddk]
-        direction: lower
+        #log: true
+      #- column: acoustic.ddk.vowel_length
+      #  tasks: [ddk]
+      #  direction: lower
       - column: acoustic.articulation.vowels.FRI
         tasks: [spontaneous, reading]
         direction: lower
-      - column: acoustic.timing.speech_rate.articulation_rate
-        tasks: [spontaneous, reading]
-        direction: lower
+      #- column: acoustic.timing.speech_rate.articulation_rate
+      #  tasks: [spontaneous, reading]
+      #  direction: lower
 
   - key: rhythm
     name: Rytmus řeči
@@ -55,15 +55,18 @@ dimensions:
         tasks: [ddk]
         direction: higher
         log: true
-      - column: acoustic.ddk.deceleration
-        tasks: [ddk]
-        direction: higher
+      #- column: acoustic.ddk.deceleration
+      #  tasks: [ddk]
+      #  direction: higher
       - column: acoustic.ddk.intensity.rirv
         tasks: [ddk]
         direction: higher
-      - column: acoustic.timing.speech_rate.speech_rate_variability
+      #- column: acoustic.timing.speech_rate.speech_rate_variability
+      #  tasks: [spontaneous, reading]
+      #  direction: higher
+      - column: acoustic.timing.speech_rate.articulation_rate
         tasks: [spontaneous, reading]
-        direction: higher
+        direction: lower
 
   - key: prosody
     name: Prozódie
@@ -83,7 +86,7 @@ dimensions:
       - column: acoustic.timing.pauses.median
         tasks: [spontaneous, reading]
         direction: higher
-        log: true
+        #log: true
 
   - key: breathing
     name: Dýchání

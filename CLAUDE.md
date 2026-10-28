@@ -213,7 +213,15 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   říká, kolik kontrol se vybralo po úlohách); pod hlavičkou se roluje
   (`self.scroll`): pavouk přes celou šířku s legendou vedle, pod ním strom na
   celou šířku (první sloupec se roztahuje); pavouk (`widgets/spider_chart.py`,
-  `SpiderChart.set_axes`, kružnice 1 a 2 SD, jedna osa = pruh), strom
+  `SpiderChart.set_axes`; rozhodnuto 28. 10. večer, mockup
+  https://claude.ai/artifact/Bgky5AXRhPZvjuBZnixhu7 varianta 2b: otočený „větší =
+  zdravější“, okraj −2 SD, silná kružnice 0 SD = norma, střed +3 SD, osa lineární
+  v SD, pásma mimo normu / hraniční / v normě / světle modré lepší než kontroly;
+  jedna osa = pruh s nulou uprostřed, `ScoreBar` ve stromu též od nuly;
+  dimenze nad 1 SD mají název barvou pásma, tlustší osu od nuly a vybarvenou
+  výseč; dočasný přepínač orientace vedle grafu (`set_orientation`, INWARD =
+  2b, OUTWARD = varianta 1 patologie ven; `ui/spider_orientation`), až se
+  rozhodne, jedna podoba zůstane), strom
   dimenze → položka (úloha, pacient, norma, z, percentil), chybějící dimenze
   s důvodem, tabulka Nahrávky hodnocení (úloha, nahrávka, běh, s normou)
   s poznámkou o průměru, jiném protokolu a chybějících odkazech, O normě.

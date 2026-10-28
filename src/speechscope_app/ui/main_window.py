@@ -241,6 +241,8 @@ class MainWindow(QMainWindow):
             history.filter_changed.connect(self._history_filter_changed)
         self.results_page.open_assessment_requested.connect(self.open_assessment)
         self.assessment_page.open_run_requested.connect(self.open_run)
+        self.assessment_page.set_orientation(self.settings.spider_orientation)
+        self.assessment_page.orientation_changed.connect(self._spider_orientation_changed)
         self.protocols_page.protocols_changed.connect(self.reload_protocols)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.prepare_requested.connect(self._start_prepare)
@@ -328,6 +330,9 @@ class MainWindow(QMainWindow):
         for history in (self.results_page.history, self.run_page.history):
             if history.filter() != kind:
                 history.set_filter(kind)
+
+    def _spider_orientation_changed(self, orientation: str) -> None:
+        self.settings.spider_orientation = orientation
 
     def open_assessment(self, assessment_id: str) -> None:
         """Z Výsledků (Otevřít v Hodnocení): stránka Hodnocení s tím hodnocením."""

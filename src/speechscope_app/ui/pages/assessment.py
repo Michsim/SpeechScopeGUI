@@ -68,7 +68,15 @@ from ..feature_detail import split_unit
 from ..file_actions import file_menu, open_file
 from ..recording_detail import ColumnInfo, RecordingDetailDialog, column_index
 from ..widgets.elided_label import ElidedLabel
-from ..widgets.spider_chart import BAND_SOFT, Axis, ScoreBar, SpiderChart, format_sd
+from ..widgets.spider_chart import (
+    BAND_SOFT,
+    INWARD,
+    OUTWARD,
+    Axis,
+    ScoreBar,
+    SpiderChart,
+    format_sd,
+)
 from ..widgets.status_header import StatusHeader
 
 BAND_LABELS: dict[str, str] = {
@@ -235,6 +243,7 @@ class AssessmentPage(QWidget):
     resume_requested = Signal(object)  # plán: dopočítat zbývající dávky
     discard_requested = Signal(object)  # plán: zahodit rozpracované hodnocení
     open_run_requested = Signal(object)  # složka běhu: Otevřít běh ve Výsledcích
+    orientation_changed = Signal(str)  # orientace pavouka (hlavní okno uloží)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -399,18 +408,21 @@ class AssessmentPage(QWidget):
         chart_title = QLabel(tr("Odchylka od normy po dimenzích"))
         chart_title.setObjectName("card_title")
         chart_layout.addWidget(chart_title)
-        chart_hint = QLabel(tr("kružnice = 1 a 2 směrodatné odchylky, dál od středu = horší"))
-        chart_hint.setObjectName("muted")
-        chart_hint.setWordWrap(True)
-        chart_layout.addWidget(chart_hint)
+        self.chart_hint = QLabel("")
+        self.chart_hint.setObjectName("muted")
+        self.chart_hint.setWordWrap(True)
+        chart_layout.addWidget(self.chart_hint)
         chart_row = QHBoxLayout()
         chart_row.setSpacing(16)
         self.chart = SpiderChart()
         chart_row.addWidget(self.chart, 1)
         side = QVBoxLayout()
         side.setSpacing(10)
-        legend = tr("● do 1 SD v normě · ● 1 až 2 SD hraniční · ● nad 2 SD mimo normu")
-        colors = (theme.OK, theme.WARN, theme.MISSING)  # tečky v barvách pásem pavouka
+        legend = tr(
+            "● do 1 SD v normě · ● 1 až 2 SD hraniční · ● nad 2 SD mimo normu · "
+            "● pod −1 SD lepší než kontroly"
+        )
+        colors = (theme.OK, theme.WARN, theme.MISSING, "#93c5fd")  # tečky v barvách pásem
         self.legend = QLabel(
             "<br>".join(
                 part.replace("●", f"<span style='color:{color}'>●</span>", 1)
@@ -421,6 +433,15 @@ class AssessmentPage(QWidget):
         self.legend.setTextFormat(Qt.TextFormat.RichText)
         self.legend.setWordWrap(True)
         side.addWidget(self.legend)
+        # orientace pavouka: dočasný přepínač, než se rozhodne jedna podoba
+        self.orientation_combo = QComboBox()
+        self.orientation_combo.addItem(tr("větší plocha = zdravější"), INWARD)
+        self.orientation_combo.addItem(tr("dál od středu = horší"), OUTWARD)
+        self.orientation_combo.setToolTip(
+            tr("Směr pavouka: patologie dovnitř (střed), nebo ven (okraj).")
+        )
+        self.orientation_combo.currentIndexChanged.connect(self._orientation_picked)
+        side.addWidget(self.orientation_combo)
         self.missing_label = QLabel("")
         self.missing_label.setObjectName("muted")
         self.missing_label.setWordWrap(True)
@@ -644,6 +665,34 @@ class AssessmentPage(QWidget):
     def set_library(self, library: Library | None) -> None:
         self._library = library
         self._columns = None
+
+    def set_orientation(self, orientation: str) -> None:
+        """Orientace pavouka z nastavení (bez signálu zpět)."""
+        index = self.orientation_combo.findData(orientation)
+        if index >= 0 and index != self.orientation_combo.currentIndex():
+            self.orientation_combo.blockSignals(True)
+            self.orientation_combo.setCurrentIndex(index)
+            self.orientation_combo.blockSignals(False)
+        self._apply_orientation(orientation)
+
+    def _orientation_picked(self, _index: int) -> None:
+        orientation = str(self.orientation_combo.currentData())
+        self._apply_orientation(orientation)
+        self.orientation_changed.emit(orientation)
+
+    def _apply_orientation(self, orientation: str) -> None:
+        self.chart.set_orientation(orientation)
+        self.chart_hint.setText(
+            tr(
+                "čím větší plocha, tím blíž zdravým: silná kružnice je průměr kontrol, "
+                "blíž ke středu = horší, u okraje = lepší než kontroly"
+            )
+            if orientation == INWARD
+            else tr(
+                "silná kružnice je průměr kontrol, dál od středu = horší, "
+                "uvnitř = lepší než kontroly"
+            )
+        )
 
     def set_work_root(self, root: Path) -> None:
         if self._index is None:

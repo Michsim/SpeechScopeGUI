@@ -299,3 +299,17 @@ def test_column_labels_for_single_value_features(fake_library) -> None:  # noqa:
     assert rate.short == "rate" and rate.description.startswith("Tempo DDK")
     jitter = index["acoustic.quality.perturbation.jitter_local"]
     assert jitter.short == "jitter_local" and jitter.description.startswith("Jitter")
+
+
+def test_spider_orientation_switch(qtbot: QtBot) -> None:
+    from speechscope_app.ui.widgets.spider_chart import INWARD, OUTWARD
+
+    chart = SpiderChart()
+    qtbot.addWidget(chart)
+    chart.resize(400, 400)
+    chart.set_axes([Axis("A", 2.3, "bad"), Axis("B", -1.4, "ok"), Axis("C", 1.2, "warn")])
+    assert chart.orientation() == INWARD and not chart.grab().isNull()
+    chart.set_orientation(OUTWARD)
+    assert chart.orientation() == OUTWARD and not chart.grab().isNull()
+    chart.set_orientation("nesmysl")
+    assert chart.orientation() == OUTWARD

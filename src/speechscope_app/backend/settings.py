@@ -195,6 +195,16 @@ class AppSettings:
     def history_filter(self, value: str) -> None:
         self._q.setValue("ui/history_filter", value)
 
+    @property
+    def spider_orientation(self) -> str:
+        """Pavouk na Hodnocení: inward (střed horší, výchozí) nebo outward (patologie ven)."""
+        raw = str(self._q.value("ui/spider_orientation", "inward") or "inward")
+        return raw if raw in ("inward", "outward") else "inward"
+
+    @spider_orientation.setter
+    def spider_orientation(self, value: str) -> None:
+        self._q.setValue("ui/spider_orientation", value)
+
     def protocols_dir(self) -> Path:
         return app_data_dir() / "protocols"
 
