@@ -1,0 +1,10 @@
+format: 1
+name: Spontánní řeč, lingvistika
+name_en: Spontaneous speech, linguistics
+description: Jen lingvistické feature ze spontánní řeči (lexikum a syntax).
+description_en: Linguistic features only (lexicon and syntax) from spontaneous speech.
+task: spontaneous
+domain: linguistic
+config:
+  transcript:
+    language: cs

@@ -7,10 +7,10 @@ from speechscope_app import contract
 
 def test_parse_all_events() -> None:
     start = contract.parse_event(
-        '{"event":"start","protocol":1,"total":2,"task":"story","features":["a"],"providers":[]}'
+        '{"event":"start","protocol":1,"total":2,"task":"spontaneous","features":["a"],"providers":[]}'
     )
     assert isinstance(start, contract.StartEvent)
-    assert start.total == 2 and start.task == "story"
+    assert start.total == 2 and start.task == "spontaneous"
 
     ok = contract.parse_event('{"event":"file","index":0,"path":"x.wav","status":"ok"}')
     assert isinstance(ok, contract.FileEvent) and ok.ok and ok.msg is None
@@ -77,7 +77,9 @@ def test_bad_lines_are_contract_errors(line: str) -> None:
 
 def test_batch_state_accumulates() -> None:
     state = contract.BatchState()
-    state.apply(contract.StartEvent(total=2, task="story", features=["f"], providers=["segments"]))
+    state.apply(
+        contract.StartEvent(total=2, task="spontaneous", features=["f"], providers=["segments"])
+    )
     state.apply(contract.FileEvent(index=0, path="a", status="ok"))
     state.apply(contract.FileEvent(index=1, path="b", status="error", msg="x"))
     assert state.processed == 2 and len(state.errors) == 1
@@ -91,7 +93,7 @@ def test_batch_state_tracks_stages() -> None:
     state = contract.BatchState()
     state.apply(
         contract.StartEvent(
-            total=2, task="story", features=["f"], providers=["segments", "transcript"]
+            total=2, task="spontaneous", features=["f"], providers=["segments", "transcript"]
         )
     )
     assert state.detailed and state.current is None and state.running_stage() is None
@@ -115,7 +117,7 @@ def test_batch_state_tracks_stages() -> None:
 
 def test_dump_event_roundtrip() -> None:
     events = [
-        contract.StartEvent(total=2, task="story", features=["f"], providers=["segments"]),
+        contract.StartEvent(total=2, task="spontaneous", features=["f"], providers=["segments"]),
         contract.BeginEvent(index=0, path="a.wav"),
         contract.StageEvent(index=0, provider="segments", status="running"),
         contract.StageEvent(index=0, provider="segments", status="error", seconds=1.5, msg="x"),

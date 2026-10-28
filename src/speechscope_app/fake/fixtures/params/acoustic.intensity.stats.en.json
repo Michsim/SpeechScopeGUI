@@ -3,18 +3,16 @@
   "name": "acoustic.intensity.stats",
   "version": "1.0",
   "tasks": [
-    "monologue",
     "reading",
-    "story"
+    "spontaneous"
   ],
   "requires": [],
   "vad": {
     "supported": true,
     "required": true,
     "default": {
-      "monologue": true,
       "reading": true,
-      "story": true
+      "spontaneous": true
     }
   },
   "description": "",

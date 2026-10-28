@@ -94,7 +94,7 @@ def read_manifest(path: Path, base: Path | None = None) -> Manifest:
                 tr("Řádek {line}: soubor {path} neexistuje").format(line=lineno, path=target)
             )
             continue
-        task = row.get("task", "")
+        task = contract.canonical_task(row.get("task", ""))
         if task and task not in contract.TASKS:
             manifest.problems.append(
                 tr("Řádek {line}: neznámá úloha „{task}“").format(line=lineno, task=task)

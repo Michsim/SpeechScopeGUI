@@ -3,9 +3,8 @@
     "name": "acoustic.articulation.vowels",
     "version": "2.1",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "phonemes"
@@ -140,9 +139,8 @@
     "name": "acoustic.intensity.stats",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [],
     "description": "",
@@ -163,10 +161,9 @@
     "name": "acoustic.pitch.f0",
     "version": "1.1",
     "tasks": [
-      "monologue",
       "phonation",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [],
     "description": "",
@@ -197,10 +194,9 @@
     "name": "acoustic.quality.cpp",
     "version": "1.1",
     "tasks": [
-      "monologue",
       "phonation",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [],
     "description": "",
@@ -244,10 +240,9 @@
     "name": "acoustic.spectral.ltas",
     "version": "1.2",
     "tasks": [
-      "monologue",
       "phonation",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [],
     "description": "",
@@ -268,10 +263,9 @@
     "name": "acoustic.spectral.mfcc",
     "version": "1.1",
     "tasks": [
-      "monologue",
       "phonation",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [],
     "description": "",
@@ -416,9 +410,8 @@
     "name": "acoustic.timing.breaths",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "segments"
@@ -449,9 +442,8 @@
     "name": "acoustic.timing.pauses",
     "version": "1.2",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "segments"
@@ -482,9 +474,8 @@
     "name": "acoustic.timing.rhythm",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "segments"
@@ -505,9 +496,8 @@
     "name": "acoustic.timing.silences",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "segments"
@@ -538,9 +528,8 @@
     "name": "acoustic.timing.speech_rate",
     "version": "1.1",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "transcript",
@@ -564,9 +553,8 @@
     "name": "linguistic.lexical.content_density",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"
@@ -581,9 +569,8 @@
     "name": "linguistic.lexical.content_words",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"
@@ -598,9 +585,8 @@
     "name": "linguistic.lexical.function_words",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"
@@ -615,9 +601,8 @@
     "name": "linguistic.lexical.mattr",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"
@@ -632,9 +617,8 @@
     "name": "linguistic.lexical.ngrams",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"
@@ -649,9 +633,8 @@
     "name": "linguistic.lexical.pmi",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"
@@ -666,9 +649,8 @@
     "name": "linguistic.lexical.rrtr",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"
@@ -683,9 +665,8 @@
     "name": "linguistic.lexical.word_entropy",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"
@@ -700,9 +681,8 @@
     "name": "linguistic.syntactic.ccsr",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"
@@ -717,9 +697,8 @@
     "name": "linguistic.syntactic.csr",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"
@@ -734,9 +713,8 @@
     "name": "linguistic.syntactic.mlu",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"
@@ -751,9 +729,8 @@
     "name": "linguistic.syntactic.scsr",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"
@@ -768,9 +745,8 @@
     "name": "linguistic.syntactic.sdl",
     "version": "1.0",
     "tasks": [
-      "monologue",
       "reading",
-      "story"
+      "spontaneous"
     ],
     "requires": [
       "nlp"

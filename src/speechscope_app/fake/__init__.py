@@ -3,7 +3,7 @@
 Přijímá stejné příkazy a volby jako skutečné CLI a vrací JSON ve stejném
 tvaru, včetně událostí `--progress-json` smlouvy verze 2 (`begin`,
 `stage`). Fixtury v `fixtures/` jsou zachycené výstupy skutečné knihovny
-(knihovna 0.3.0, fixtury z 27. 10. 2026). Když se knihovna změní, zachytí se znovu
+(knihovna 0.4.0, fixtury z 28. 10. 2026). Když se knihovna změní, zachytí se znovu
 skriptem `packaging/capture_fixtures.py` (spouští `speechscope.exe` z repa
 knihovny, česky i anglicky), nebo ručně:
 

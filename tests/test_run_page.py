@@ -34,7 +34,9 @@ def test_run_page_fills_provider_columns(
     progress: list[str] = []
     page.progress_changed.connect(progress.append)
     inputs = sorted(p for p in recordings.rglob("*") if p.suffix in (".wav", ".flac"))
-    req = ExtractRequest(inputs=inputs, task="story", domain="acoustic", out=tmp_path / "o.csv")
+    req = ExtractRequest(
+        inputs=inputs, task="spontaneous", domain="acoustic", out=tmp_path / "o.csv"
+    )
     with qtbot.waitSignal(page.finished, timeout=15000):
         page.start(
             fake_library.argv(extract_args(req, models_dir=tmp_path)),
@@ -74,7 +76,11 @@ def test_run_page_shows_running_stage_from_events(qtbot: QtBot) -> None:
         page.runner.state.apply(event)
         page._on_event(event)
 
-    feed(contract.StartEvent(total=2, task="story", features=["f"], providers=["segments", "nlp"]))
+    feed(
+        contract.StartEvent(
+            total=2, task="spontaneous", features=["f"], providers=["segments", "nlp"]
+        )
+    )
     assert page.files.rowCount() == 2
     assert page.files.item(0, page.col_status).text() == "čeká"
     feed(contract.BeginEvent(index=0, path="C:/x/a.wav"))

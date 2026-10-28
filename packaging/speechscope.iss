@@ -3,7 +3,7 @@
 ; Sestavuje packaging\build.ps1.
 
 #define AppName "SpeechScope"
-#define AppVersion "0.3.0"
+#define AppVersion "0.4.0"
 #define AppPublisher "SAMI, FEL ČVUT v Praze"
 #define AppExe "SpeechScope.exe"
 

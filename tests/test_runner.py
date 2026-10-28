@@ -21,7 +21,7 @@ def test_runner_collects_events(
     runner.event.connect(events.append)
     runner.log.connect(logs.append)
 
-    req = ExtractRequest(inputs=[recordings], task="story", out=tmp_path / "o.csv")
+    req = ExtractRequest(inputs=[recordings], task="spontaneous", out=tmp_path / "o.csv")
     with qtbot.waitSignal(runner.finished, timeout=15000) as blocker:
         runner.start(fake_library.argv(extract_args(req, models_dir=tmp_path)))
     code, cancelled = blocker.args
@@ -43,7 +43,7 @@ def test_runner_tails_log_file(
     runner.log.connect(logs.append)
     log_file = tmp_path / "run" / "speechscope.log"
     req = ExtractRequest(
-        inputs=[recordings], task="story", out=tmp_path / "o.csv", log_file=log_file
+        inputs=[recordings], task="spontaneous", out=tmp_path / "o.csv", log_file=log_file
     )
     with qtbot.waitSignal(runner.finished, timeout=15000):
         runner.start(fake_library.argv(extract_args(req)), log_file=log_file)
@@ -71,7 +71,7 @@ def test_runner_cancel(
 ) -> None:
     monkeypatch.setenv("SPEECHSCOPE_FAKE_DELAY", "5")
     runner = Runner()
-    req = ExtractRequest(inputs=[recordings], task="story", out=tmp_path / "o.csv")
+    req = ExtractRequest(inputs=[recordings], task="spontaneous", out=tmp_path / "o.csv")
     with qtbot.waitSignal(runner.event, timeout=15000):
         runner.start(fake_library.argv(extract_args(req)))
     assert runner.running

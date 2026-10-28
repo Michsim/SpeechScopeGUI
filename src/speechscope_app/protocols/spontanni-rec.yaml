@@ -1,0 +1,10 @@
+format: 1
+name: Spontánní řeč, akustika
+name_en: Spontaneous speech, acoustics
+description: Akustické feature ze spontánní řeči (vyprávění pohádky nebo monolog) včetně pauz a časování.
+description_en: Acoustic features from spontaneous speech (story retelling or a monologue) including pauses and timing.
+task: spontaneous
+domain: acoustic
+config:
+  segments:
+    model: conformer

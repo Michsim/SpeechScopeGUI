@@ -31,10 +31,11 @@ def test_missing_path_column_and_task(tmp_path: Path) -> None:
     assert "path" in read_manifest(bad).problems[0]
     ok = tmp_path / "m2.csv"
     ok.write_text(
-        "path,task,pacient\np01.wav,story,PD001\np01.wav,neexistuje,X\n", encoding="utf-8"
+        "path,task,pacient\np01.wav,story,PD001\np01.wav,neexistuje,X\n",  # story = alias
+        encoding="utf-8",
     )
     m = read_manifest(ok)
-    assert m.tasks[(tmp_path / "p01.wav").resolve()] == "story" or m.problems
+    assert m.tasks[(tmp_path / "p01.wav").resolve()] == "spontaneous" or m.problems
     assert find_manifest(tmp_path) is None  # jmenuje se jinak než manifest.csv
 
 
@@ -45,10 +46,13 @@ def test_write_normalized_covers_all_recordings(tmp_path: Path) -> None:
     src.write_text("path;pacient\np01.wav;PD001\n", encoding="utf-8")
     m = read_manifest(src, tmp_path)
     out = write_normalized(
-        tmp_path / "run" / "manifest.csv", [tmp_path / "p01.wav", tmp_path / "p02.wav"], "story", m
+        tmp_path / "run" / "manifest.csv",
+        [tmp_path / "p01.wav", tmp_path / "p02.wav"],
+        "spontaneous",
+        m,
     )
     with out.open(encoding="utf-8", newline="") as fh:
         rows = list(csv.DictReader(fh))
-    assert [r["task"] for r in rows] == ["story", "story"]
+    assert [r["task"] for r in rows] == ["spontaneous", "spontaneous"]
     assert rows[0]["pacient"] == "PD001" and rows[1]["pacient"] == ""
     assert Path(rows[1]["path"]).is_absolute()

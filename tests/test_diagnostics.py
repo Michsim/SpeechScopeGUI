@@ -38,7 +38,7 @@ def test_bundle_contents(settings: AppSettings, fake_library: Library, tmp_path:
     (run / "manifest.csv").write_text("path,pacient\np01.wav,PD001\n", encoding="utf-8")
     write_run_file(run, status="ok", processed=1, total=1)
     settings.protocols_dir().mkdir(parents=True)
-    Protocol(name="Moje", task="story").save(settings.protocols_dir() / "moje.yaml")
+    Protocol(name="Moje", task="spontaneous").save(settings.protocols_dir() / "moje.yaml")
 
     target = tmp_path / default_name()
     members = build_bundle(target, settings=settings, library=fake_library, report=None)

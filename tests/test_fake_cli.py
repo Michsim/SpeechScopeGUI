@@ -87,10 +87,10 @@ def test_doctor_json_and_models_dir(tmp_path: Path) -> None:
 
 
 def test_extract_progress_json(recordings: Path, tmp_path: Path) -> None:
-    out = tmp_path / "out" / "story.csv"
+    out = tmp_path / "out" / "spontaneous.csv"
     log = tmp_path / "run.log"
     proc = run(
-        "extract", str(recordings), "--task", "story", "--domain", "acoustic",
+        "extract", str(recordings), "--task", "spontaneous", "--domain", "acoustic",
         "--out", str(out), "--progress-json", "--log-file", str(log),
     )  # fmt: skip
     assert proc.returncode == 0, proc.stderr
@@ -99,7 +99,7 @@ def test_extract_progress_json(recordings: Path, tmp_path: Path) -> None:
     assert kinds[0] == "StartEvent" and kinds[-2:] == ["DoneEvent", "SavedEvent"]
     start = events[0]
     assert isinstance(start, contract.StartEvent)
-    assert start.total == 4 and start.task == "story"
+    assert start.total == 4 and start.task == "spontaneous"
     assert all(f.startswith("acoustic.") for f in start.features)
     assert "segments" in start.providers and "nlp" not in start.providers
     files = [e for e in events if isinstance(e, contract.FileEvent)]
@@ -149,12 +149,12 @@ def test_extract_no_recursive(recordings: Path, tmp_path: Path) -> None:
             "nedává smysl",
         ),
         (
-            ["extract", "{d}", "--task", "story", "--set", "acoustic.pitch.f0.nope=1"],
+            ["extract", "{d}", "--task", "spontaneous", "--set", "acoustic.pitch.f0.nope=1"],
             "nemá parametr",
         ),
-        (["extract", "{d}", "--task", "story", "--set", "segments.nope=1"], "nemá parametr"),
-        (["extract", "{d}", "--task", "story", "--config", "missing.yaml"], "neexistuje"),
-        (["extract", "{d}/empty", "--task", "story"], "cesta neexistuje"),
+        (["extract", "{d}", "--task", "spontaneous", "--set", "segments.nope=1"], "nemá parametr"),
+        (["extract", "{d}", "--task", "spontaneous", "--config", "missing.yaml"], "neexistuje"),
+        (["extract", "{d}/empty", "--task", "spontaneous"], "cesta neexistuje"),
         (["extract", "{d}", "--task", "cooking"], "neznámá úloha"),
     ],
 )  # fmt: skip
@@ -180,7 +180,7 @@ def test_extract_manifest_carries_metadata(recordings: Path, tmp_path: Path) -> 
     with out.open(encoding="utf-8", newline="") as fh:
         rows = list(csv.DictReader(fh))
     assert [r["speaker_id"] for r in rows] == ["PD001", "HC001"]
-    assert rows[0]["task"] == "phonation" and rows[1]["task"] == "story"
+    assert rows[0]["task"] == "phonation" and rows[1]["task"] == "spontaneous"
 
 
 def test_segment_and_transcribe_write_work_dir(recordings: Path, tmp_path: Path) -> None:

@@ -10,9 +10,9 @@ from speechscope_app.ui.widgets.protocol_list import ProtocolCardInfo, ProtocolL
 
 PROTOCOLS = [
     Protocol(name="Fonace", task="phonation", builtin=True),
-    Protocol(name="Pohádka A", task="story", description="jen akustika", builtin=True),
-    Protocol(name="Pohádka B", task="story", builtin=True),
-    Protocol(name="Moje pohádka", task="story"),
+    Protocol(name="Pohádka A", task="spontaneous", description="jen akustika", builtin=True),
+    Protocol(name="Pohádka B", task="spontaneous", builtin=True),
+    Protocol(name="Moje pohádka", task="spontaneous"),
 ]
 INFOS = {
     "Pohádka A": ProtocolCardInfo(["segments"], "desítky sekund na nahrávku"),
@@ -26,7 +26,7 @@ def test_tasks_and_selection(qtbot: QtBot) -> None:
     seen: list[str] = []
     widget.current_changed.connect(lambda p: seen.append(p.name if p else ""))
     widget.set_protocols(PROTOCOLS, INFOS, current="Pohádka B")
-    assert widget.task_buttons["story"].isChecked()
+    assert widget.task_buttons["spontaneous"].isChecked()
     assert widget.task_buttons["ddk"].isHidden()
     assert widget.current_name() == "Pohádka B"
     assert widget.list.count() == 3
@@ -37,7 +37,7 @@ def test_tasks_and_selection(qtbot: QtBot) -> None:
     assert widget.current_name() == "Fonace"
     assert not widget.select("neexistuje")
 
-    widget._task_clicked("story")
+    widget._task_clicked("spontaneous")
     assert widget.current_name() == "Pohádka A"  # první k úloze
     card = widget._cards["Moje pohádka"]
     assert card.edit_btn.isHidden()  # základní režim bez Upravit…

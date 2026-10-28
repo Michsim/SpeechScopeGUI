@@ -3,20 +3,18 @@
   "name": "acoustic.spectral.ltas",
   "version": "1.2",
   "tasks": [
-    "monologue",
     "phonation",
     "reading",
-    "story"
+    "spontaneous"
   ],
   "requires": [],
   "vad": {
     "supported": true,
     "required": false,
     "default": {
-      "monologue": true,
       "phonation": false,
       "reading": true,
-      "story": true
+      "spontaneous": true
     }
   },
   "description": "",

@@ -3,20 +3,18 @@
   "name": "acoustic.pitch.f0",
   "version": "1.1",
   "tasks": [
-    "monologue",
     "phonation",
     "reading",
-    "story"
+    "spontaneous"
   ],
   "requires": [],
   "vad": {
     "supported": true,
     "required": false,
     "default": {
-      "monologue": false,
       "phonation": false,
       "reading": false,
-      "story": false
+      "spontaneous": false
     }
   },
   "description": "",

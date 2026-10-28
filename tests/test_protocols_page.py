@@ -35,7 +35,7 @@ def test_copy_edit_export_import_delete(
     assert window.nav_labels[PAGE_PROTOCOLS] == "Protokoly"
 
     # přibalený: jen souhrn, bez editoru a bez mazání
-    assert page.select("Pohádka, akustika")
+    assert page.select("Spontánní řeč, akustika")
     assert page.current().builtin and page.edit_btn.isHidden()
     assert not page.delete_btn.isEnabled()
     assert "Segmentace" in page.summary.text() and "conformer" in page.summary.text()
@@ -43,10 +43,11 @@ def test_copy_edit_export_import_delete(
     # kopie -> vlastní, editor viditelný
     page.copy_current()
     proto = page.current()
-    assert proto is not None and proto.name == "Pohádka, akustika (kopie)" and not proto.builtin
+    assert proto is not None and not proto.builtin
+    assert proto.name == "Spontánní řeč, akustika (kopie)"
     assert proto.path is not None and proto.path.parent == settings.protocols_dir()
     assert not page.edit_btn.isHidden() and page.delete_btn.isEnabled()
-    assert "Pohádka, akustika (kopie)" in window.batch_page.protocols.names()
+    assert "Spontánní řeč, akustika (kopie)" in window.batch_page.protocols.names()
 
     # úprava: přejmenovat, odškrtnout feature, uložit
     page.name_edit.setText("Moje pohádka")
@@ -127,7 +128,7 @@ def test_protocol_detail_dialog_lists_features(qtbot: QtBot, settings: AppSettin
     assert dialog.tree.topLevelItem(0).isHidden()
 
     # lingvistika: feature má jediný sloupec, ukáže se jen název a popis bez podřádku
-    ling = next(p for p in page._protocols if p.name == "Pohádka, lingvistika")
+    ling = next(p for p in page._protocols if p.name == "Spontánní řeč, lingvistika")
     dialog3 = page.make_protocol_detail(ling)
     group = dialog3.tree.topLevelItem(0)
     assert group.text(0).startswith("Lingvistika")
@@ -136,7 +137,9 @@ def test_protocol_detail_dialog_lists_features(qtbot: QtBot, settings: AppSettin
     dialog3.search.setText(leaf.text(1)[:12].lower())
     assert not leaf.isHidden()  # hledání i podle popisu
 
-    custom = Protocol(name="S parametry", task="story", config={"transcript": {"language": "en"}})
+    custom = Protocol(
+        name="S parametry", task="spontaneous", config={"transcript": {"language": "en"}}
+    )
     dialog2 = window.batch_page.make_protocol_detail(custom)
     assert dialog2.params_item is not None  # transcript z protokolu, nlp z lišty
     assert dialog2.params_item.child(0).text(0) == "transcript.language"

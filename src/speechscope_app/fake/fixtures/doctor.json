@@ -1,5 +1,5 @@
 {
-  "speechscope": "0.3.0",
+  "speechscope": "0.4.0",
   "python": "3.11.16",
   "platform": "Windows 10",
   "models_dir": "C:\\FEL\\research\\SpeechScope\\SpeechScope\\models",

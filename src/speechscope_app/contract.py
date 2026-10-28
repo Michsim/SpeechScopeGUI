@@ -24,16 +24,25 @@ PROTOCOL_VERSION = 2
 SUPPORTED_PROTOCOLS: tuple[int, ...] = (1, 2)
 
 # Verze knihovny, proti které bylo GUI naposledy ověřené (`speechscope version`).
-KNOWN_LIBRARY_VERSION = "0.3.0"
+KNOWN_LIBRARY_VERSION = "0.4.0"
 
-TASKS: tuple[str, ...] = ("phonation", "ddk", "story", "monologue", "reading")
+TASKS: tuple[str, ...] = ("phonation", "ddk", "spontaneous", "reading")
+
+# Knihovna 0.4.0 sloučila story a monologue do spontaneous; stará jména bere
+# jako aliasy s varováním. GUI je převádí hned při čtení protokolu a manifestu.
+TASK_ALIASES: dict[str, str] = {"story": "spontaneous", "monologue": "spontaneous"}
+
+
+def canonical_task(task: str) -> str:
+    """Dnešní jméno úlohy: aliasy ze starších protokolů a manifestů na dnešní."""
+    return TASK_ALIASES.get(task, task)
+
 
 TASK_LABELS = Labels(
     {
         "phonation": N_("Fonace (prodloužená samohláska)"),
         "ddk": N_("Diadochokineze (pa-ta-ka)"),
-        "story": N_("Vyprávění pohádky"),
-        "monologue": N_("Monolog"),
+        "spontaneous": N_("Spontánní řeč (pohádka, monolog)"),
         "reading": N_("Čtený text"),
     }
 )
@@ -63,8 +72,7 @@ TASK_SHORT = Labels(
     {
         "phonation": N_("Fonace"),
         "ddk": N_("DDK"),
-        "story": N_("Pohádka"),
-        "monologue": N_("Monolog"),
+        "spontaneous": N_("Spontánní řeč"),
         "reading": N_("Čtení"),
     }
 )
@@ -127,9 +135,9 @@ RUN_MODE_LABELS = Labels(
         "transcript": N_("Jen přepis"),
     }
 )
-TRANSCRIPT_TASKS: tuple[str, ...] = ("story", "monologue", "reading")
+TRANSCRIPT_TASKS: tuple[str, ...] = ("spontaneous", "reading")
 # Samostatná segmentace: u DDK ji žádná feature nepotřebuje (slabiky hledá ddk_events).
-SEGMENT_TASKS: tuple[str, ...] = ("phonation", "story", "monologue", "reading")
+SEGMENT_TASKS: tuple[str, ...] = ("phonation", "spontaneous", "reading")
 
 PROVIDER_LABELS = Labels(
     {

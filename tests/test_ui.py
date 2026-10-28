@@ -186,29 +186,29 @@ def test_new_protocol_from_analysis(
     window = MainWindow(settings)
     qtbot.addWidget(window)
     page = window.batch_page
-    assert page.select_protocol("Pohádka, akustika")
+    assert page.select_protocol("Spontánní řeč, akustika")
     dialog = page.editor_dialog
 
     def fill_and_accept(self):
-        assert self.task.isVisibleTo(self) and self.task.currentData() == "story"
-        self.task.setCurrentIndex(self.task.findData("monologue"))
-        assert page.editor.protocol().task == "monologue"
-        self.name.setText("Můj monolog")
+        assert self.task.isVisibleTo(self) and self.task.currentData() == "spontaneous"
+        self.task.setCurrentIndex(self.task.findData("reading"))
+        assert page.editor.protocol().task == "reading"
+        self.name.setText("Moje čtení")
         self.description.setText("popis")
         return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(type(dialog), "exec", fill_and_accept)
     result = page.new_protocol()
-    assert result is not None and result.task == "monologue" and result.features
+    assert result is not None and result.task == "reading" and result.features
     created = page.current_protocol()
-    assert created.name == "Můj monolog" and created.task == "monologue"
-    assert page.protocols.task_buttons["monologue"].isChecked()
+    assert created.name == "Moje čtení" and created.task == "reading"
+    assert page.protocols.task_buttons["reading"].isChecked()
     assert created.path is not None and created.path.parent == settings.protocols_dir()
 
     # jméno, které už existuje, okno nepustí
     dialog._mode = "new"
     dialog._taken = page.protocol_names()
-    dialog.name.setText("Můj monolog")
+    dialog.name.setText("Moje čtení")
     dialog._validate()
     assert not dialog.apply_btn.isEnabled() and "existuje" in dialog.note.text()
     dialog.name.setText("Jiný")
@@ -361,7 +361,7 @@ def test_language_from_doctor_goes_to_run(qtbot: QtBot, settings: AppSettings) -
     labels = [page.language.itemText(i) for i in range(page.language.count())]
     assert labels[2:] == ["němčina", "italština", "španělština", "francouzština"]
     assert page.language_code() == "en"  # z nastavení, zachováno po načtení nabídky
-    assert page.select_protocol("Pohádka, lingvistika")
+    assert page.select_protocol("Spontánní řeč, lingvistika")
     proto = page.effective_protocol()
     assert proto is not None
     assert proto.config["transcript"]["language"] == "en"
@@ -418,7 +418,7 @@ def test_transcribe_only_writes_work_dir(
     assert page.mode_row.isHidden()  # základní režim: jen výpočet feature
     page.set_advanced(True)
     assert not page.mode_row.isHidden() and page.mode == "extract"
-    assert page.select_protocol("Pohádka, lingvistika")
+    assert page.select_protocol("Spontánní řeč, lingvistika")
     page.set_language("en")
     assert page.mode_buttons["transcript"].isEnabled()
 
@@ -435,16 +435,16 @@ def test_transcribe_only_writes_work_dir(
     state = window.run_page.runner.state
     assert state.finished and state.providers == ["transcript"] and state.n_ok == 3
     work = Path(state.out)
-    assert work == settings.work_root / "work" / "story"  # pracovní složka podle úlohy
+    assert work == settings.work_root / "work" / "spontaneous"  # pracovní složka podle úlohy
     assert (work / "transcript" / "p01.txt").is_file()
     assert window.nav.currentRow() == PAGE_RUN  # bez tabulky se na Výsledky nepřepíná
     assert window.run_page.headline.text().startswith("Hotovo")
     argv = window.run_page.log.toPlainText().splitlines()[0]
     assert "transcribe" in argv and "--language en" in argv
-    assert settings.seconds_per_file("pohadka-lingvistika") is None
+    assert settings.seconds_per_file("spontanni-rec-lingvistika") is None
     run_dirs = list(settings.work_root.glob("*_pacienti-rijen-prepis"))
     assert len(run_dirs) == 1 and (run_dirs[0] / "speechscope.log").is_file()
-    assert not list(settings.work_root.glob("*_pohadka-lingvistika-prepis"))
+    assert not list(settings.work_root.glob("*_spontanni-rec-lingvistika-prepis"))
     # kopie přepisů ve složce běhu (bez otisku .json), živé zůstávají ve work
     copies = sorted(p.name for p in (run_dirs[0] / "transcript").iterdir())
     assert copies == [
@@ -482,7 +482,7 @@ def test_transcribe_only_writes_work_dir(
     first = window.run_page.log.toPlainText().splitlines()[0]
     assert "--model conformer" in first and "--cut-audio" in first
     # vyříznutý zvuk se přesune do složky běhu, ve work nezůstane
-    seg_dir = next(settings.work_root.glob("*_pohadka-lingvistika-segmentace"))
+    seg_dir = next(settings.work_root.glob("*_spontanni-rec-lingvistika-segmentace"))
     assert sorted(p.name for p in (seg_dir / "cut").iterdir()) == [
         "p01.wav",
         "p03_short.wav",
@@ -618,7 +618,7 @@ def test_run_asks_when_provider_not_ready(
     qtbot.addWidget(window)
     page = window.batch_page
     page.set_folder(recordings)
-    assert page.select_protocol("Pohádka, lingvistika")
+    assert page.select_protocol("Spontánní řeč, lingvistika")
     assert page._doctor is None  # start na Datech, doctor ještě neběžel
     asked: list[str] = []
 
@@ -685,9 +685,12 @@ def test_runs_queue_up_and_continue(
     page.run_btn.click()  # běží jiná dávka: dotaz, odpověď Ne
     assert not window.queued_jobs() and "Fonace, základní" in asked[0]
     page.run_btn.click()  # Ano
-    assert page.select_protocol("Pohádka, akustika")
+    assert page.select_protocol("Spontánní řeč, akustika")
     page.run_btn.click()
-    assert [j.proto.name for j in window.queued_jobs()] == ["DDK, základní", "Pohádka, akustika"]
+    assert [j.proto.name for j in window.queued_jobs()] == [
+        "DDK, základní",
+        "Spontánní řeč, akustika",
+    ]
     assert "2. v pořadí" in asked[2]
     assert not window.run_page.queue_box.isHidden()
     assert window.run_page.queue_list.count() == 2
@@ -717,7 +720,7 @@ def test_environment_warns_about_remote_desktop(qtbot: QtBot, settings: AppSetti
     gpu = dict(report["gpu"])
     gpu.update({"remote_session": True, "onnxruntime_gpu_usable": False})
     report["gpu"] = gpu
-    env._show("0.3.0", report)
+    env._show("0.4.0", report)
     card = env.gpu_cards["onnx"]
     assert card.pill.text() == "CPU" and "vzdálená plocha" in card.detail.text()
 
@@ -1022,4 +1025,4 @@ def test_analysis_two_steps(qtbot: QtBot, settings: AppSettings, recordings: Pat
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
         page.run_btn.click()
     assert page.current_step() == 2
-    assert len(page.protocols.task_buttons) == 5  # úlohy v jedné řadě
+    assert len(page.protocols.task_buttons) == 4  # úlohy v jedné řadě

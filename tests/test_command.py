@@ -10,12 +10,12 @@ from speechscope_app.backend import command
 def test_extract_args_full() -> None:
     req = command.ExtractRequest(
         inputs=[Path("data")],
-        task="story",
+        task="spontaneous",
         features=["acoustic.quality.*", "acoustic.pitch.f0"],
         config=Path("cfg.yaml"),
         sets=["segments.model=conformer"],
         vad=True,
-        out=Path("out/story.csv"),
+        out=Path("out/spontaneous.csv"),
         work_dir=Path("work"),
         log_file=Path("run.log"),
     )
@@ -42,7 +42,7 @@ def test_extract_requires_task_or_manifest() -> None:
     with pytest.raises(ValueError):
         command.extract_args(command.ExtractRequest(inputs=[Path("d")]))
     with pytest.raises(ValueError):
-        command.extract_args(command.ExtractRequest(inputs=[], task="story"))
+        command.extract_args(command.ExtractRequest(inputs=[], task="spontaneous"))
 
 
 def test_segment_and_transcribe_args() -> None:
@@ -55,7 +55,7 @@ def test_segment_and_transcribe_args() -> None:
 
 
 def test_query_args() -> None:
-    assert command.list_args(task="story") == ["list", "--task", "story", "--json"]
+    assert command.list_args(task="spontaneous") == ["list", "--task", "spontaneous", "--json"]
     assert command.params_args("acoustic.pitch.f0") == [
         "list",
         "--params",

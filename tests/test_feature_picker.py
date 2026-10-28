@@ -12,7 +12,7 @@ def _feature(name: str, requires: list[str]) -> FeatureInfo:
     return FeatureInfo(
         name=name,
         version="1",
-        tasks=["story"],
+        tasks=["spontaneous"],
         requires=requires,
         description=f"popis {name.rsplit('.', 1)[-1]}",
         outputs={"x": "popis x"},

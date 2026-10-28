@@ -1,0 +1,11 @@
+format: 1
+name: Spontánní řeč, akustika i lingvistika
+name_en: Spontaneous speech, acoustics and linguistics
+description: Všechny feature pro spontánní řeč (vyprávění pohádky nebo monolog).
+description_en: All features for spontaneous speech (story retelling or a monologue).
+task: spontaneous
+config:
+  segments:
+    model: conformer
+  transcript:
+    language: cs

@@ -3,9 +3,8 @@
   "name": "acoustic.timing.speech_rate",
   "version": "1.1",
   "tasks": [
-    "monologue",
     "reading",
-    "story"
+    "spontaneous"
   ],
   "requires": [
     "transcript",
@@ -15,9 +14,8 @@
     "supported": false,
     "required": false,
     "default": {
-      "monologue": false,
       "reading": false,
-      "story": false
+      "spontaneous": false
     }
   },
   "description": "",

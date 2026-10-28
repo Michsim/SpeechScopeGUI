@@ -41,12 +41,12 @@ def test_activate_and_labels() -> None:
     assert i18n.available()[:2] == ["cs", "en"]
     assert i18n.activate("cs") == "cs"
     assert i18n.tr("Nahrávky") == "Nahrávky"
-    assert contract.TASK_LABELS["story"] == "Vyprávění pohádky"
+    assert contract.TASK_LABELS["spontaneous"] == "Spontánní řeč (pohádka, monolog)"
     assert i18n.activate("en") == "en"
     assert i18n.tr("Nahrávky") == "Recordings"
     assert i18n.tr("text bez překladu") == "text bez překladu"
-    assert contract.TASK_LABELS["story"] == "Story retelling"
-    assert contract.TASK_LABELS.get("story") == "Story retelling"
+    assert contract.TASK_LABELS["spontaneous"] == "Spontaneous speech (story, monologue)"
+    assert contract.TASK_LABELS.get("spontaneous") == "Spontaneous speech (story, monologue)"
     assert dict(contract.PROVIDER_SHORT.items())["nlp"] == "linguistics"
     assert contract.language_label("cs") == "Czech" and contract.language_label("xx") == "xx"
     assert i18n.activate("xx") == "cs"  # neznámý jazyk = čeština
@@ -55,19 +55,20 @@ def test_activate_and_labels() -> None:
 
 def test_protocol_translated_names_roundtrip(tmp_path: Path) -> None:
     protocols = {p.name: p for p in builtin_protocols()}
-    story = protocols["Pohádka, akustika"]
-    assert story.names["en"] == "Story, acoustics" and story.descriptions["en"]
+    spontaneous = protocols["Spontánní řeč, akustika"]
+    assert spontaneous.names["en"] == "Spontaneous speech, acoustics"
+    assert spontaneous.descriptions["en"]
     assert all(p.names.get("en") and p.descriptions.get("en") for p in protocols.values())
-    assert story.display_name == "Pohádka, akustika"
+    assert spontaneous.display_name == "Spontánní řeč, akustika"
     i18n.activate("en")
-    assert story.display_name == "Story, acoustics"
-    assert story.display_description.startswith("Acoustic features")
-    assert story.slug() == "pohadka-akustika"  # klíč se nepřekládá
+    assert spontaneous.display_name == "Spontaneous speech, acoustics"
+    assert spontaneous.display_description.startswith("Acoustic features")
+    assert spontaneous.slug() == "spontanni-rec-akustika"  # klíč se nepřekládá
 
-    copy = Protocol.from_dict(story.to_dict())
-    assert copy.names == story.names and copy.descriptions == story.descriptions
-    plain = Protocol(name="Moje", task="story")
+    copy = Protocol.from_dict(spontaneous.to_dict())
+    assert copy.names == spontaneous.names and copy.descriptions == spontaneous.descriptions
+    plain = Protocol(name="Moje", task="spontaneous")
     assert plain.display_name == "Moje" and "name_en" not in plain.to_dict()
     path = tmp_path / "p.yaml"
-    story.save(path)
-    assert "name_en: Story, acoustics" in path.read_text(encoding="utf-8")
+    spontaneous.save(path)
+    assert "name_en: Spontaneous speech, acoustics" in path.read_text(encoding="utf-8")

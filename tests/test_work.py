@@ -8,12 +8,12 @@ from speechscope_app.backend.work import collect_prepare_outputs, work_dir_for
 
 
 def test_work_dir_for(tmp_path: Path) -> None:
-    assert work_dir_for(tmp_path, "story") == tmp_path / "work" / "story"
+    assert work_dir_for(tmp_path, "spontaneous") == tmp_path / "work" / "spontaneous"
     assert work_dir_for(tmp_path, None) == tmp_path / "work"
 
 
 def test_collect_prepare_outputs(tmp_path: Path) -> None:
-    work = tmp_path / "work" / "story"
+    work = tmp_path / "work" / "spontaneous"
     (work / "transcript").mkdir(parents=True)
     (work / "segments" / "cut").mkdir(parents=True)
     for stem in ("p01", "p02"):

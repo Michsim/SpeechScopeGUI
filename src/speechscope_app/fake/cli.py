@@ -16,9 +16,10 @@ from typing import Any
 
 FIXTURES = resources.files("speechscope_app.fake") / "fixtures"
 AUDIO_SUFFIXES = (".wav", ".flac", ".ogg", ".mp3", ".m4a")
-TASKS = ("phonation", "ddk", "story", "monologue", "reading")
+TASKS = ("phonation", "ddk", "spontaneous", "reading")
+TASK_ALIASES = {"story": "spontaneous", "monologue": "spontaneous"}  # jako knihovna 0.4.0
 PROTOCOL_VERSION = 2
-FAKE_VERSION = "0.3.0"
+FAKE_VERSION = "0.4.0"
 
 PROVIDERS = ("ddk_events", "nlp", "phonemes", "segments", "transcript")
 
@@ -132,7 +133,7 @@ def _read_manifest(path: Path) -> list[tuple[Path, str, dict[str, str]]]:
         ):
             raise Fail("manifest musí mít sloupce path a task")
         for row in reader:
-            task = row["task"]
+            task = _canonical(row["task"])
             if task not in TASKS:
                 raise Fail(f"neznámá úloha {task!r} v manifestu")
             meta = {k: v for k, v in row.items() if k not in ("path", "task")}
@@ -141,6 +142,15 @@ def _read_manifest(path: Path) -> list[tuple[Path, str, dict[str, str]]]:
 
 
 # --- výběr feature ----------------------------------------------------------
+
+
+def _canonical(task: str) -> str:
+    """Stará jména úloh (story, monologue) na dnešní, s varováním jako knihovna."""
+    new = TASK_ALIASES.get(task)
+    if new is None:
+        return task
+    sys.stderr.write(f"WARNING speechscope: task {task!r} is now {new!r}\n")
+    return new
 
 
 def _select(task: str, domain: str | None, patterns: list[str]) -> list[dict[str, Any]]:
@@ -211,6 +221,7 @@ def cmd_list(ns: argparse.Namespace) -> int:
         return 0
     specs = _features()
     if ns.task:
+        ns.task = _canonical(ns.task)
         if ns.task not in TASKS:
             raise Fail(f"neznámá úloha {ns.task!r}")
         specs = [f for f in specs if ns.task in f["tasks"]]
@@ -321,7 +332,7 @@ def cmd_extract(ns: argparse.Namespace) -> int:
     else:
         if not ns.task:
             raise Fail("zadej --task, nebo --manifest")
-        items = [(p, ns.task, {}) for p in _discover(ns.paths, ns.recursive)]
+        items = [(p, _canonical(ns.task), {}) for p in _discover(ns.paths, ns.recursive)]
 
     plans = {t: _select(t, ns.domain, patterns) for t in sorted({t for _, t, _ in items})}
     features = sorted({f["name"] for specs in plans.values() for f in specs})

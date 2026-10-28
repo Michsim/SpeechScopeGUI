@@ -23,7 +23,10 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   (QProcess).
 - **Argumenty CLI skládá jen `backend/command.py`.** Obrazovky příkazovou
   řádku nikdy neskládají.
-- **`contract.py` je jediné místo s vědomostmi o knihovně natvrdo**: úlohy,
+- **`contract.py` je jediné místo s vědomostmi o knihovně natvrdo**: úlohy
+  (od knihovny 0.4.0 phonation, ddk, spontaneous, reading; story a monologue
+  jsou aliasy spontaneous, `canonical_task` je převádí při čtení protokolu
+  i manifestu, starší složky `work\story` zůstávají),
   přípony, tvar událostí, verze smlouvy (`PROTOCOL_VERSION = 2`, přijímá
   i 1), popisky domén, skupin a providerů, orientační ceny, záložní seznam
   jazyků. Seznam feature, providerů i jejich parametry se nikdy neopisují,
@@ -120,7 +123,7 @@ a pod úlohou řada „Spustit:“ Výpočet feature · Jen segmentace · Jen p�
 (`contract.RUN_MODES`, `BatchPage.set_mode`): krok 3 pak místo karet ukáže
 volby mezivýsledku (model segmentace z `contract.SEGMENT_MODELS`, vyříznutá
 řeč; model Whisperu z protokolu, jazyk z lišty), bez dialogu; přepis jen pro
-story, monologue, reading (`TRANSCRIPT_TASKS`), u fonace jen segmentace,
+spontaneous a reading (`TRANSCRIPT_TASKS`), u fonace jen segmentace,
 u DDK žádný mezivýsledek (`SEGMENT_TASKS`, slabiky hledá ddk_events); po startu
 vždy výpočet feature; Spustit se před nepřipraveným
 providerem zeptá; délka nahrávek z hlavičky WAV/FLAC (`backend/audio.py`) a odhad

@@ -94,7 +94,7 @@ class Protocol:
             raise ValueError("protokol je z novější verze aplikace")
         return cls(
             name=str(data["name"]),
-            task=str(data["task"]),
+            task=contract.canonical_task(str(data["task"])),
             description=str(data.get("description", "")),
             features=[str(f) for f in data.get("features", [])],
             domain=data.get("domain"),
