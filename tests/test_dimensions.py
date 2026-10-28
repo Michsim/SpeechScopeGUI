@@ -84,10 +84,12 @@ def test_parse_dimensions_validates() -> None:
         parse_dimensions({"format": 99})
 
 
-def test_visit_values_take_median_over_recordings() -> None:
-    rows = pd.DataFrame({"file": ["a", "b", "c"], JIT: [1.0, 3.0, "x"], "subject": ["p"] * 3})
+def test_visit_values_average_over_recordings() -> None:
+    rows = pd.DataFrame(
+        {"file": ["a", "b", "c", "d"], JIT: [1.0, 2.0, 6.0, "x"], "subject": ["p"] * 4}
+    )
     values = visit_values({"story": rows})
-    assert values == {"spontaneous": {JIT: 2.0}}  # medián platných, alias úlohy
+    assert values == {"spontaneous": {JIT: 3.0}}  # průměr platných (medián by byl 2), alias
 
 
 DIMS = [

@@ -183,7 +183,7 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   Hodnocení je v `docs/navrh-gui-3-norma.md`.
 - **Dimenze** (`assets/dimensions.yaml`, `backend/dimensions.py`): dimenze →
   položky (sloupec, úlohy, směr `higher`/`lower`, `log`). `evaluate` bere
-  hodnoty vyšetření po úlohách (víc nahrávek = medián), skóre dimenze je průměr
+  hodnoty vyšetření po úlohách (víc nahrávek = průměr po feature), skóre dimenze je průměr
   z položek, dimenze bez položky má `reason` a v pavouku není.
   `test_dimensions` hlídá, že každá položka existuje v katalogu falešky.
 - **Stránka Hodnocení** (`ui/pages/assessment.py`, `AssessmentPage`): vlevo

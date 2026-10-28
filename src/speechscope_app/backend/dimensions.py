@@ -2,7 +2,7 @@
 
 Definice je v `assets/dimensions.yaml`: dimenze → položky (sloupec, úlohy,
 směr patologie, logaritmus). Vyhodnocení dostane hodnoty vyšetření po
-úlohách (jedna nebo víc nahrávek na úlohu, bere se medián), normu a věk a
+úlohách (jedna nebo víc nahrávek na úlohu, bere se průměr), normu a věk a
 pohlaví pacienta, a vrátí pro každou dimenzi skóre (průměr z-skóre položek
 otočených k patologii), položky s čísly a důvod, proč dimenze nebo položka
 chybí. Pavouk kreslí jen dimenze se skóre.
@@ -116,7 +116,7 @@ def load_dimensions(path: Path | None = None) -> list[Dimension]:
 
 
 def visit_values(rows_by_task: dict[str, pd.DataFrame]) -> dict[str, dict[str, float]]:
-    """Hodnoty feature po úlohách; víc nahrávek téže úlohy = medián po sloupcích."""
+    """Hodnoty feature po úlohách; víc nahrávek téže úlohy = průměr po sloupcích."""
     out: dict[str, dict[str, float]] = {}
     for task, frame in rows_by_task.items():
         values: dict[str, float] = {}
@@ -125,7 +125,7 @@ def visit_values(rows_by_task: dict[str, pd.DataFrame]) -> dict[str, dict[str, f
                 continue
             nums = pd.to_numeric(frame[column], errors="coerce").dropna()
             if len(nums):
-                values[str(column)] = float(nums.median())
+                values[str(column)] = float(nums.mean())
         out[contract.canonical_task(task)] = values
     return out
 

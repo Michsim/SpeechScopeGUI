@@ -104,7 +104,7 @@ Výsledcích, protože vychází z běhu.
   pohlaví vypnutý.
 - Jiný jazyk normy než nahrávky: žlutá věta u normy, nic se nezakazuje.
 - Jiná verze knihovny v normě: šedá věta.
-- Dvě nahrávky téže úlohy: medián, u úlohy „medián ze 2 nahrávek“.
+- Dvě nahrávky téže úlohy: průměr po jednotlivých feature, u úlohy „průměr ze 2 nahrávek“.
 
 ### Pro vývoj
 
