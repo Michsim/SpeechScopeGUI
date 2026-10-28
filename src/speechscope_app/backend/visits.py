@@ -6,6 +6,7 @@ sloupec `subject` z manifestu (po aliasech `pacient`, `id`…), návštěva
 sloupec `visit`; bez nich je pacientem název souboru a návštěvou datum
 běhu, a vyšetření je „neurčené“ (`explicit=False`).
 
+Běhy z průvodce Nová norma (`RunInfo.norm`) se přeskočí, jsou to kontroly.
 Běžící běh se neotvírá: Windows by knihovně zablokovaly přejmenování
 `.part` (viz CLAUDE.md). Tabulky se drží v paměti podle cesty, času změny
 a velikosti souboru; `refresh` po každém skončeném, smazaném nebo
@@ -185,8 +186,8 @@ class VisitIndex:
         seen: set[Path] = set()
         for run in list_runs(self.work_root):
             csv_path = run.csv_path
-            if csv_path is None or run.status == "running":
-                continue
+            if csv_path is None or run.status == "running" or run.norm:
+                continue  # běh normy jsou zdravé kontroly, ne pacienti
             seen.add(csv_path)
             try:
                 stat = csv_path.stat()

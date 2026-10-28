@@ -332,6 +332,7 @@ class MainWindow(QMainWindow):
                 kind=self._running_kind,
                 protocol=self._running_name,
                 label=getattr(self, "_running_label", ""),
+                norm=self._running_norm_text(),
                 processed=processed,
                 total=total,
             )
@@ -679,6 +680,11 @@ class MainWindow(QMainWindow):
             self._queue.extend(jobs[1:])
             self._launch(jobs[0])
         self._show_queue()
+
+    def _running_norm_text(self) -> str:
+        """Složka plánu normy pro run.json; Hodnocení takové běhy nenabízí."""
+        running = getattr(self, "_running_norm", None)
+        return str(running[0]) if running else ""
 
     def _norm_status(self, status: str, run_dir: Path | None) -> NormPlan | None:
         folder, task = self._running_norm or (None, "")
@@ -1050,6 +1056,7 @@ class MainWindow(QMainWindow):
             work_dir=str(work_dir),
             protocol=proto.display_name,
             label=self._running_label,
+            norm=self._running_norm_text(),
             total=len(inputs),
         )
         if self._running_norm is not None:
@@ -1108,6 +1115,7 @@ class MainWindow(QMainWindow):
                 work_dir=str(self._running_work_dir),
                 protocol=self._running_name,
                 label=getattr(self, "_running_label", ""),
+                norm=self._running_norm_text(),
                 processed=state.processed,
                 total=state.total,
                 seconds=self.run_page.elapsed_seconds(),

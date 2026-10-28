@@ -62,6 +62,7 @@ class RunInfo:
     rows: int | None  # řádků ve features.csv, None = tabulka není
     work_dir: Path | None = None  # pracovní složka knihovny (work\<úloha>), z run.json
     prepare: str = ""  # jen segmentace ("segments") nebo přepis ("transcript"), jinak ""
+    norm: str = ""  # dávka nové normy: složka jejího plánu; takový běh není pacient
 
     @property
     def csv_path(self) -> Path | None:
@@ -139,6 +140,7 @@ def read_run(run_dir: Path) -> RunInfo | None:
         rows=rows,
         work_dir=Path(data["work_dir"]) if data.get("work_dir") else None,
         prepare=str(data.get("prepare") or ""),
+        norm=str(data.get("norm") or ""),
     )
 
 

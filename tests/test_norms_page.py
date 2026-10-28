@@ -134,6 +134,10 @@ def test_new_norm_wizard_runs_batches_and_builds_norm(
     people = norm.controls.drop_duplicates("subject").set_index("subject")
     assert people.loc["HC02", "age"] == 70 and people.loc["HC02", "sex"] == "f"
     assert window.assessment_page.norm_combo.count() == 1
+    runs = [r for r in window.results_page.history.all_runs() if r.norm]
+    assert len(runs) == 2 and all(r.norm == str(plan.folder) for r in runs)
+    window.assessment_page.refresh()
+    assert window.assessment_page.count() == 0  # kontroly normy nejsou pacienti
     assert {p.name for p in data.rglob("*")} == before  # do složek s nahrávkami nic
 
 
