@@ -115,15 +115,17 @@ class TaskPlan:
         return out if out.is_file() else None
 
 
-@dataclass(slots=True)
-class NormPlan:
-    info: NormInfo
-    folder: Path
-    tasks: list[TaskPlan]
-    files: dict[Path, str] = field(default_factory=dict)  # nahrávka -> kontrola
-    controls: dict[str, Control] = field(default_factory=dict)
+class PlanState:
+    """Stav dávek plánu (norma i hodnocení): společné pro NormPlan a AssessmentPlan.
 
-    # --- stav ---------------------------------------------------------------
+    Potomek má `tasks: list[TaskPlan]`, `save()` a `key` (cesta, podle které
+    hlavní okno plán pozná ve frontě), `title(task)` je název dávky.
+    """
+
+    tasks: list[TaskPlan]
+
+    def save(self) -> Path:  # pragma: no cover - přepisuje potomek
+        raise NotImplementedError
 
     def task(self, task: str) -> TaskPlan | None:
         return next((t for t in self.tasks if t.task == task), None)
@@ -148,6 +150,33 @@ class NormPlan:
     def remaining(self) -> list[TaskPlan]:
         """Úlohy k dopočítání: nespuštěné, spadlé nebo zrušené (ne právě běžící)."""
         return [t for t in self.tasks if t.status in (PENDING, ERROR, CANCELLED)]
+
+    def set_status(self, task: str, status: str, run_dir: Path | None = None) -> None:
+        item = self.task(task)
+        if item is None:
+            return
+        item.status = status
+        if run_dir is not None:
+            item.run_dir = run_dir
+        self.save()
+
+
+@dataclass(slots=True)
+class NormPlan(PlanState):
+    info: NormInfo
+    folder: Path
+    tasks: list[TaskPlan]
+    files: dict[Path, str] = field(default_factory=dict)  # nahrávka -> kontrola
+    controls: dict[str, Control] = field(default_factory=dict)
+
+    @property
+    def key(self) -> Path:
+        return self.folder
+
+    def title(self, task: TaskPlan) -> str:
+        return tr("Norma {name} · {task}").format(
+            name=self.info.display_name, task=contract.TASK_SHORT.get(task.task, task.task)
+        )
 
     def manifest_for(self, task: TaskPlan) -> Manifest:
         """Manifest dávky: subject, age, sex z tabulky kontrol pro každou nahrávku."""
@@ -216,15 +245,6 @@ class NormPlan:
         }
         files = {Path(p): str(s) for p, s in data.get("files", {}).items()}
         return cls(NormInfo.from_dict(data["info"]), folder, tasks, files, controls)
-
-    def set_status(self, task: str, status: str, run_dir: Path | None = None) -> None:
-        item = self.task(task)
-        if item is None:
-            return
-        item.status = status
-        if run_dir is not None:
-            item.run_dir = run_dir
-        self.save()
 
 
 def _key(path: Path) -> Path:

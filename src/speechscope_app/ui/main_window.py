@@ -81,7 +81,8 @@ class Job:
     durations: list[float | None] = field(default_factory=list)  # délky zvuku k inputs
     merge_into: Path | None = None  # znovu chybné: tabulka, do které se řádky vrátí
     label: str = ""  # vlastní název běhu z Analýzy; prázdné = podle protokolu
-    norm_plan: Path | None = None  # dávka nové normy: složka jejího plánu
+    plan_kind: str = ""  # dávka plánu: "norm" (nová norma); prázdné = běžná dávka
+    plan: Path | None = None  # klíč plánu (složka normy)
 
     def title(self) -> str:
         name = self.label or self.proto.display_name
@@ -635,23 +636,36 @@ class MainWindow(QMainWindow):
             self.start_norm(dialog.plan())
 
     def start_norm(self, plan: NormPlan) -> int:
+        return self.start_plan("norm", plan)
+
+    # --- plány dávek (norma) ---------------------------------------------------
+
+    def _plan_load(self, kind: str, key: Path):  # noqa: ANN202
+        """Plán podle druhu a klíče; výjimka, když plán mezitím zmizel."""
+        if kind == "norm":
+            return NormPlan.load(key)
+        raise ValueError(tr("Neznámý druh plánu: {kind}").format(kind=kind))
+
+    def _plans_changed(self, kind: str, select: Path | None = None) -> None:
+        if kind == "norm":
+            self.norms_page.reload(select=select)
+
+    def start_plan(self, kind: str, plan) -> int:  # noqa: ANN001
         """Uloží plán a zařadí jeho nespočítané dávky; vrátí, kolik jich zařadil."""
         plan.save()
-        queued = {(j.norm_plan, j.proto.task) for j in self._queue}
-        running = getattr(self, "_running_norm", None) if self.run_page.runner.running else None
+        queued = {(j.plan, j.proto.task) for j in self._queue if j.plan_kind == kind}
+        running = getattr(self, "_running_plan", None) if self.run_page.runner.running else None
+        running_key = (running[1], running[2]) if running and running[0] == kind else None
         jobs = [
-            self._norm_job(plan, task)
+            self._plan_job(kind, plan, task)
             for task in plan.remaining()
-            if (plan.folder, task.task) not in queued and (plan.folder, task.task) != running
+            if (plan.key, task.task) not in queued and (plan.key, task.task) != running_key
         ]
         self._submit_all(jobs)
-        self.norms_page.reload(select=plan.folder)
+        self._plans_changed(kind, select=plan.key)
         return len(jobs)
 
-    def _norm_job(self, plan: NormPlan, task) -> Job:  # noqa: ANN001
-        name = tr("Norma {name} · {task}").format(
-            name=plan.info.display_name, task=contract.TASK_SHORT.get(task.task, task.task)
-        )
+    def _plan_job(self, kind: str, plan, task) -> Job:  # noqa: ANN001
         return Job(
             kind="extract",
             proto=task.proto(),
@@ -659,8 +673,9 @@ class MainWindow(QMainWindow):
             manifest=plan.manifest_for(task),
             language=plan.info.language,
             durations=[duration_seconds(p) for p in task.inputs],
-            label=name,
-            norm_plan=plan.folder,
+            label=plan.title(task),
+            plan_kind=kind,
+            plan=plan.key,
         )
 
     def _submit_all(self, jobs: list[Job]) -> None:
@@ -688,26 +703,32 @@ class MainWindow(QMainWindow):
 
     def _running_norm_text(self) -> str:
         """Složka plánu normy pro run.json; Hodnocení takové běhy nenabízí."""
-        running = getattr(self, "_running_norm", None)
-        return str(running[0]) if running else ""
+        running = getattr(self, "_running_plan", None)
+        return str(running[1]) if running and running[0] == "norm" else ""
 
-    def _norm_status(self, status: str, run_dir: Path | None) -> NormPlan | None:
-        folder, task = self._running_norm or (None, "")
-        if folder is None:
+    def _plan_status(self, status: str, run_dir: Path | None):  # noqa: ANN202
+        kind, key, task = self._running_plan or ("", None, "")
+        if key is None:
             return None
         try:
-            plan = NormPlan.load(folder)
+            plan = self._plan_load(kind, key)
         except (OSError, ValueError, KeyError):
             return None  # plán mezitím zahozený
         plan.set_status(task, status, run_dir)
         return plan
 
-    def _norm_finished(self, status: str, run_dir: Path | None) -> None:
-        plan = self._norm_status(status, run_dir)
-        self._running_norm = None
+    def _plan_finished(self, status: str, run_dir: Path | None) -> None:
+        kind = self._running_plan[0] if self._running_plan else ""
+        plan = self._plan_status(status, run_dir)
+        self._running_plan = None
         if plan is not None and plan.all_finished and plan.all_ok:
-            self._finish_norm(plan)
-        self.norms_page.reload()
+            self._finish_plan(kind, plan)
+        self._plans_changed(kind)
+
+    def _finish_plan(self, kind: str, plan) -> bool:  # noqa: ANN001
+        if kind == "norm":
+            return self._finish_norm(plan)
+        return False
 
     def _finish_norm(self, plan: NormPlan) -> bool:
         version = ""
@@ -733,40 +754,49 @@ class MainWindow(QMainWindow):
         self.assessment_page.reload_norms()
         return True
 
-    def _norm_busy(self, folder: Path) -> bool:
-        running = getattr(self, "_running_norm", None)
-        return bool(self.run_page.runner.running and running and running[0] == folder)
+    def _plan_busy(self, kind: str, key: Path) -> bool:
+        running = getattr(self, "_running_plan", None)
+        return bool(
+            self.run_page.runner.running and running and running[0] == kind and running[1] == key
+        )
+
+    def _drop_queued(self, kind: str, key: Path) -> None:
+        self._queue = [j for j in self._queue if not (j.plan_kind == kind and j.plan == key)]
+        self._show_queue()
 
     def build_norm(self, folder: Path) -> bool:
-        """Sestavit z hotových dávek (Normy, rozpracovaná norma)."""
-        if self._norm_busy(folder):
-            self.statusBar().showMessage(tr("Dávka normy ještě běží."), 6000)
+        return self.build_plan("norm", folder)
+
+    def build_plan(self, kind: str, key: Path) -> bool:
+        """Sestavit z hotových dávek (rozpracovaná norma)."""
+        if self._plan_busy(kind, key):
+            self.statusBar().showMessage(tr("Dávka plánu ještě běží."), 6000)
             return False
         try:
-            plan = NormPlan.load(folder)
+            plan = self._plan_load(kind, key)
         except (OSError, ValueError, KeyError) as exc:
             self.statusBar().showMessage(str(exc), 6000)
             return False
-        self._queue = [j for j in self._queue if j.norm_plan != folder]
-        self._show_queue()
-        return self._finish_norm(plan)
+        self._drop_queued(kind, key)
+        return self._finish_plan(kind, plan)
 
     def resume_norm(self, folder: Path) -> int:
+        return self.resume_plan("norm", folder)
+
+    def resume_plan(self, kind: str, key: Path) -> int:
         try:
-            plan = NormPlan.load(folder)
+            plan = self._plan_load(kind, key)
         except (OSError, ValueError, KeyError) as exc:
             self.statusBar().showMessage(str(exc), 6000)
             return 0
-        queued = self.start_norm(plan)
+        queued = self.start_plan(kind, plan)
         if not queued:
-            self.statusBar().showMessage(
-                tr("Zbývající dávky normy už běží nebo čekají ve frontě."), 6000
-            )
+            self.statusBar().showMessage(tr("Zbývající dávky už běží nebo čekají ve frontě."), 6000)
         return queued
 
     def discard_norm(self, folder: Path, *, confirm: bool = True) -> bool:
         """Rozpracovanou normu do Koše; spočítané běhy zůstávají ve Výsledcích."""
-        if self._norm_busy(folder):
+        if self._plan_busy("norm", folder):
             self.statusBar().showMessage(tr("Dávka normy ještě běží, nejdřív ji zrušte."), 6000)
             return False
         if confirm:
@@ -780,8 +810,7 @@ class MainWindow(QMainWindow):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return False
-        self._queue = [j for j in self._queue if j.norm_plan != folder]
-        self._show_queue()
+        self._drop_queued("norm", folder)
         try:
             send_to_trash(folder)
         except OSError as exc:
@@ -988,7 +1017,7 @@ class MainWindow(QMainWindow):
         if job.merge_into is not None:
             suffix = "-znovu"
         self._running_merge = job.merge_into
-        self._running_norm = (job.norm_plan, proto.task) if job.norm_plan else None
+        self._running_plan = (job.plan_kind, job.plan, proto.task) if job.plan else None
         dir_slug = slugify(job.label) if job.label.strip() else slug
         run_dir = unique_run_dir(self.settings.work_root, f"{stamp}_{dir_slug}{suffix}")
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -1065,8 +1094,8 @@ class MainWindow(QMainWindow):
             norm=self._running_norm_text(),
             total=len(inputs),
         )
-        if self._running_norm is not None:
-            self._norm_status(RUNNING, run_dir)
+        if self._running_plan is not None:
+            self._plan_status(RUNNING, run_dir)
         self.nav.setCurrentRow(PAGE_RUN)
         self.run_page.start(
             argv,
@@ -1131,8 +1160,8 @@ class MainWindow(QMainWindow):
             )
         self.run_page.refresh_history(select=run_dir)
         self.assessment_page.refresh()
-        if getattr(self, "_running_norm", None) is not None:
-            self._norm_finished(
+        if getattr(self, "_running_plan", None) is not None:
+            self._plan_finished(
                 OK if code == 0 and not cancelled else (CANCELLED if cancelled else ERROR), run_dir
             )
         merged = self._merge_rerun(state)
