@@ -188,6 +188,14 @@ class AppSettings:
     def protocols_dir(self) -> Path:
         return app_data_dir() / "protocols"
 
+    def norms_dir(self) -> Path:
+        """Vlastní normy zdravých kontrol (složka na normu), vedle protokolů."""
+        return app_data_dir() / "norms"
+
+    def visits_file(self) -> Path:
+        """Ruční zařazení nahrávek k vyšetření (stránka Hodnocení)."""
+        return app_data_dir() / "visits.json"
+
     # --- statistika běhů --------------------------------------------------------
 
     def seconds_per_file(self, protocol_slug: str) -> float | None:

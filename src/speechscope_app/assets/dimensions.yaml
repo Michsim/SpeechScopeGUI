@@ -1,0 +1,146 @@
+# Dimenze řeči pro srovnání s normou (pavouk) a jejich položky.
+#
+# Položka = sloupec tabulky feature, úlohy, ze kterých se bere, a směr
+# patologie: `higher` = vyšší hodnota je horší, `lower` = nižší je horší.
+# `log: true` počítá z-skóre po logaritmu (šikmé rozdělení: pauzy, VOT).
+# Skóre dimenze je průměr z-skóre položek otočených k patologii; položka
+# bez dat se vynechá, dimenze bez jediné položky se v pavouku neukáže.
+# Jména se překládají jako u protokolů (`name_en`).
+format: 1
+dimensions:
+  - key: voice
+    name: Kvalita hlasu
+    name_en: Voice quality
+    items:
+      - column: acoustic.quality.perturbation.jitter_local
+        tasks: [phonation]
+        direction: higher
+        log: true
+      - column: acoustic.quality.perturbation.shimmer_local
+        tasks: [phonation]
+        direction: higher
+        log: true
+      - column: acoustic.quality.perturbation.hnr
+        tasks: [phonation]
+        direction: lower
+      - column: acoustic.quality.cpp.cpps
+        tasks: [phonation]
+        direction: lower
+      - column: acoustic.pitch.f0.std
+        tasks: [phonation]
+        direction: higher
+        log: true
+
+  - key: articulation
+    name: Artikulace
+    name_en: Articulation
+    items:
+      - column: acoustic.ddk.rate
+        tasks: [ddk]
+        direction: lower
+      - column: acoustic.ddk.vot.median
+        tasks: [ddk]
+        direction: higher
+        log: true
+      - column: acoustic.ddk.vowel_length
+        tasks: [ddk]
+        direction: lower
+      - column: acoustic.articulation.vowels.VSA
+        tasks: [spontaneous, reading]
+        direction: lower
+      - column: acoustic.articulation.vowels.VAI
+        tasks: [spontaneous, reading]
+        direction: lower
+      - column: acoustic.timing.speech_rate.articulation_rate
+        tasks: [spontaneous, reading]
+        direction: lower
+
+  - key: rhythm
+    name: Rytmus řeči
+    name_en: Speech rhythm
+    items:
+      - column: acoustic.ddk.regularity
+        tasks: [ddk]
+        direction: higher
+        log: true
+      - column: acoustic.ddk.deceleration
+        tasks: [ddk]
+        direction: higher
+      - column: acoustic.ddk.intensity.rirv
+        tasks: [ddk]
+        direction: higher
+      - column: acoustic.timing.rhythm.vsdr
+        tasks: [spontaneous, reading]
+        direction: higher
+      - column: acoustic.timing.speech_rate.speech_rate_variability
+        tasks: [spontaneous, reading]
+        direction: higher
+
+  - key: prosody
+    name: Prozódie
+    name_en: Prosody
+    items:
+      - column: acoustic.pitch.f0.std
+        tasks: [reading, spontaneous]
+        direction: lower
+      - column: acoustic.pitch.f0.range
+        tasks: [reading, spontaneous]
+        direction: lower
+      - column: acoustic.intensity.stats.std
+        tasks: [reading, spontaneous]
+        direction: lower
+      - column: acoustic.ddk.intensity.slope
+        tasks: [ddk]
+        direction: lower
+
+  - key: pauses
+    name: Pauzy a tempo
+    name_en: Pauses and tempo
+    items:
+      - column: acoustic.timing.pauses.ratio
+        tasks: [spontaneous, reading]
+        direction: higher
+        log: true
+      - column: acoustic.timing.pauses.median
+        tasks: [spontaneous, reading]
+        direction: higher
+        log: true
+      - column: acoustic.timing.silences.median
+        tasks: [spontaneous, reading]
+        direction: higher
+        log: true
+      - column: acoustic.timing.speech_rate.speech_rate
+        tasks: [spontaneous, reading]
+        direction: lower
+
+  - key: breathing
+    name: Dýchání
+    name_en: Breathing
+    items:
+      - column: acoustic.timing.breaths.per_minute
+        tasks: [spontaneous, reading]
+        direction: higher
+      - column: acoustic.timing.breaths.median
+        tasks: [spontaneous, reading]
+        direction: higher
+        log: true
+      - column: acoustic.timing.breaths.long_count
+        tasks: [spontaneous, reading]
+        direction: higher
+
+  - key: language
+    name: Jazyk
+    name_en: Language
+    items:
+      - column: linguistic.lexical.mattr
+        tasks: [spontaneous]
+        direction: lower
+      - column: linguistic.lexical.content_density
+        tasks: [spontaneous]
+        direction: lower
+      - column: linguistic.syntactic.mlu
+        tasks: [spontaneous]
+        direction: lower
+      - column: linguistic.lexical.word_entropy
+        tasks: [spontaneous]
+        direction: lower
