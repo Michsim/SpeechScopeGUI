@@ -174,35 +174,51 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   sloupců na kanonické už při čtení (`read_manifest`), takže `features.csv`
   má vždy `subject`, `age`…; kolize dvou sloupců na jedno jméno nechá druhý
   původní.
-- **Index vyšetření** (`backend/visits.py`, `VisitIndex`): řádky všech
-  skončených běhů (běžící se neotvírá) seskupené podle `subject` a `visit`;
-  bez pacienta je pacientem název souboru (`explicit=False`), bez návštěvy
-  datum běhu. Cache v paměti podle cesty, mtime a velikosti `features.csv`,
-  `refresh()` po skončeném, smazaném nebo přejmenovaném běhu.
-  `Visit.rows_by_task()` je vstup pro `dimensions.evaluate`. Návrh stránky
-  Hodnocení je v `docs/navrh-gui-3-norma.md`.
+- **Index nahrávek** (`backend/visits.py`, `VisitIndex`): řádky všech
+  skončených běhů (běžící se neotvírá, běhy norem s `RunInfo.norm` taky ne)
+  jako `Recording`; cache v paměti podle cesty, mtime a velikosti
+  `features.csv`. Automatické skládání do vyšetření (`group_visits`,
+  `visits.json`) stránka už nepoužívá; `Visit` zůstává jako vstup výpočtu
+  (`rows_by_task()` → `dimensions.evaluate`).
+- **Hodnocení se zakládají ručně** (rozhodnuto 28. 10., mockup
+  https://claude.ai/artifact/2UwaQmndVNFBCMSHmehQ8A, `docs/mockups/hodnoceni/`
+  mimo git): `backend/assessments.py`, `Assessment` (pacient, věk, pohlaví,
+  datum, `RecordingRef` = složka běhu, řádek, soubor, úloha) jako JSON
+  v `settings.assessments_dir()`; `resolve` z něj složí `Visit` (řádek
+  záložně podle souboru a úlohy, když se tabulka přepočítala; chybějící
+  odkazy vrátí zvlášť). Přejmenovaný běh přepíše odkazy
+  (`AssessmentStore.relocate` z `MainWindow._run_moved`). Norma se volí až
+  při prohlížení. `norm_match` porovná protokol běhu (`protocol.yaml`)
+  s `NormInfo.protocols`.
 - **Dimenze** (`assets/dimensions.yaml`, `backend/dimensions.py`): dimenze →
   položky (sloupec, úlohy, směr `higher`/`lower`, `log`). `evaluate` bere
   hodnoty vyšetření po úlohách (víc nahrávek = průměr po feature), skóre dimenze je průměr
   z položek, dimenze bez položky má `reason` a v pavouku není.
   `test_dimensions` hlídá, že každá položka existuje v katalogu falešky.
 - **Stránka Hodnocení** (`ui/pages/assessment.py`, `AssessmentPage`): vlevo
-  karty vyšetření z `VisitIndex` se štítkem nejhoršího pásma (`worst_band`:
-  v normě, hraniční, mimo normu, bez normy) a hledáním pacienta; vpravo
-  hlavička pacienta se štítky dimenzí, výběr normy, věkového okna a „jen stejné
-  pohlaví“ (řádek pod tím říká, kolik kontrol se vybralo po úlohách); pod
-  hlavičkou se roluje (`self.scroll`): pavouk přes celou šířku s legendou vedle,
-  pod ním strom na celou šířku (první sloupec se roztahuje); pavouk
-  (`widgets/spider_chart.py`, `SpiderChart.set_axes`, kružnice 1 a 2 SD, jedna
-  osa = pruh), strom dimenze → položka (úloha, pacient, norma, z, percentil),
-  chybějící dimenze s důvodem, nahrávky vyšetření a O normě. Bez normy ukáže
-  jen nahrávky a kde normu vzít. Uložit obrázek… = PNG pavouka (`save_image`).
-  Přidat nahrávku z jiného běhu… (`AddRecordingDialog`) zařadí nahrávku ručně
-  k vyšetření, ukládá se do `settings.visits_file()` (`visits.json`, klíč
-  `<složka běhu>#<řádek>`), Vyřadit to vrátí. Na Výsledcích pravé tlačítko
-  „Otevřít v Hodnocení“ (`ResultsPage.assess_requested` →
-  `MainWindow.show_assessment` → `show_row`). Stránka se obnoví při zobrazení
-  a po skončeném běhu. Zbývá: PDF, vývoj v čase.
+  uložená hodnocení (`VisitCard` se štítkem nejhoršího pásma `worst_band`:
+  v normě, hraniční, mimo normu, bez normy; úlohy s počtem nahrávek
+  `task_count`) a hledání pacienta, nahoře Nové hodnocení…; vpravo hlavička
+  pacienta se štítky dimenzí a Upravit…, Uložit obrázek… (PNG pavouka),
+  Smazat…, výběr normy, věkového okna a „jen stejné pohlaví“ (řádek pod tím
+  říká, kolik kontrol se vybralo po úlohách); pod hlavičkou se roluje
+  (`self.scroll`): pavouk přes celou šířku s legendou vedle, pod ním strom na
+  celou šířku (první sloupec se roztahuje); pavouk (`widgets/spider_chart.py`,
+  `SpiderChart.set_axes`, kružnice 1 a 2 SD, jedna osa = pruh), strom
+  dimenze → položka (úloha, pacient, norma, z, percentil), chybějící dimenze
+  s důvodem, tabulka Nahrávky hodnocení (úloha, nahrávka, běh, s normou)
+  s poznámkou o průměru, jiném protokolu a chybějících odkazech, O normě.
+  Bez normy ukáže jen nahrávky a kde normu vzít. Dialog
+  (`ui/assessment_dialog.py`, `AssessmentDialog`): pacient, věk, pohlaví,
+  datum, pro každou úlohu nahrávky s Přidat… (`PickRecordingDialog`:
+  nahoře podle manifestu pacienta, pak podle názvu souboru, ostatní jen bez
+  hledání; `assessments.candidates_for`) a Odebrat; první nahrávka
+  předvyplní prázdné údaje z manifestu (`assessments.prefill`, datum z
+  `visit`, jinak z běhu). Na Výsledcích pravé tlačítko „Otevřít v Hodnocení“
+  (`ResultsPage.assess_requested` → `MainWindow.show_assessment` →
+  `show_row`) otevře dialog s tou nahrávkou; po uložení přepne na Hodnocení.
+  Stránka se obnoví při zobrazení a po skončeném běhu. Zbývá: PDF, vývoj
+  v čase.
 - **Stránka Normy** (`ui/pages/norms.py`, `NormsPage`; mockup schválený 28. 10.
   je artefakt https://claude.ai/artifact/XTwhcSUAjC5vUuq5MPMZzn, soubory
   `docs/mockups/normy/` mimo git): vlevo karty norem (`NormCard`, vlastní

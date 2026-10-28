@@ -279,9 +279,13 @@ class MainWindow(QMainWindow):
             self.env_page.refresh_cache()
 
     def show_assessment(self, run_dir: Path, row: int) -> bool:
-        """Z Výsledků: vybere vyšetření řádku a přepne na Hodnocení."""
+        """Z Výsledků: nové hodnocení s nahrávkou řádku; po uložení přepne na Hodnocení."""
+        if self.assessment_page.find_recording(run_dir, row) is None:
+            self.statusBar().showMessage(
+                tr("Nahrávka není v hotovém běhu pacienta (běží, nebo je to běh normy)."), 6000
+            )
+            return False
         if not self.assessment_page.show_row(run_dir, row):
-            self.statusBar().showMessage(tr("Řádek nepatří k žádnému vyšetření."), 6000)
             return False
         self.nav.setCurrentRow(PAGE_ASSESSMENT)
         return True
@@ -344,7 +348,8 @@ class MainWindow(QMainWindow):
         """Složky z nastavení do všech stránek, které je ukazují nebo používají."""
         models_dir, work_root = self.settings.models_dir, self.settings.work_root
         self.results_page.set_work_root(work_root)
-        self.assessment_page.set_work_root(work_root, self.settings.visits_file())
+        self.assessment_page.set_work_root(work_root)
+        self.assessment_page.set_assessments_dir(self.settings.assessments_dir())
         self.assessment_page.set_norms_dir(self.settings.norms_dir())
         self.norms_page.set_norms_dir(self.settings.norms_dir())
         self.run_page.set_work_root(work_root)
@@ -839,6 +844,7 @@ class MainWindow(QMainWindow):
                 job.merge_into = new / job.merge_into.name
         self.results_page.relocate(old, new)
         self.run_page.relocate(old, new)
+        self.assessment_page.relocate(old, new)
 
     def delete_run(self, info: RunInfo, *, confirm: bool = True) -> bool:
         """Složka běhu do Koše po potvrzení; běžící běh smazat nejde."""

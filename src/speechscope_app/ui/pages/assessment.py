@@ -1,8 +1,12 @@
-"""Stránka Hodnocení: vyšetření pacienta proti normě zdravých kontrol.
+"""Stránka Hodnocení: ručně založená hodnocení pacientů proti normě zdravých kontrol.
 
-Vlevo seznam vyšetření z indexu (`backend/visits.py`), vpravo norma s
-věkovým oknem a pohlavím, pavouk po dimenzích, strom dimenzí a položek,
-nahrávky vyšetření a popis normy. Skóre počítá `dimensions.evaluate`.
+Vlevo uložená hodnocení (`backend/assessments.py`); nic se neskládá samo
+ze všech běhů. Nové hodnocení… (`ui/assessment_dialog.py`) vybere pacienta,
+věk, pohlaví, datum a nahrávky po úlohách; z Výsledků (pravé tlačítko na
+nahrávce) se otevře týž dialog s nahrávkou předvyplněnou. Vpravo norma
+s věkovým oknem a pohlavím (volí se při prohlížení), pavouk po dimenzích,
+strom dimenzí a položek, nahrávky hodnocení se stavem vůči normě a popis
+normy. Skóre počítá `dimensions.evaluate` z `assessments.resolve`.
 Bez normy stránka ukáže jen nahrávky a řekne, kde normu vzít.
 """
 
@@ -18,7 +22,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -27,9 +30,12 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -37,12 +43,20 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
+from ...backend.assessments import (
+    Assessment,
+    AssessmentStore,
+    RecordingRef,
+    norm_match,
+    resolve,
+)
 from ...backend.dimensions import Dimension, DimensionResult, Evaluation, evaluate, load_dimensions
 from ...backend.library import FeatureInfo, Library, LibraryError
 from ...backend.norms import Norm, Selection, all_norms
 from ...backend.visits import Recording, Visit, VisitIndex
 from ...i18n import tr
 from .. import theme
+from ..assessment_dialog import AssessmentDialog, match_text
 from ..feature_detail import split_unit
 from ..file_actions import file_menu, open_file
 from ..recording_detail import ColumnInfo, RecordingDetailDialog, column_index
@@ -107,14 +121,28 @@ def visit_subtitle(visit: Visit) -> str:
         parts.append(", ".join(person))
     if visit.visit:
         parts.append(tr("vyšetření {date}").format(date=format_visit_date(visit.visit)))
-    parts.append(", ".join(contract.TASK_SHORT.get(t, t) for t in visit.tasks))
+    parts.append(", ".join(task_count(visit, t) for t in visit.tasks))
     return " · ".join(parts)
 
 
+def task_count(visit: Visit, task: str) -> str:
+    """„Fonace“, nebo „Fonace (2)“ u víc nahrávek jedné úlohy."""
+    label = contract.TASK_SHORT.get(task, task)
+    n = visit.count(task)
+    return f"{label} ({n})" if n > 1 else label
+
+
 class VisitCard(QFrame):
-    def __init__(self, visit: Visit, band: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        visit: Visit,
+        band: str,
+        assessment: Assessment | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.visit = visit
+        self.assessment = assessment
         self.setObjectName("card")
         self._role = BAND_ROLES.get(band, "neutral")
         theme.set_role(self, self._role)
@@ -145,78 +173,21 @@ class VisitCard(QFrame):
         theme.set_role(self, "selected" if current else self._role)
 
 
-class AddRecordingDialog(QDialog):
-    """Výběr nahrávky z jiného běhu, která patří k tomuto vyšetření."""
-
-    def __init__(
-        self, visit: Visit, candidates: list[Recording], parent: QWidget | None = None
-    ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(tr("Přidat nahrávku k vyšetření"))
-        self.resize(640, 480)
-        self._candidates = candidates
-        layout = QVBoxLayout(self)
-        hint = QLabel(
-            tr(
-                "Nahrávky z ostatních běhů. Vybraná se zařadí k vyšetření {name}; "
-                "platí to i po restartu."
-            ).format(name=visit.subject)
-        )
-        hint.setObjectName("muted")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-        self.search = QLineEdit()
-        self.search.setPlaceholderText(tr("hledat soubor nebo pacienta"))
-        self.search.setClearButtonEnabled(True)
-        self.search.textChanged.connect(self._fill)
-        layout.addWidget(self.search)
-        self.list = QListWidget()
-        self.list.itemDoubleClicked.connect(lambda _i: self.accept())
-        layout.addWidget(self.list, 1)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-        self._fill()
-
-    def _fill(self) -> None:
-        needle = self.search.text().strip().lower()
-        self.list.clear()
-        for rec in self._candidates:
-            subject = str(rec.data.get("subject") or "")
-            text = tr("{file} · {task} · {run}").format(
-                file=rec.file,
-                task=contract.TASK_SHORT.get(rec.task, rec.task),
-                run=rec.run.display_name
-                + (f" · {rec.run.started:%d.%m.%Y}" if rec.run.started else ""),
-            )
-            if subject:
-                text += f" · {subject}"
-            if needle and needle not in text.lower():
-                continue
-            item = QListWidgetItem(text)
-            item.setData(Qt.ItemDataRole.UserRole, rec)
-            self.list.addItem(item)
-
-    def chosen(self) -> Recording | None:
-        item = self.list.currentItem()
-        return item.data(Qt.ItemDataRole.UserRole) if item is not None else None
-
-
 class AssessmentPage(QWidget):
     notice = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._index: VisitIndex | None = None
+        self._store: AssessmentStore | None = None
+        self._entries: list[tuple[Assessment, Visit, list[RecordingRef]]] = []
+        self._shown: list[tuple[Assessment, Visit, list[RecordingRef]]] = []
+        self._missing: list[RecordingRef] = []
         self._norms: list[Norm] = []
         self._norms_dir: Path | None = None
         self._library: Library | None = None
         self._columns: dict[str, ColumnInfo] | None = None
         self._dimensions: list[Dimension] = load_dimensions()
-        self._visits: list[Visit] = []
         self._cards: list[VisitCard] = []
         self._current: Visit | None = None
         self._evaluation: Evaluation | None = None
@@ -224,9 +195,18 @@ class AssessmentPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(10)
+        title_row = QHBoxLayout()
         title = QLabel(tr("Hodnocení"))
         title.setObjectName("page_title")
-        layout.addWidget(title)
+        title_row.addWidget(title, 1)
+        self.new_btn = QPushButton(tr("Nové hodnocení…"))
+        self.new_btn.setToolTip(tr("Pacient, věk, pohlaví a nahrávky po úlohách z hotových běhů"))
+        theme.set_role(self.new_btn, "primary")
+        self.new_btn.clicked.connect(
+            lambda: self.new_assessment()
+        )  # ne clicked(checked) do initial
+        title_row.addWidget(self.new_btn)
+        layout.addLayout(title_row)
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(self.splitter, 1)
 
@@ -237,12 +217,9 @@ class AssessmentPage(QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(6)
         head = QHBoxLayout()
-        self.list_title = QLabel(tr("Vyšetření"))
+        self.list_title = QLabel(tr("Hodnocení"))
         self.list_title.setObjectName("section")
-        self.refresh_btn = QPushButton(tr("Obnovit"))
-        self.refresh_btn.clicked.connect(self.refresh)
         head.addWidget(self.list_title, 1)
-        head.addWidget(self.refresh_btn)
         left_layout.addLayout(head)
         self.search = QLineEdit()
         self.search.setPlaceholderText(tr("hledat pacienta"))
@@ -259,8 +236,8 @@ class AssessmentPage(QWidget):
         left_layout.addWidget(self.visits, 1)
         self.empty = QLabel(
             tr(
-                "Zatím žádné vyšetření. Vyšetření vznikají z hotových běhů; pacienta a "
-                "návštěvu určují sloupce subject a visit v manifestu."
+                "Zatím žádné hodnocení. Založte ho tlačítkem Nové hodnocení…, nebo na "
+                "Výsledcích pravým tlačítkem na nahrávce."
             )
         )
         self.empty.setObjectName("muted")
@@ -277,12 +254,21 @@ class AssessmentPage(QWidget):
         right_layout.setSpacing(8)
         self.header = StatusHeader()
         self.header.title.setText(tr("Hodnocení"))
-        self.header.subtitle.setText(tr("Vyber vyšetření vlevo."))
+        self.header.subtitle.setText(tr("Vyberte hodnocení vlevo, nebo založte nové."))
+        self.edit_btn = QPushButton(tr("Upravit…"))
+        self.edit_btn.setEnabled(False)
+        self.edit_btn.clicked.connect(self.edit_current)
+        self.header.add_button(self.edit_btn)
         self.image_btn = QPushButton(tr("Uložit obrázek…"))
         self.image_btn.setToolTip(tr("Pavouk jako PNG, třeba do zprávy."))
         self.image_btn.setEnabled(False)
         self.image_btn.clicked.connect(self.save_image)
         self.header.add_button(self.image_btn)
+        self.delete_btn = QPushButton(tr("Smazat…"))
+        theme.set_role(self.delete_btn, "danger")
+        self.delete_btn.setEnabled(False)
+        self.delete_btn.clicked.connect(self.delete_current)
+        self.header.add_button(self.delete_btn)
         right_layout.addWidget(self.header)
         # pod hlavičkou se roluje: pavouk a strom pod sebou se na menší okno nevejdou
         self.scroll = QScrollArea()
@@ -436,30 +422,33 @@ class AssessmentPage(QWidget):
         rec_layout = QVBoxLayout(rec_card)
         rec_layout.setContentsMargins(12, 10, 12, 10)
         rec_layout.setSpacing(6)
-        rec_head = QHBoxLayout()
-        rec_title = QLabel(tr("Nahrávky vyšetření"))
+        rec_title = QLabel(tr("Nahrávky hodnocení"))
         rec_title.setObjectName("card_title")
-        rec_head.addWidget(rec_title, 1)
-        self.add_btn = QPushButton(tr("Přidat nahrávku z jiného běhu…"))
-        self.add_btn.setToolTip(
-            tr("Pro data bez manifestu: zařadí nahrávku z jiného běhu k tomuto vyšetření.")
+        rec_layout.addWidget(rec_title)
+        self.recordings = QTableWidget()
+        self.recordings.setColumnCount(4)
+        self.recordings.setHorizontalHeaderLabels(
+            [tr("úloha"), tr("nahrávka"), tr("běh"), tr("s normou")]
         )
-        self.add_btn.setEnabled(False)
-        self.add_btn.clicked.connect(self.add_recording)
-        rec_head.addWidget(self.add_btn)
-        self.remove_btn = QPushButton(tr("Vyřadit"))
-        self.remove_btn.setToolTip(tr("Zruší ruční zařazení vybrané nahrávky."))
-        self.remove_btn.hide()
-        self.remove_btn.clicked.connect(self.remove_recording)
-        rec_head.addWidget(self.remove_btn)
-        rec_layout.addLayout(rec_head)
-        self.recordings = QListWidget()
-        self.recordings.setMaximumHeight(96)
-        self.recordings.itemDoubleClicked.connect(self._open_recording)
+        self.recordings.verticalHeader().setVisible(False)
+        self.recordings.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.recordings.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.recordings.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        rec_header = self.recordings.horizontalHeader()
+        rec_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        rec_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        rec_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        rec_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        rec_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.recordings.setMaximumHeight(170)
+        self.recordings.cellDoubleClicked.connect(lambda row, _col: self._open_recording(row))
         self.recordings.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.recordings.customContextMenuRequested.connect(self._recording_menu)
-        self.recordings.currentItemChanged.connect(self._recording_changed)
         rec_layout.addWidget(self.recordings)
+        self.recordings_note = QLabel("")
+        self.recordings_note.setObjectName("muted")
+        self.recordings_note.setWordWrap(True)
+        rec_layout.addWidget(self.recordings_note)
         bottom.addWidget(rec_card, 1)
         about_card = QFrame()
         about_card.setObjectName("card")
@@ -500,11 +489,15 @@ class AssessmentPage(QWidget):
         self._library = library
         self._columns = None
 
-    def set_work_root(self, root: Path, assignments: Path | None = None) -> None:
+    def set_work_root(self, root: Path) -> None:
         if self._index is None:
-            self._index = VisitIndex(root, assignments)
+            self._index = VisitIndex(root)
         else:
             self._index.set_work_root(root)
+
+    def set_assessments_dir(self, folder: Path) -> None:
+        self._store = AssessmentStore(folder)
+        self.refresh()
 
     def set_norms_dir(self, folder: Path) -> None:
         self._norms_dir = folder
@@ -541,6 +534,13 @@ class AssessmentPage(QWidget):
     def current_visit(self) -> Visit | None:
         return self._current
 
+    def current_assessment(self) -> Assessment | None:
+        row = self.visits.currentRow()
+        return self._shown[row][0] if 0 <= row < len(self._shown) else None
+
+    def assessments(self) -> list[Assessment]:
+        return [a for a, _v, _m in self._entries]
+
     def evaluation(self) -> Evaluation | None:
         return self._evaluation
 
@@ -573,11 +573,24 @@ class AssessmentPage(QWidget):
                 card.setFixedWidth(width)
                 item.setSizeHint(QSize(width, card.sizeHint().height()))
 
-    def refresh(self, select: tuple[str, str] | None = None) -> None:
-        """Znovu projde běhy; výběr zůstane na témže vyšetření."""
-        keep = select or (self._current.key if self._current else None)
-        self._visits = self._index.refresh() if self._index is not None else []
+    def refresh(self, select: str | None = None) -> None:
+        """Znovu načte hodnocení a běhy; výběr zůstane na témže hodnocení (podle id)."""
+        current = self.current_assessment()
+        keep = select or (current.id if current is not None else None)
+        recordings = []
+        if self._index is not None:
+            self._index.refresh()
+            recordings = self._index.all_recordings()
+        stored = self._store.all() if self._store is not None else []
+        self._entries = [(a, *resolve(a, recordings)) for a in stored]
         self._fill_list(keep=keep)
+
+    def recordings_pool(self) -> list[Recording]:
+        """Nahrávky z hotových běhů (bez běhů norem) pro dialog hodnocení."""
+        if self._index is None:
+            return []
+        self._index.refresh()
+        return self._index.all_recordings()
 
     def _visit_band(self, visit: Visit) -> str:
         norm = self.current_norm()
@@ -585,40 +598,43 @@ class AssessmentPage(QWidget):
             return ""
         return worst_band(self._evaluate(visit, norm))
 
-    def _fill_list(self, keep: tuple[str, str] | None = None) -> None:
-        if keep is None and self._current is not None:
-            keep = self._current.key
+    def _fill_list(self, keep: str | None = None) -> None:
+        if keep is None:
+            current = self.current_assessment()
+            keep = current.id if current is not None else None
         needle = self.search.text().strip().lower()
         self.visits.blockSignals(True)
         self.visits.clear()
         self._cards = []
-        shown: list[Visit] = []
+        shown: list[tuple[Assessment, Visit, list[RecordingRef]]] = []
         select_row: int | None = None
-        for visit in self._visits:
-            if needle and needle not in visit.subject.lower():
+        for entry in self._entries:
+            assessment, visit, _missing = entry
+            if needle and needle not in assessment.subject.lower():
                 continue
             item = QListWidgetItem()
-            card = VisitCard(visit, self._visit_band(visit))
+            card = VisitCard(visit, self._visit_band(visit), assessment)
             item.setSizeHint(card.sizeHint())
             self.visits.addItem(item)
             self.visits.setItemWidget(item, card)
             self._cards.append(card)
-            if keep is not None and visit.key == keep:
+            if keep is not None and assessment.id == keep:
                 select_row = len(shown)
-            shown.append(visit)
+            shown.append(entry)
         self._shown = shown
         self._fit_cards()
         self.visits.blockSignals(False)
         self.list_title.setText(
-            tr("Vyšetření ({n})").format(n=len(self._visits)) if self._visits else tr("Vyšetření")
+            tr("Hodnocení ({n})").format(n=len(self._entries)) if self._entries else tr("Hodnocení")
         )
-        self.empty.setVisible(not self._visits)
+        self.empty.setVisible(not self._entries)
         if select_row is not None:
             self.visits.setCurrentRow(select_row)
         elif shown:
             self.visits.setCurrentRow(0)
         else:
             self._current = None
+            self._missing = []
             self._show_empty_state()
 
     def count(self) -> int:
@@ -631,23 +647,86 @@ class AssessmentPage(QWidget):
         if 0 <= row < self.visits.count():
             self.visits.setCurrentRow(row)
 
-    def select_visit(self, key: tuple[str, str]) -> bool:
-        for row, card in enumerate(self._cards):
-            if card.visit.key == key:
+    def select_assessment(self, assessment_id: str) -> bool:
+        for row, (assessment, _v, _m) in enumerate(self._shown):
+            if assessment.id == assessment_id:
                 self.visits.setCurrentRow(row)
                 return True
         return False
 
-    def show_row(self, run_dir: Path, row: int) -> bool:
-        """Z Výsledků: vybere vyšetření, do kterého řádek běhu patří."""
-        if self._index is None:
-            return False
-        self.refresh()
-        visit = self._index.visit_of(run_dir, row)
-        if visit is None:
-            return False
+    # --- založení, úprava, smazání ----------------------------------------------------
+
+    def make_dialog(
+        self, assessment: Assessment | None = None, initial: Recording | None = None
+    ) -> AssessmentDialog:
+        norm = self.current_norm()
+        return AssessmentDialog(
+            self.recordings_pool(),
+            assessment=assessment,
+            initial=initial,
+            norm_protocols=norm.info.protocols if norm is not None else {},
+            parent=self,
+        )
+
+    def save_from(self, dialog: AssessmentDialog) -> Assessment | None:
+        """Uloží hodnocení z potvrzeného dialogu a vybere ho."""
+        if self._store is None:
+            return None
+        assessment = dialog.assessment()
+        self._store.save(assessment)
         self.search.clear()
-        return self.select_visit(visit.key)
+        self.refresh(select=assessment.id)
+        return assessment
+
+    def new_assessment(self, initial: Recording | None = None) -> Assessment | None:
+        dialog = self.make_dialog(initial=initial)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return self.save_from(dialog)
+
+    def edit_current(self) -> Assessment | None:
+        current = self.current_assessment()
+        if current is None:
+            return None
+        dialog = self.make_dialog(assessment=current)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return self.save_from(dialog)
+
+    def delete_current(self, *, confirm: bool = True) -> bool:
+        current = self.current_assessment()
+        if current is None or self._store is None:
+            return False
+        if confirm:
+            answer = QMessageBox.question(
+                self,
+                tr("Smazat hodnocení"),
+                tr(
+                    "Smazat hodnocení pacienta {subject} z {date}? Běhy a nahrávky zůstanou."
+                ).format(subject=current.subject, date=format_visit_date(current.date)),
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+        self._store.delete(current)
+        self.refresh()
+        return True
+
+    def relocate(self, old: Path, new: Path) -> None:
+        """Přejmenovaný běh: odkazy hodnocení na jeho složku se přepíšou."""
+        if self._store is not None and self._store.relocate(old.name, new.name):
+            self.refresh()
+
+    def show_row(self, run_dir: Path, row: int) -> bool:
+        """Z Výsledků: nové hodnocení s touto nahrávkou předvyplněnou."""
+        rec = self.find_recording(run_dir, row)
+        if rec is None:
+            return False
+        return self.new_assessment(initial=rec) is not None
+
+    def find_recording(self, run_dir: Path, row: int) -> Recording | None:
+        return next(
+            (r for r in self.recordings_pool() if r.run.dir == run_dir and r.row == row), None
+        )
 
     def _item_changed(
         self, current: QListWidgetItem | None, previous: QListWidgetItem | None
@@ -655,8 +734,9 @@ class AssessmentPage(QWidget):
         for row, card in enumerate(self._cards):
             card.set_current(self.visits.item(row) is current)
         row = self.visits.currentRow()
-        visit = self._shown[row] if 0 <= row < len(self._shown) else None
-        self._current = visit
+        entry = self._shown[row] if 0 <= row < len(self._shown) else None
+        self._current = entry[1] if entry else None
+        self._missing = entry[2] if entry else []
         self._recompute()
 
     # --- vyhodnocení --------------------------------------------------------------------
@@ -677,14 +757,11 @@ class AssessmentPage(QWidget):
         if visit is None:
             self._show_empty_state()
             return
-        self.header.title.setText(
-            visit.subject
-            if visit.explicit
-            else tr("{file} (bez pacienta)").format(file=visit.subject)
-        )
+        self.header.title.setText(visit.subject)
         self.header.subtitle.setText(visit_subtitle(visit))
         self._fill_recordings(visit)
-        self.add_btn.setEnabled(self._index is not None)
+        self.edit_btn.setEnabled(True)
+        self.delete_btn.setEnabled(True)
         if norm is None:
             self._evaluation = None
             self.header.set_role("neutral")
@@ -729,13 +806,14 @@ class AssessmentPage(QWidget):
     def _show_empty_state(self) -> None:
         self._evaluation = None
         self.header.title.setText(tr("Hodnocení"))
-        self.header.subtitle.setText(tr("Vyber vyšetření vlevo."))
+        self.header.subtitle.setText(tr("Vyberte hodnocení vlevo, nebo založte nové."))
         self.header.set_role("neutral")
         self.header.set_pills([])
         self.middle.hide()
-        self.recordings.clear()
-        self.add_btn.setEnabled(False)
-        self.remove_btn.hide()
+        self.recordings.setRowCount(0)
+        self.recordings_note.setText("")
+        self.edit_btn.setEnabled(False)
+        self.delete_btn.setEnabled(False)
         self.image_btn.setEnabled(False)
         self.selection_label.setText("")
         self.about.setText(self._about_text(self.current_norm()) if self.current_norm() else "")
@@ -888,37 +966,60 @@ class AssessmentPage(QWidget):
     # --- nahrávky -----------------------------------------------------------------------
 
     def _fill_recordings(self, visit: Visit) -> None:
-        self.recordings.clear()
-        for rec in visit.recordings:
-            text = tr("{file} · {task} · {run}").format(
-                file=rec.file,
-                task=contract.TASK_SHORT.get(rec.task, rec.task),
-                run=rec.run.display_name
-                + (f" · {rec.run.started:%d.%m.%Y %H:%M}" if rec.run.started else ""),
+        norm = self.current_norm()
+        protocols = norm.info.protocols if norm is not None else {}
+        order = {t: i for i, t in enumerate(contract.TASKS)}
+        recs = sorted(visit.recordings, key=lambda r: (order.get(r.task, 99), r.file))
+        self.recordings.setRowCount(len(recs))
+        last_task = ""
+        for row, rec in enumerate(recs):
+            task = contract.TASK_SHORT.get(rec.task, rec.task) if rec.task != last_task else ""
+            last_task = rec.task
+            started = f"{rec.run.started:%d. %m. %H:%M}" if rec.run.started else ""
+            match = norm_match(rec, protocols)
+            cells = [task, rec.file, started or rec.run.display_name, match_text(match)]
+            for col, text in enumerate(cells):
+                item = QTableWidgetItem(text)
+                if col == 1:
+                    item.setData(Qt.ItemDataRole.UserRole, rec)
+                    item.setToolTip(str(rec.path) if rec.path else "")
+                if col == 2:
+                    item.setToolTip(rec.run.display_name)
+                if col == 3 and match is False:
+                    item.setForeground(QColor(theme.WARN))
+                self.recordings.setItem(row, col, item)
+        notes = []
+        if any(visit.count(t) > 1 for t in visit.tasks):
+            notes.append(tr("Víc nahrávek jedné úlohy se zprůměruje po jednotlivých feature."))
+        if any(norm_match(r, protocols) is False for r in recs):
+            notes.append(
+                tr(
+                    "Jiný protokol než norma: nahrávka se počítala jinak než kontroly, "
+                    "srovnání je jen orientační."
+                )
             )
-            if self._index is not None and rec.ref in self._index.assignments:
-                text += tr(" (zařazeno ručně)")
-            item = QListWidgetItem(text)
-            item.setData(Qt.ItemDataRole.UserRole, rec)
-            item.setToolTip(str(rec.path) if rec.path else "")
-            self.recordings.addItem(item)
-        self.remove_btn.hide()
+        if self._missing:
+            notes.append(
+                tr("V bězích chybí: {files} (běh smazaný nebo přepočítaný).").format(
+                    files=", ".join(r.file for r in self._missing)
+                )
+            )
+        self.recordings_note.setText("\n".join(notes))
+        self.recordings_note.setVisible(bool(notes))
 
-    def _recording_changed(self, current: QListWidgetItem | None, _previous) -> None:  # noqa: ANN001
-        rec = current.data(Qt.ItemDataRole.UserRole) if current is not None else None
-        manual = rec is not None and self._index is not None and rec.ref in self._index.assignments
-        self.remove_btn.setVisible(bool(manual))
+    def recording_at(self, row: int) -> Recording | None:
+        item = self.recordings.item(row, 1)
+        data = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+        return data if isinstance(data, Recording) else None
 
-    def _open_recording(self, item: QListWidgetItem) -> None:
-        rec = item.data(Qt.ItemDataRole.UserRole)
+    def _open_recording(self, row: int) -> None:
+        rec = self.recording_at(row)
         if rec is not None and rec.path is not None:
             open_file(rec.path, self.notice.emit)
 
     def _recording_menu(self, pos) -> None:  # noqa: ANN001
-        item = self.recordings.itemAt(pos)
-        if item is None:
-            return
-        rec = item.data(Qt.ItemDataRole.UserRole)
+        index = self.recordings.indexAt(pos)
+        rec = self.recording_at(index.row()) if index.isValid() else None
         if rec is None or rec.path is None:
             return
         menu = file_menu(self, rec.path, self.notice.emit)
@@ -935,29 +1036,6 @@ class AssessmentPage(QWidget):
             if feature not in seen:
                 seen.append(feature)
         RecordingDetailDialog(rec.data, seen, self).exec()
-
-    def add_recording(self) -> AddRecordingDialog | None:
-        if self._current is None or self._index is None:
-            return None
-        mine = {r.ref for r in self._current.recordings}
-        candidates = [r for r in self._index.all_recordings() if r.ref not in mine]
-        dialog = AddRecordingDialog(self._current, candidates, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            rec = dialog.chosen()
-            if rec is not None:
-                self._index.assign(rec, self._current)
-                self._visits = self._index.visits
-                self._fill_list(keep=self._current.key)
-        return dialog
-
-    def remove_recording(self) -> None:
-        item = self.recordings.currentItem()
-        rec = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
-        if rec is None or self._index is None or self._current is None:
-            return
-        self._index.unassign(rec)
-        self._visits = self._index.visits
-        self._fill_list(keep=self._current.key)
 
     # --- export -----------------------------------------------------------------------
 
@@ -1011,4 +1089,4 @@ def _colorize(item: QTreeWidgetItem, band: str) -> None:
         item.setBackground(col, color)
 
 
-__all__ = ["AssessmentPage", "VisitCard", "AddRecordingDialog", "worst_band", "format_number"]
+__all__ = ["AssessmentPage", "VisitCard", "worst_band", "format_number", "task_count"]

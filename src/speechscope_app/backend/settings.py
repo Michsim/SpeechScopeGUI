@@ -192,9 +192,9 @@ class AppSettings:
         """Vlastní normy zdravých kontrol (složka na normu), vedle protokolů."""
         return app_data_dir() / "norms"
 
-    def visits_file(self) -> Path:
-        """Ruční zařazení nahrávek k vyšetření (stránka Hodnocení)."""
-        return app_data_dir() / "visits.json"
+    def assessments_dir(self) -> Path:
+        """Uložená hodnocení pacientů (stránka Hodnocení), jeden JSON na hodnocení."""
+        return app_data_dir() / "assessments"
 
     # --- statistika běhů --------------------------------------------------------
 
