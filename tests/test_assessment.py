@@ -273,3 +273,14 @@ def test_spider_chart_and_formatting(qtbot: QtBot) -> None:
     )
     assert format_number(123.4) == "123" and format_number(12.34) == "12,3"
     assert format_number(1.234) == "1,23" and format_number(None) == "–"
+
+
+def test_column_labels_for_single_value_features(fake_library) -> None:  # noqa: ANN001
+    """acoustic.ddk.rate má jedinou hodnotu: popis z feature, ne „rate acoustic.ddk.rate“."""
+    from speechscope_app.ui.recording_detail import column_index
+
+    index = column_index(fake_library.features())
+    rate = index["acoustic.ddk.rate"]
+    assert rate.short == "rate" and rate.description.startswith("Tempo DDK")
+    jitter = index["acoustic.quality.perturbation.jitter_local"]
+    assert jitter.short == "jitter_local" and jitter.description.startswith("Jitter")

@@ -72,6 +72,11 @@ class RunCard(QFrame):
         self.title = ElidedLabel(info.display_name)  # dlouhý název se zkrátí, celý v tooltipu
         self.title.setObjectName("card_title")
         head.addWidget(self.title, 1)
+        if info.norm:
+            # dávka nové normy: zdravé kontroly, ne pacienti (Hodnocení ji nenabízí)
+            self.norm_pill = _pill(tr("norma"), "accent")
+            self.norm_pill.setToolTip(tr("Kontroly pro normu, v Hodnocení se nenabízejí."))
+            head.addWidget(self.norm_pill, 0, Qt.AlignmentFlag.AlignTop)
         self.pill = _pill(info.status_label, STATUS_ROLES.get(info.status, "neutral"))
         head.addWidget(self.pill, 0, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(head)
@@ -83,6 +88,8 @@ class RunCard(QFrame):
     @staticmethod
     def _detail_text(info: RunInfo) -> str:
         parts = [info.started.strftime("%d.%m. %H:%M") if info.started else info.dir.name]
+        if info.norm:
+            parts.append(tr("kontroly normy"))
         if info.label:
             parts.append(info.protocol_name)
         if info.total:

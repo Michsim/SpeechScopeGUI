@@ -238,7 +238,10 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   z paměti (`read_norm_file`, nic se nerozbaluje) a uloží vedle pod
   `unique_norm_dir`, nikdy nepřepíše; Smazat jde do Koše (`trash_norm`),
   přibalená se nemaže. Po importu a smazání `norms_changed` →
-  `AssessmentPage.reload_norms`.
+  `AssessmentPage.reload_norms`. Běhy dávek normy mají v `run.json` `norm`
+  (složka plánu, `RunInfo.norm`): v historii Výpočtu i Výsledků karta se
+  štítkem „norma“ a „kontroly normy“ (`RunCard.norm_pill`), index nahrávek
+  pro Hodnocení je přeskočí.
 - **Nová norma** (`ui/new_norm_dialog.py`, `NewNormDialog`, backend
   `backend/norm_build.py`): 1 název, zdroj, podmínky, jazyk nahrávek a pro
   každou úlohu složka (bez podsložek, pokud se nezaškrtne) a protokol

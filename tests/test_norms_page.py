@@ -136,6 +136,10 @@ def test_new_norm_wizard_runs_batches_and_builds_norm(
     assert window.assessment_page.norm_combo.count() == 1
     runs = [r for r in window.results_page.history.all_runs() if r.norm]
     assert len(runs) == 2 and all(r.norm == str(plan.folder) for r in runs)
+    history = window.results_page.history
+    history.refresh()
+    cards = [history.card(i) for i in range(history.count())]
+    assert all(c.norm_pill.text() == "norma" and "kontroly normy" in c.detail.text() for c in cards)
     window.assessment_page.refresh()
     assert window.assessment_page.count() == 0  # kontroly normy nejsou pacienti
     assert {p.name for p in data.rglob("*")} == before  # do složek s nahrávkami nic

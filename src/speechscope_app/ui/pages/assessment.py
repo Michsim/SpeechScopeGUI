@@ -877,8 +877,11 @@ class AssessmentPage(QWidget):
             return column, ""
         text, unit = split_unit(info.description)
         feature_name = info.feature.name.split(".")[-1]
-        label = text or f"{feature_name} {info.short}"
-        return label, unit
+        if text:
+            return text, unit
+        return (
+            feature_name if info.short == feature_name else f"{feature_name} {info.short}"
+        ), unit
 
     def _fill_tree(self, evaluation: Evaluation) -> None:
         self.tree.clear()

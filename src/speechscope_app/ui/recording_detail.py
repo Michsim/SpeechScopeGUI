@@ -45,8 +45,14 @@ def column_index(catalog: list[FeatureInfo]) -> dict[str, ColumnInfo]:
     index: dict[str, ColumnInfo] = {}
     for feature in catalog:
         for column in feature.columns:
-            short = column.removeprefix(feature.name + ".")
-            index[column] = ColumnInfo(feature, short, feature.outputs.get(short, ""))
+            if column == feature.name:
+                # feature s jedinou hodnotou (acoustic.ddk.rate): popis má feature sama
+                short = feature.name.rsplit(".", 1)[-1]
+                description = feature.outputs.get(short) or feature.description or ""
+            else:
+                short = column.removeprefix(feature.name + ".")
+                description = feature.outputs.get(short, "")
+            index[column] = ColumnInfo(feature, short, description)
     return index
 
 
