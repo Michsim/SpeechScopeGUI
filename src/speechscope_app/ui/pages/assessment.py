@@ -432,12 +432,12 @@ class AssessmentPage(QWidget):
         side.addWidget(self.scale)
         legend = tr(
             "● do 1 SD v normě · ● 1 až 2 SD hraniční · ● nad 2 SD mimo normu · "
-            "● pod −1 SD lepší než kontroly"
+            "○ pod −1 SD lepší než kontroly"
         )
-        colors = (theme.OK, theme.WARN, theme.MISSING, "#93c5fd")  # tečky v barvách pásem
+        colors = (theme.OK, theme.WARN, theme.MISSING, theme.NEUTRAL)  # tečky v barvách pásem
         self.legend = QLabel(
             "<br>".join(
-                part.replace("●", f"<span style='color:{color}'>●</span>", 1)
+                part.replace(part[0], f"<span style='color:{color}'>{part[0]}</span>", 1)
                 for part, color in zip(legend.split(" · "), colors, strict=False)
             )
         )
@@ -445,9 +445,11 @@ class AssessmentPage(QWidget):
         self.legend.setTextFormat(Qt.TextFormat.RichText)
         self.legend.setWordWrap(True)
         side.addWidget(self.legend)
-        # orientace pavouka: dočasný přepínač, než se rozhodne jedna podoba
+        # orientace pavouka: rozhodnuto 29. 10. 2026 ven (varianta I), přepínač je skrytý,
+        # dovnitř (2b) zůstává v kódu pro případnou diskusi s týmem
         self.orientation_combo = QComboBox()
         self.orientation_combo.addItem(tr("větší plocha = zdravější"), INWARD)
+        self.orientation_combo.hide()
         self.orientation_combo.addItem(tr("dál od středu = horší"), OUTWARD)
         self.orientation_combo.setToolTip(
             tr("Směr pavouka: patologie dovnitř (střed), nebo ven (okraj).")
@@ -702,8 +704,8 @@ class AssessmentPage(QWidget):
             )
             if orientation == INWARD
             else tr(
-                "silná kružnice je průměr kontrol, dál od středu = horší, "
-                "uvnitř = lepší než kontroly"
+                "silná kružnice je průměr kontrol, zelený prstenec ±1 SD je v normě, "
+                "dál od středu = horší, bílý střed = lepší než kontroly"
             )
         )
 

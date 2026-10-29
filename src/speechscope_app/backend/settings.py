@@ -197,9 +197,9 @@ class AppSettings:
 
     @property
     def spider_orientation(self) -> str:
-        """Pavouk na Hodnocení: inward (střed horší, výchozí) nebo outward (patologie ven)."""
-        raw = str(self._q.value("ui/spider_orientation", "inward") or "inward")
-        return raw if raw in ("inward", "outward") else "inward"
+        """Pavouk na Hodnocení: outward (patologie ven, výchozí od 29. 10. 2026) nebo inward."""
+        raw = str(self._q.value("ui/spider_orientation", "outward") or "outward")
+        return raw if raw in ("inward", "outward") else "outward"
 
     @spider_orientation.setter
     def spider_orientation(self, value: str) -> None:

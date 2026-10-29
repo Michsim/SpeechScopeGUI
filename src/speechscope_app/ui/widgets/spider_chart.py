@@ -1,19 +1,19 @@
 """Pavoukový graf odchylek od normy po dimenzích a pruh skóre do tabulky.
 
-Osy jsou dimenze se skóre (z-skóre otočené k patologii). Graf je otočený
-„čím větší, tím zdravější“ (rozhodnuto 28. 10. 2026, mockup varianta 2b):
-okraj je −2 SD (lepší než kontroly), silná kružnice uprostřed je 0 SD
-(průměr kontrol), střed +3 SD. Osa je lineární v SD, takže patologie má
-uvnitř stejně místa jako norma vně; pásma pozadí od středu: mimo normu
-(nad 2 SD), hraniční (1 až 2 SD), v normě (−1 až +1 SD) a světle modré
-„lepší než kontroly“. Bod na ose má barvu pásma, popisek název a „+2,3 SD“,
-číslo zůstává se znaménkem. Jedna dimenze = jeden vodorovný pruh s nulou
-uprostřed (vlevo lepší, vpravo horší), pavouk s jednou osou nedává smysl.
-Orientaci jde přepnout (`set_orientation`): `INWARD` je popsaná podoba
-(střed horší), `OUTWARD` je původní směr (střed −2 SD, okraj +3 SD, patologie
-trčí ven). Dimenze nad 1 SD jsou zvýrazněné v obou: popisek barvou pásma,
-osa od nuly k bodu tlustší a výseč kolem osy vybarvená, aby zářez dovnitř
-nezanikl. Kreslí se přes QPainter, aby `grab()` dal obrázek do zprávy.
+Osy jsou dimenze se skóre (z-skóre otočené k patologii). Podoba podle
+varianty I z 29. 10. 2026 (mockup `docs/mockups/pavouk-2/`, ostatní varianty
+tam zůstávají pro diskusi s týmem): patologie trčí ven, střed je −2 SD
+(lepší než kontroly), silná černá kružnice 0 SD (průměr kontrol), okraj +3 SD,
+osa lineární v SD. Jediné vybarvené pásmo je zelený prstenec „v normě“ od
+−1 do +1 SD se zelenými hranami a popisky, +2 SD je čárkovaná kružnice, zbytek
+bílý. Čára pacienta je černá s jemnou šedou výplní, bod na ose má barvu pásma
+a popisek (název a „+2,3 SD“ se znaménkem) má vždy barvu pásma, tedy i zelenou
+v normě. Dimenze nad 1 SD mají navíc průsvitnou výseč barvou pásma od normy
+k bodu. Jedna dimenze = jeden vodorovný pruh s nulou uprostřed (vlevo lepší,
+vpravo horší), pavouk s jednou osou nedává smysl. Orientaci jde dál přepnout
+(`set_orientation`): `OUTWARD` je popsaná podoba, `INWARD` (varianta 2b, střed
+horší) zůstává v kódu, přepínač na stránce je skrytý. Kreslí se přes QPainter,
+aby `grab()` dal obrázek do zprávy.
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ from .. import theme
 MAX_SD = 3.0  # střed pavouka a pravý okraj pruhu (nejhorší)
 MIN_SD = -2.0  # okraj pavouka a levý okraj pruhu (lepší než kontroly)
 SPAN = MAX_SD - MIN_SD
-BETTER_SOFT = "#eff6ff"  # pásmo pod −1 SD: lepší než kontroly
 INWARD = "inward"  # střed = horší, větší plocha = zdravější
 OUTWARD = "outward"  # střed = lepší než kontroly, patologie ven
 ORIENTATIONS = (INWARD, OUTWARD)
@@ -72,7 +71,7 @@ class SpiderChart(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._axes: list[Axis] = []
-        self._orientation = INWARD
+        self._orientation = OUTWARD
         self.setMinimumSize(300, 300)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -152,28 +151,20 @@ class SpiderChart(QWidget):
             r = ring(value)
             return QPointF(center.x() + r * math.cos(angle), center.y() + r * math.sin(angle))
 
-        # pásma pozadí: od okraje do středu, aby vnitřní překryla vnější
-        bands = [
-            (MIN_SD, BETTER_SOFT),
-            (-1.0, BAND_SOFT["ok"]),
-            (1.0, BAND_SOFT["warn"]),
-            (2.0, BAND_SOFT["bad"]),
-        ]
-        if not inward:
-            bands = [(MAX_SD, BAND_SOFT["bad"]), (2.0, BAND_SOFT["warn"])]
-            bands += [(1.0, BAND_SOFT["ok"]), (-1.0, BETTER_SOFT)]
-        for limit, color in bands:
-            r = ring(limit)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(color))
-            painter.drawEllipse(center, r, r)
+        # jediné vybarvené pásmo je „v normě“ (−1 až +1 SD): zelený prstenec, zbytek bílý
+        painter.setPen(Qt.PenStyle.NoPen)
+        outer, inner = max(ring(1.0), ring(-1.0)), min(ring(1.0), ring(-1.0))
+        painter.setBrush(QColor(BAND_SOFT["ok"]))
+        painter.drawEllipse(center, outer, outer)
+        painter.setBrush(QColor(theme.CARD))
+        painter.drawEllipse(center, inner, inner)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        # kružnice: norma plná a tmavá, ±1 a +2 SD čárkované, okraj jemný
+        # kružnice: norma plná tmavá, ±1 SD zelené hrany prstence, +2 SD čárkovaná, okraj jemný
         for limit, color, width_px, dashed in (
             (2.0, theme.NEUTRAL, 1.0, True),
-            (1.0, theme.NEUTRAL, 1.0, True),
-            (0.0, theme.TEXT, 1.5, False),
-            (-1.0, theme.NEUTRAL, 1.0, True),
+            (1.0, theme.OK, 1.4, False),
+            (0.0, theme.TEXT, 1.6, False),
+            (-1.0, theme.OK, 1.4, False),
             (MIN_SD if inward else MAX_SD, theme.BORDER, 1.0, False),
         ):
             pen = QPen(QColor(color), width_px)
@@ -186,7 +177,7 @@ class SpiderChart(QWidget):
         edge = MIN_SD if inward else MAX_SD
         for i in range(n):
             painter.drawLine(center, point(i, edge))
-        # dimenze nad 1 SD: výseč od nuly k bodu barvou pásma, ať zářez dovnitř nezanikne
+        # dimenze nad 1 SD: průsvitná výseč od normy k bodu barvou pásma
         for i, axis in enumerate(self._axes):
             if axis.band not in ("warn", "bad"):
                 continue
@@ -194,7 +185,7 @@ class SpiderChart(QWidget):
             wedge.setAlphaF(0.28)
             angle = -math.pi / 2 + i * step
             r0, r1 = sorted((ring(0.0), ring(axis.score)))
-            spread = step / 2 * 0.8
+            spread = min(step / 2 * 0.8, 0.35)  # nejvýš ±20°, u mála os by byl koláč
             path = QPainterPath()
             arc = QRectF(center.x() - r1, center.y() - r1, 2 * r1, 2 * r1)
             inner = QRectF(center.x() - r0, center.y() - r0, 2 * r0, 2 * r0)
@@ -207,16 +198,14 @@ class SpiderChart(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(wedge)
             painter.drawPath(path)
-            painter.setPen(QPen(QColor(BAND_COLORS[axis.band]), 3, Qt.PenStyle.SolidLine))
-            painter.drawLine(point(i, 0.0), point(i, axis.score))
         polygon = QPolygonF([point(i, a.score) for i, a in enumerate(self._axes)])
-        fill = QColor(theme.ACCENT)
-        fill.setAlphaF(0.18)
+        fill = QColor(theme.TEXT)
+        fill.setAlphaF(0.08)
         painter.setBrush(fill)
         painter.setPen(
             QPen(
-                QColor(theme.ACCENT),
-                2.5,
+                QColor(theme.TEXT),
+                2.2,
                 Qt.PenStyle.SolidLine,
                 Qt.PenCapStyle.RoundCap,
                 Qt.PenJoinStyle.RoundJoin,
@@ -225,11 +214,22 @@ class SpiderChart(QWidget):
         painter.drawPolygon(polygon)
         for i, axis in enumerate(self._axes):
             color = QColor(BAND_COLORS.get(axis.band, theme.NEUTRAL))
-            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setPen(QPen(QColor(theme.CARD), 1.5))
             painter.setBrush(color)
-            painter.drawEllipse(point(i, axis.score), 5, 5)
+            painter.drawEllipse(point(i, axis.score), 5.5, 5.5)
 
-        # kružnice bez popisků: co znamenají, říká stupnice vedle grafu (ScaleLegend)
+        # vnější hrana zeleného prstence má popisek mezi první a druhou osou; −1 SD
+        # a ostatní kružnice vysvětluje stupnice vedle grafu (ScaleLegend)
+        painter.setFont(small)
+        painter.setPen(QColor(theme.OK))
+        tick_angle = -math.pi / 2 + min(step, math.pi / 2) * 0.45
+        r = ring(1.0) + 4
+        at = QPointF(center.x() + r * math.cos(tick_angle), center.y() + r * math.sin(tick_angle))
+        painter.drawText(
+            QRectF(at.x(), at.y() - metrics_h, 60, metrics_h),
+            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom),
+            "+1 SD",
+        )
 
         # popisky za koncem osy, zarovnané podle strany
         for i, axis in enumerate(self._axes):
@@ -254,10 +254,8 @@ class SpiderChart(QWidget):
             )
             box = QRectF(x, y - metrics_h / 2, width, metrics_h)
             painter.setFont(label_font)
-            # název dimenze barvou pásma, když je mimo normu nebo hraniční
-            painter.setPen(
-                QColor(BAND_COLORS[axis.band] if axis.band in ("warn", "bad") else theme.TEXT)
-            )
+            # název dimenze vždy barvou pásma, v normě tedy zeleně
+            painter.setPen(QColor(BAND_COLORS.get(axis.band, theme.TEXT)))
             painter.drawText(box, int(align | Qt.AlignmentFlag.AlignVCenter), axis.label)
             painter.setFont(small)
             painter.setPen(QColor(BAND_COLORS.get(axis.band, theme.NEUTRAL)))
@@ -282,7 +280,7 @@ class SpiderChart(QWidget):
 
         # pásma zleva: lepší než kontroly, v normě, hraniční, mimo normu
         for start, limit, color in (
-            (MIN_SD, -1.0, BETTER_SOFT),
+            (MIN_SD, -1.0, theme.CARD),
             (-1.0, 1.0, BAND_SOFT["ok"]),
             (1.0, 2.0, BAND_SOFT["warn"]),
             (2.0, MAX_SD, BAND_SOFT["bad"]),
@@ -320,7 +318,7 @@ class SpiderChart(QWidget):
 
 
 class ScaleLegend(QWidget):
-    """Svislá stupnice k pavouku: pásma −2 až +3 SD s popisky, norma zvýrazněná.
+    """Svislá stupnice k pavouku: −2 až +3 SD s popisky, zelený prstenec ±1 SD, norma zvýrazněná.
 
     Říká, co znamenají kružnice, aby pavouk sám nemusel mít popisky uvnitř;
     podle orientace pavouka píše, který konec je střed a který okraj.
@@ -328,7 +326,7 @@ class ScaleLegend(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._orientation = INWARD
+        self._orientation = OUTWARD
         self.setFixedSize(150, 190)
 
     def set_orientation(self, orientation: str) -> None:
@@ -350,22 +348,17 @@ class ScaleLegend(QWidget):
         def y_of(value: float) -> float:
             return bottom - (bottom - top) * fraction(value)  # nahoře horší (MAX_SD)
 
-        for start, limit, color in (
-            (MIN_SD, -1.0, BETTER_SOFT),
-            (-1.0, 1.0, BAND_SOFT["ok"]),
-            (1.0, 2.0, BAND_SOFT["warn"]),
-            (2.0, MAX_SD, BAND_SOFT["bad"]),
-        ):
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(color))
-            painter.drawRect(
-                QRectF(bar.left(), y_of(limit), bar.width(), y_of(start) - y_of(limit))
-            )
+        painter.setPen(QPen(QColor(theme.BORDER), 1))
+        painter.setBrush(QColor(theme.CARD))
+        painter.drawRect(bar)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(BAND_SOFT["ok"]))  # jediné pásmo: v normě −1 až +1 SD
+        painter.drawRect(QRectF(bar.left(), y_of(1.0), bar.width(), y_of(-1.0) - y_of(1.0)))
         labels = (
             (2.0, "+2 SD", theme.NEUTRAL, False),
-            (1.0, "+1 SD", theme.NEUTRAL, False),
+            (1.0, "+1 SD", theme.OK, True),
             (0.0, tr("norma"), theme.TEXT, True),
-            (-1.0, "−1 SD", theme.NEUTRAL, False),
+            (-1.0, "−1 SD", theme.OK, True),
         )
         for value, text, color, solid in labels:
             y = y_of(value)
@@ -374,7 +367,7 @@ class ScaleLegend(QWidget):
                 pen.setStyle(Qt.PenStyle.DashLine)
             painter.setPen(pen)
             painter.drawLine(QPointF(bar.left() - 3, y), QPointF(bar.right() + 3, y))
-            painter.setPen(QColor(theme.TEXT if solid else theme.MUTED))
+            painter.setPen(QColor(color if solid else theme.MUTED))
             painter.drawText(
                 QRectF(
                     bar.right() + 8, y - metrics_h / 2, self.width() - bar.right() - 8, metrics_h

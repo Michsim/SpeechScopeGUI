@@ -237,19 +237,22 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   říká, kolik kontrol se vybralo po úlohách); pod hlavičkou se roluje
   (`self.scroll`): pavouk přes celou šířku s legendou vedle, pod ním strom na
   celou šířku (první sloupec se roztahuje); pavouk (`widgets/spider_chart.py`,
-  `SpiderChart.set_axes`; rozhodnuto 28. 10. večer, mockup
-  https://claude.ai/artifact/Bgky5AXRhPZvjuBZnixhu7 varianta 2b: otočený „větší =
-  zdravější“, okraj −2 SD, silná kružnice 0 SD = norma, střed +3 SD, osa lineární
-  v SD, pásma mimo normu / hraniční / v normě / světle modré lepší než kontroly;
-  kružnice bez popisků, význam říká svislá stupnice `ScaleLegend` vedle grafu
-  (do PNG se exportuje výřez pavouka `content_rect` i stupnice, `_chart_image`,
-  se zachovaným poměrem pixelů displeje; dialog Uložit obrázek… začíná ve složce
-  výsledků);
-  jedna osa = pruh s nulou uprostřed, `ScoreBar` ve stromu též od nuly;
-  dimenze nad 1 SD mají název barvou pásma, tlustší osu od nuly a vybarvenou
-  výseč; dočasný přepínač orientace vedle grafu (`set_orientation`, INWARD =
-  2b, OUTWARD = varianta 1 patologie ven; `ui/spider_orientation`), až se
-  rozhodne, jedna podoba zůstane), strom
+  `SpiderChart.set_axes`; podoba = varianta I z 29. 10. 2026 večer, mockup
+  https://claude.ai/artifact/9JEdgtkBexeDXjmm6ciRS4, soubory `docs/mockups/pavouk-2/`
+  mimo git, varianty A až I tam zůstávají pro diskusi uživatele s týmem: patologie
+  ven, střed −2 SD, silná černá kružnice 0 SD = norma, okraj +3 SD, osa lineární
+  v SD; jediné vybarvené pásmo je zelený prstenec „v normě“ −1 až +1 SD se
+  zelenými hranami a popiskem „+1 SD“, +2 SD čárkovaně, zbytek bílý; čára
+  pacienta černá, bod a popisek (název i SD) vždy barvou pásma, dimenze nad 1 SD
+  mají průsvitnou výseč od normy k bodu (nejvýš ±20°); význam kružnic říká
+  svislá stupnice `ScaleLegend` vedle grafu (do PNG se exportuje výřez pavouka
+  `content_rect` i stupnice, `_chart_image`, se zachovaným poměrem pixelů
+  displeje; dialog Uložit obrázek… začíná ve složce výsledků); jedna osa = pruh
+  s nulou uprostřed, `ScoreBar` ve stromu též od nuly. Dřívější podoba 2b
+  (28. 10., mockup https://claude.ai/artifact/Bgky5AXRhPZvjuBZnixhu7, dovnitř
+  „větší = zdravější“) zůstává v kódu jako `INWARD` (`set_orientation`,
+  `ui/spider_orientation`, výchozí `outward`), přepínač na stránce je skrytý
+  (`orientation_combo.hide()`)), strom
   dimenze → položka (úloha, pacient, norma, z, percentil), chybějící dimenze
   s důvodem, tabulka Nahrávky hodnocení (úloha, nahrávka, běh, s normou)
   s poznámkou o průměru, jiném protokolu a chybějících odkazech, O normě.

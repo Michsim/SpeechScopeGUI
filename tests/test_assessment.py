@@ -411,8 +411,8 @@ def test_spider_orientation_switch(qtbot: QtBot) -> None:
     qtbot.addWidget(chart)
     chart.resize(400, 400)
     chart.set_axes([Axis("A", 2.3, "bad"), Axis("B", -1.4, "ok"), Axis("C", 1.2, "warn")])
-    assert chart.orientation() == INWARD and not chart.grab().isNull()
-    chart.set_orientation(OUTWARD)
     assert chart.orientation() == OUTWARD and not chart.grab().isNull()
+    chart.set_orientation(INWARD)
+    assert chart.orientation() == INWARD and not chart.grab().isNull()
     chart.set_orientation("nesmysl")
-    assert chart.orientation() == OUTWARD
+    assert chart.orientation() == INWARD

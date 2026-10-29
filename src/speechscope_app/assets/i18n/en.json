@@ -663,7 +663,7 @@
   "segmentace": "segmentation",
   "segmentace a detektor DDK poběží na procesoru. Přihlášení u počítače to obvykle vyřeší.": "segmentation and the DDK detector will run on the CPU. Signing in at the computer itself usually fixes it.",
   "sekundy na nahrávku": "seconds per recording",
-  "silná kružnice je průměr kontrol, dál od středu = horší, uvnitř = lepší než kontroly": "the bold circle is the control mean, further from the centre = worse, inside = better than controls",
+  "silná kružnice je průměr kontrol, zelený prstenec ±1 SD je v normě, dál od středu = horší, bílý střed = lepší než kontroly": "the thick circle is the control mean, the green ring ±1 SD is within the norm, farther from the centre = worse, white centre = better than controls",
   "slabiky DDK": "DDK syllables",
   "sloupců": "columns",
   "sloupec": "column",
@@ -809,7 +809,7 @@
   "‹ Zpět": "‹ Back",
   "← Nahrávky": "← Recordings",
   "■ Stop": "■ Stop",
-  "● do 1 SD v normě · ● 1 až 2 SD hraniční · ● nad 2 SD mimo normu · ● pod −1 SD lepší než kontroly": "● within 1 SD normal · ● 1 to 2 SD borderline · ● above 2 SD outside the norm · ● below −1 SD better than controls",
+  "● do 1 SD v normě · ● 1 až 2 SD hraniční · ● nad 2 SD mimo normu · ○ pod −1 SD lepší než kontroly": "● within 1 SD normal · ● 1 to 2 SD borderline · ● above 2 SD outside the norm · ○ below −1 SD better than controls",
   "● změněné parametry": "● modified parameters",
   "✓ sedí s normou": "✓ matches the norm"
 }
