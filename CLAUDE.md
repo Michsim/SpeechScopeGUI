@@ -223,8 +223,9 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   (RIRV zakomentované); Tempo řeči = DDK tempo a artikulační tempo ze čtení
   a spontánní řeči, obojí `both`; Pauzy = medián pauz (log); Prozódie = F0 SD
   a SD intenzity ze čtení a spontánní řeči; Dýchání = nádechy za minutu
-  a medián (log), obojí `both`; Jazyk = MATTR, hustota obsahových slov, MLU,
-  entropie slov. Změna
+  a medián (log), obojí `both`; Syntax = MLU, SDL, vedlejší věty na výpověď
+  (`csr`); Slovní zásoba = MATTR, opakování frází (`ngrams`, vyšší = horší),
+  hustota obsahových slov (Jazyk rozdělen 30. 10. 2026, entropie slov vyřazena). Změna
   YAML se projeví hned při příštím zobrazení (norma má jen surové hodnoty
   kontrol, z-skóre, log i směr se počítají až při prohlížení), aplikaci stačí
   restartovat; nová feature v dimenzi musí být i v tabulce normy.

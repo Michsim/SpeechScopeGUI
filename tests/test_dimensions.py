@@ -31,7 +31,8 @@ def test_bundled_dimensions_match_library_catalog(fake_library: Library) -> None
         "pauses",
         "prosody",
         "breathing",
-        "language",
+        "syntax",
+        "lexicon",
     ]
     columns_by_task: dict[str, set[str]] = {}
     for task in contract.TASKS:

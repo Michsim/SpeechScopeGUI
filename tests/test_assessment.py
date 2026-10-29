@@ -200,8 +200,9 @@ def test_manual_assessment_create_score_edit_and_delete(
     assert page.card(0).pill.text() == "mimo normu"
     axes = page.chart.axes()
     assert [a.label for a in axes] == ["Kvalita hlasu", "Pauzy"] and axes[0].band == "bad"
-    assert "Jazyk: potřebuje úlohu Spontánní řeč" in page.missing_label.text()
-    assert page.tree.topLevelItemCount() == 7
+    assert "Syntax: potřebuje úlohu Spontánní řeč" in page.missing_label.text()
+    assert "Slovní zásoba: potřebuje úlohu Spontánní řeč" in page.missing_label.text()
+    assert page.tree.topLevelItemCount() == 8
     voice = page.tree.topLevelItem(0)
     assert voice.text(0) == "Kvalita hlasu" and voice.childCount() == 2 and voice.isExpanded()
     hnr = voice.child(0)  # HNR a CPP z fonace; CPP ze spontánní řeči tu není

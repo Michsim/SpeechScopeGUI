@@ -80,19 +80,30 @@ dimensions:
         direction: both
         log: true
 
-  - key: language
-    name: Jazyk
-    name_en: Language
+  - key: syntax
+    name: Syntax
+    name_en: Syntax
     items:
-      - column: linguistic.lexical.mattr
+      - column: linguistic.syntactic.mlu  # průměrná délka výpovědi
         tasks: [spontaneous]
         direction: lower
+      - column: linguistic.syntactic.sdl  # vzdálenost řídící–závislé slovo
+        tasks: [spontaneous]
+        direction: lower
+      - column: linguistic.syntactic.csr  # vedlejší věty (souřadné i podřadné) na výpověď
+        tasks: [spontaneous]
+        direction: lower
+
+  - key: lexicon
+    name: Slovní zásoba
+    name_en: Vocabulary
+    items:
+      - column: linguistic.lexical.mattr  # lexikální diverzita
+        tasks: [spontaneous]
+        direction: lower
+      - column: linguistic.lexical.ngrams  # opakování frází
+        tasks: [spontaneous]
+        direction: higher
       - column: linguistic.lexical.content_density
-        tasks: [spontaneous]
-        direction: lower
-      - column: linguistic.syntactic.mlu
-        tasks: [spontaneous]
-        direction: lower
-      - column: linguistic.lexical.word_entropy
         tasks: [spontaneous]
         direction: lower
