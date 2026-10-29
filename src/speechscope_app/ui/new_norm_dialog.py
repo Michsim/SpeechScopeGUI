@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 
 from .. import contract
 from ..backend import meta
+from ..backend import tasks as tasks_mod
 from ..backend.norm_build import (
     SUBJECT_RULES,
     Control,
@@ -53,6 +54,7 @@ from ..backend.norms import RECOMMENDED_CONTROLS, NormInfo, unique_norm_dir
 from ..backend.protocol import Protocol
 from ..i18n import tr
 from . import theme
+from .custom_task_dialog import CustomTaskDialog
 from .widgets.status_header import Pill
 
 SEX_CHOICES = (("", "–"), (meta.FEMALE, "žena"), (meta.MALE, "muž"))
@@ -67,17 +69,48 @@ def format_duration(seconds: float) -> str:
 
 
 class TaskRow:
-    """Řádek kroku 1: úloha, složka, protokol, počet nahrávek."""
+    """Řádek kroku 1: úloha, složka, protokol, počet nahrávek.
 
-    def __init__(self, task: str, protocols: list[Protocol], advanced: bool) -> None:
+    Vlastní úloha (`custom`) má pod názvem, jako která úloha knihovny se počítá,
+    protokoly základní úlohy a výchozí protokol z vlastní úlohy; jde ji odebrat.
+    """
+
+    def __init__(
+        self,
+        task: str,
+        protocols: list[Protocol],
+        advanced: bool,
+        custom: tasks_mod.CustomTask | None = None,
+    ) -> None:
         self.task = task
-        self.label = QLabel(contract.TASK_SHORT.get(task, task))
+        self.custom = custom
+        base = custom.base if custom is not None else task
+        self.label = QLabel(tasks_mod.label(task) if custom is None else custom.name)
+        self.name_box = QWidget()
+        name_layout = QVBoxLayout(self.name_box)
+        name_layout.setContentsMargins(0, 0, 0, 0)
+        name_layout.setSpacing(0)
+        name_layout.addWidget(self.label)
+        self.sub = QLabel(
+            tr("vlastní · jako {task}").format(task=contract.TASK_SHORT.get(base, base))
+            if custom is not None
+            else ""
+        )
+        self.sub.setObjectName("muted")
+        self.sub.setVisible(custom is not None)
+        name_layout.addWidget(self.sub)
         self.folder = QLineEdit()
         self.folder.setPlaceholderText(tr("nevybráno, úloha se vynechá"))
         self.browse = QPushButton(tr("Vybrat…"))
+        self.remove = QPushButton("✕")
+        self.remove.setFixedSize(36, 34)
+        self.remove.setToolTip(tr("Odebrat vlastní úlohu z normy"))
+        self.remove.setVisible(custom is not None)
         self.protocol = QComboBox()
-        choices = [p for p in protocols if p.task == task and (p.builtin or advanced)]
-        default = default_protocol(task, protocols)
+        choices = [p for p in protocols if p.task == base and (p.builtin or advanced)]
+        default = default_protocol(base, protocols)
+        if custom is not None and custom.protocol:
+            default = next((p for p in protocols if p.name == custom.protocol), default)
         for proto in sorted(choices, key=lambda p: (not p.builtin, p.display_name)):
             suffix = tr(" (přibalený)") if proto.builtin else tr(" (vlastní)")
             self.protocol.addItem(proto.display_name + suffix, proto)
@@ -195,27 +228,32 @@ class NewNormDialog(QDialog):
             head = QLabel(text)
             head.setObjectName("muted")
             grid.addWidget(head, 0, col)
+        self.task_grid = grid
+        self._protocols = protocols
+        self._advanced = advanced
         self.rows: dict[str, TaskRow] = {}
-        for r, task in enumerate(contract.TASKS, start=1):
-            row = TaskRow(task, protocols, advanced)
-            row.folder.editingFinished.connect(lambda row=row: self._rescan(row))
-            row.browse.clicked.connect(lambda _=False, row=row: self._browse(row))
-            grid.addWidget(row.label, r, 0)
-            grid.addWidget(row.folder, r, 1)
-            grid.addWidget(row.browse, r, 2)
-            grid.addWidget(row.protocol, r, 3)
-            grid.addWidget(row.count, r, 4)
-            self.rows[task] = row
+        for task in contract.TASKS:
+            self._add_row(TaskRow(task, protocols, advanced))
         grid.setColumnStretch(1, 1)
         layout.addWidget(grid_box)
+        options = QHBoxLayout()
         self.recursive = QCheckBox(tr("včetně podsložek"))
         self.recursive.toggled.connect(self._rescan_all)
-        layout.addWidget(self.recursive)
+        options.addWidget(self.recursive)
+        self.add_task_btn = QPushButton(tr("+ Přidat vlastní úlohu…"))
+        self.add_task_btn.setToolTip(
+            tr("Další úloha pod vlastním jménem, počítá se jako jedna z úloh knihovny.")
+        )
+        self.add_task_btn.clicked.connect(lambda: self._ask_custom_task())
+        options.addWidget(self.add_task_btn)
+        options.addStretch(1)
+        layout.addLayout(options)
         note = QLabel(
             tr(
                 "Protokol je přibalený pro danou úlohu; jiný jde vybrat jen v rozšířeném "
-                "režimu. Norma si zapíše protokol i verzi knihovny. Pacienta pak počítejte "
-                "stejně. Do složek s nahrávkami se nic nezapisuje."
+                "režimu. Vlastní úloha má svůj výchozí protokol a počítá se jako jedna z úloh "
+                "knihovny; norma si ji zapíše, takže ji Hodnocení nabídne pacientům. Norma si "
+                "zapíše protokol i verzi knihovny. Do složek s nahrávkami se nic nezapisuje."
             )
         )
         note.setObjectName("muted")
@@ -223,6 +261,48 @@ class NewNormDialog(QDialog):
         layout.addWidget(note)
         layout.addStretch(1)
         return page
+
+    def _add_row(self, row: TaskRow) -> None:
+        r = len(self.rows) + 1
+        row.folder.editingFinished.connect(lambda row=row: self._rescan(row))
+        row.browse.clicked.connect(lambda _=False, row=row: self._browse(row))
+        row.remove.clicked.connect(lambda _=False, row=row: self.remove_custom_task(row.task))
+        grid = self.task_grid
+        grid.addWidget(row.name_box, r, 0)
+        grid.addWidget(row.folder, r, 1)
+        grid.addWidget(row.browse, r, 2)
+        grid.addWidget(row.protocol, r, 3)
+        grid.addWidget(row.count, r, 4)
+        grid.addWidget(row.remove, r, 5)
+        self.rows[row.task] = row
+
+    def _ask_custom_task(self) -> None:
+        dialog = CustomTaskDialog(self._protocols, advanced=self._advanced, parent=self)
+        if dialog.exec():
+            self.add_custom_task(dialog.task())
+
+    def add_custom_task(self, task: tasks_mod.CustomTask) -> TaskRow:
+        """Řádek vlastní úlohy v kroku 1 (klíč musí být volný); vrátí ho kvůli složce."""
+        if task.key in self.rows:
+            return self.rows[task.key]
+        row = TaskRow(task.key, self._protocols, self._advanced, custom=task)
+        self._add_row(row)
+        self._update_buttons()
+        return row
+
+    def remove_custom_task(self, key: str) -> None:
+        row = self.rows.get(key)
+        if row is None or row.custom is None:
+            return
+        for widget in (row.name_box, row.folder, row.browse, row.protocol, row.count, row.remove):
+            self.task_grid.removeWidget(widget)
+            widget.hide()
+            widget.deleteLater()
+        del self.rows[key]
+        self._update_buttons()
+
+    def custom_tasks(self) -> list[tasks_mod.CustomTask]:
+        return [r.custom for r in self.rows.values() if r.custom is not None]
 
     def _browse(self, row: TaskRow) -> None:
         folder = QFileDialog.getExistingDirectory(
@@ -374,14 +454,13 @@ class NewNormDialog(QDialog):
         self._filling = False
         self._update_counts()
 
-    @staticmethod
-    def _state_text(control: Control, tasks: dict[str, int], all_tasks: list[str]) -> str:
+    def _state_text(self, control: Control, tasks: dict[str, int], all_tasks: list[str]) -> str:
         missing = []
         if control.age is None:
             missing.append(tr("chybí věk"))
         if not control.sex:
             missing.append(tr("chybí pohlaví"))
-        lacking = [contract.TASK_SHORT.get(t, t) for t in all_tasks if t not in tasks]
+        lacking = [self.rows[t].label.text() for t in all_tasks if t not in tasks]
         if lacking:
             missing.append(tr("bez {tasks}").format(tasks=", ".join(lacking)))
         return " · ".join(missing) or "✓"
@@ -654,6 +733,10 @@ class NewNormDialog(QDialog):
                 )
             )
         files = {p: s for p, s in self._files.items() if any(p in t.inputs for t in tasks)}
+        used = {t.task for t in tasks}
+        info.custom_tasks = [c for c in self.custom_tasks() if c.key in used]
+        for custom in info.custom_tasks:
+            tasks_mod.registry().register(custom, save=True)  # příště se nabídne znovu
         return NormPlan(
             info=info,
             folder=unique_norm_dir(self._norms_dir, name),

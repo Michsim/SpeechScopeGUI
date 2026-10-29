@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ... import contract
+from ...backend import tasks
 from ...backend.history import (
     KIND_ANALYSIS,
     KIND_ASSESSMENT,
@@ -169,14 +169,10 @@ class RunCard(QFrame):
                 ("cancelled", tr("{task} zrušeno")),
                 ("interrupted", tr("{task} přerušeno")),
             ):
-                tasks = [
-                    contract.TASK_SHORT.get(r.task, r.task)
-                    for r in group.runs
-                    if r.status == status
-                ]
-                if tasks:
-                    parts.append(what.format(task=", ".join(tasks)))
-            waiting = [contract.TASK_SHORT.get(t, t) for t in group.waiting_tasks()]
+                names = [tasks.label(r.task) for r in group.runs if r.status == status]
+                if names:
+                    parts.append(what.format(task=", ".join(names)))
+            waiting = [tasks.label(t) for t in group.waiting_tasks()]
             if waiting:
                 parts.append(tr("čeká: {tasks}").format(tasks=", ".join(waiting)))
         if group.seconds:

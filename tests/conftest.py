@@ -5,7 +5,14 @@ from pathlib import Path
 
 import pytest
 
+from speechscope_app.backend import tasks
 from speechscope_app.backend.library import Library, fake_command
+
+
+@pytest.fixture(autouse=True)
+def clean_task_registry() -> None:
+    """Vlastní úlohy jsou globální registr; žádný test nesmí vidět úlohy jiného."""
+    tasks.registry().clear()
 
 
 @pytest.fixture(autouse=True)

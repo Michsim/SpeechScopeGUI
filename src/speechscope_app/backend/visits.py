@@ -24,11 +24,11 @@ from typing import Any
 import pandas as pd
 
 from .. import contract
-from . import meta
+from . import meta, tasks
 from .history import RunInfo, list_runs
 from .norms import is_feature_column
 
-_CacheKey = tuple[str, int, int]  # cesta, mtime_ns, velikost
+_CacheKey = tuple[str, int, int, int]  # cesta, mtime_ns, velikost, verze registru úloh
 ASSIGNMENTS_FILE = "visits.json"  # ruční přiřazení nahrávek k vyšetření (AppData)
 
 
@@ -82,8 +82,7 @@ class Visit:
 
     @property
     def tasks(self) -> list[str]:
-        order = {t: i for i, t in enumerate(contract.TASKS)}
-        return sorted({r.task for r in self.recordings}, key=lambda t: order.get(t, 99))
+        return sorted({r.task for r in self.recordings}, key=tasks.task_order)
 
     @property
     def started(self):  # noqa: ANN201
@@ -114,6 +113,8 @@ def _recordings(run: RunInfo, frame: pd.DataFrame) -> list[Recording]:
     for i, row in enumerate(frame.to_dict(orient="records")):
         data = {str(k): v for k, v in row.items()}
         task = contract.canonical_task(_text(data.get("task")))
+        if tasks.is_custom(run.task):
+            task = run.task  # dávka vlastní úlohy: knihovna zapsala jen základní úlohu
         if not task:
             continue
         path_text = _text(data.get("path"))
@@ -193,7 +194,12 @@ class VisitIndex:
                 stat = csv_path.stat()
             except OSError:
                 continue
-            key: _CacheKey = (str(csv_path), stat.st_mtime_ns, stat.st_size)
+            key: _CacheKey = (
+                str(csv_path),
+                stat.st_mtime_ns,
+                stat.st_size,
+                tasks.registry().version,  # nová vlastní úloha mění, čí je běh
+            )
             cached = self._cache.get(csv_path)
             if cached is not None and cached[0] == key:
                 recordings.extend(cached[1])

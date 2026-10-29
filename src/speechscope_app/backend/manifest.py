@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .. import contract
 from ..i18n import tr
-from . import meta
+from . import meta, tasks
 
 RESERVED = ("path", "task")
 DEFAULT_NAMES = ("manifest.csv", "metadata.csv")
@@ -104,7 +104,7 @@ def read_manifest(path: Path, base: Path | None = None) -> Manifest:
             )
             continue
         task = contract.canonical_task(row.get("task", ""))
-        if task and task not in contract.TASKS:
+        if task and not tasks.registry().known(task):
             manifest.problems.append(
                 tr("Řádek {line}: neznámá úloha „{task}“").format(line=lineno, task=task)
             )

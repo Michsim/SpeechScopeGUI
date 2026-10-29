@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
+from ...backend import tasks
 from ...backend.assessment_build import AssessmentPlan, pending_plans
 from ...backend.assessments import (
     Assessment,
@@ -150,7 +151,7 @@ def visit_subtitle(visit: Visit) -> str:
 
 def task_count(visit: Visit, task: str) -> str:
     """„Fonace“, nebo „Fonace (2)“ u víc nahrávek jedné úlohy."""
-    label = contract.TASK_SHORT.get(task, task)
+    label = tasks.label(task)
     n = visit.count(task)
     return f"{label} ({n})" if n > 1 else label
 
@@ -234,8 +235,8 @@ class PendingCard(QFrame):
             age=plan.patient.age,
             sex=plan.patient.sex,
         )
-        tasks = ", ".join(contract.TASK_SHORT.get(t.task, t.task) for t in plan.tasks)
-        self.detail = QLabel(visit_subtitle(visit).rsplit(" · ", 1)[0] + " · " + tasks)
+        task_names = ", ".join(tasks.label(t.task) for t in plan.tasks)
+        self.detail = QLabel(visit_subtitle(visit).rsplit(" · ", 1)[0] + " · " + task_names)
         self.detail.setObjectName("muted")
         self.detail.setWordWrap(True)
         layout.addWidget(self.detail)
@@ -448,8 +449,8 @@ class AssessmentPage(QWidget):
         # orientace pavouka: rozhodnuto 29. 10. 2026 ven (varianta I), přepínač je skrytý,
         # dovnitř (2b) zůstává v kódu pro případnou diskusi s týmem
         self.orientation_combo = QComboBox()
-        self.orientation_combo.addItem(tr("větší plocha = zdravější"), INWARD)
         self.orientation_combo.hide()
+        self.orientation_combo.addItem(tr("větší plocha = zdravější"), INWARD)
         self.orientation_combo.addItem(tr("dál od středu = horší"), OUTWARD)
         self.orientation_combo.setToolTip(
             tr("Směr pavouka: patologie dovnitř (střed), nebo ven (okraj).")
@@ -659,7 +660,7 @@ class AssessmentPage(QWidget):
         self.plan_table.setRowCount(len(plan.tasks))
         for row, task in enumerate(plan.tasks):
             cells = [
-                contract.TASK_LABELS.get(task.task, task.task),
+                tasks.long_label(task.task),
                 str(len(task.inputs)),
                 task.proto().display_name,
                 plan_status_text(task.status),
@@ -1181,10 +1182,10 @@ class AssessmentPage(QWidget):
                 [
                     result.dimension.display_name,
                     ", ".join(
-                        contract.TASK_SHORT.get(t, t)
-                        for t in sorted({i.task for i in result.items})
+                        tasks.label(t)
+                        for t in sorted({i.task for i in result.items}, key=tasks.task_order)
                     )
-                    or ", ".join(contract.TASK_SHORT.get(t, t) for t in result.dimension.tasks),
+                    or ", ".join(tasks.label(t) for t in result.dimension.tasks),
                     "",
                     "",
                     format_sd(result.score).removesuffix(" SD") if result.score is not None else "",
@@ -1219,7 +1220,7 @@ class AssessmentPage(QWidget):
                     child = QTreeWidgetItem(
                         [
                             label,
-                            contract.TASK_SHORT.get(item.task, item.task),
+                            tasks.label(item.task),
                             value,
                             norm_text,
                             z_text,
@@ -1266,12 +1267,11 @@ class AssessmentPage(QWidget):
     def _fill_recordings(self, visit: Visit) -> None:
         norm = self.current_norm()
         protocols = norm.info.protocols if norm is not None else {}
-        order = {t: i for i, t in enumerate(contract.TASKS)}
-        recs = sorted(visit.recordings, key=lambda r: (order.get(r.task, 99), r.file))
+        recs = sorted(visit.recordings, key=lambda r: (tasks.task_order(r.task), r.file))
         self.recordings.setRowCount(len(recs))
         last_task = ""
         for row, rec in enumerate(recs):
-            task = contract.TASK_SHORT.get(rec.task, rec.task) if rec.task != last_task else ""
+            task = tasks.label(rec.task) if rec.task != last_task else ""
             last_task = rec.task
             started = f"{rec.run.started:%d. %m. %H:%M}" if rec.run.started else ""
             match = norm_match(rec, protocols)
@@ -1392,7 +1392,7 @@ def _side_by_side(left: QPixmap, right: QPixmap, gap: int = 12) -> QPixmap:
 
 
 def _selection_part(task: str, sel: Selection) -> str:
-    text = tr("{task}: {n} kontrol").format(task=contract.TASK_SHORT.get(task, task), n=sel.n)
+    text = tr("{task}: {n} kontrol").format(task=tasks.label(task), n=sel.n)
     if sel.same_sex:
         text += tr(", jen {sex}").format(sex=tr("ženy") if sel.n_female else tr("muži"))
     rng = sel.age_range

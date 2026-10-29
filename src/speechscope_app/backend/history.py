@@ -39,8 +39,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .. import contract
 from ..i18n import N_, tr
+from . import tasks
 from .protocol import Protocol, slugify
 from .trash import send_to_trash
 
@@ -82,7 +82,7 @@ class RunInfo:
     norm: str = ""  # dávka nové normy: složka jejího plánu; takový běh není pacient
     assessment: str = ""  # dávka hodnocení z nahrávek: id hodnocení
     patient: str = ""  # pacient dávky hodnocení (subject)
-    task: str = ""  # úloha z protocol.yaml
+    task: str = ""  # úloha z protocol.yaml; u dávky vlastní úlohy její klíč z run.json
     group_dir: Path | None = None  # složka vyšetření, když je běh v ní vnořený
 
     @property
@@ -213,7 +213,7 @@ def read_run(run_dir: Path, *, group_dir: Path | None = None) -> RunInfo | None:
         norm=str(data.get("norm") or ""),
         assessment=str(data.get("assessment") or ""),
         patient=str(data.get("patient") or ""),
-        task=task,
+        task=str(data.get("task") or "") or task,
         group_dir=group_dir,
     )
 
@@ -453,7 +453,6 @@ def group_runs(
 
     `plans` jsou rozpracovaná hodnocení (id → úlohy se stavem): skupina pak ví
     i o úlohách, které ještě běh nemají, a hlásí „počítá se“ místo „hotovo“."""
-    order = {t: i for i, t in enumerate(contract.TASKS)}
     groups: dict[str, list[RunInfo]] = {}
     entries: list[RunInfo | RunGroup] = []
     for run in runs:
@@ -462,7 +461,7 @@ def group_runs(
         else:
             entries.append(run)
     for key, members in groups.items():
-        members.sort(key=lambda r: (order.get(r.task, 99), r.started or datetime.min))
+        members.sort(key=lambda r: (tasks.task_order(r.task), r.started or datetime.min))
         group_dir = members[0].group_dir if all(r.group_dir for r in members) else None
         patient = next((r.patient for r in members if r.patient), "")
         planned = list((plans or {}).get(key, []))
@@ -496,7 +495,7 @@ def merge_assessment_runs(work_root: Path, group: RunGroup) -> tuple[Path, list[
     moved: list[tuple[Path, Path]] = []
     try:
         for run in group.runs:
-            name = slugify(contract.TASK_SHORT.get(run.task, run.task) or run.dir.name)
+            name = slugify(tasks.label(run.task) or run.dir.name)
             target = group_dir / name
             n = 2
             while target.exists():

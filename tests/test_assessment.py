@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from PySide6.QtWidgets import QDialog
 from pytestqt.qtbot import QtBot
@@ -12,10 +13,12 @@ from test_norms import HNR, JIT, RATE, controls_frame
 from test_visits import make_run
 
 from speechscope_app.backend import dimensions as evaluate_mod
+from speechscope_app.backend import tasks
 from speechscope_app.backend.assessment_build import Patient, new_plan
 from speechscope_app.backend.dimensions import Dimension, Item
+from speechscope_app.backend.history import write_run_file
 from speechscope_app.backend.norm_build import TaskPlan, default_protocol
-from speechscope_app.backend.norms import BOTH, Norm, NormInfo
+from speechscope_app.backend.norms import BOTH, LOWER, Norm, NormInfo
 from speechscope_app.backend.protocol import builtin_protocols
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import PAGE_ASSESSMENT, PAGE_RESULTS, MainWindow
@@ -416,3 +419,56 @@ def test_spider_orientation_switch(qtbot: QtBot) -> None:
     assert chart.orientation() == INWARD and not chart.grab().isNull()
     chart.set_orientation("nesmysl")
     assert chart.orientation() == INWARD
+
+
+def test_custom_task_from_norm_in_dialog_and_tree(qtbot: QtBot, settings: AppSettings) -> None:
+    """Vlastní úloha z normy: dialog ji nabídne, nahrávka jejího běhu se k ní přiřadí
+    a ve stromu se srovnává s kontrolami téže úlohy přes základní úlohu dimenze."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    run = settings.work_root / "2026-10-14_11-00-00_obrazek"
+    run.mkdir()
+    (run / "speechscope.log").write_text("", encoding="utf-8")
+    write_run_file(run, status="ok", kind="extract", protocol="P", total=1, task="popis-obrazku")
+    pd.DataFrame(
+        [
+            {
+                "file": "P-017_obrazek.wav",
+                "path": str(settings.work_root / "P-017_obrazek.wav"),
+                "task": "reading",
+                "subject": "P-017",
+                "age": 64,
+                "sex": "m",
+                RATE: 3.1,
+            }
+        ]
+    ).to_csv(run / "features.csv", index=False)
+    obrazek = tasks.CustomTask("popis-obrazku", "Popis obrázku", "reading", "Čtení, akustika")
+    controls = controls_frame()
+    extra = controls[controls["task"] == "reading"].copy()
+    extra["task"] = "popis-obrazku"
+    Norm(
+        NormInfo(name="S obrázkem", custom_tasks=[obrazek], protocols={"popis-obrazku": "P"}),
+        pd.concat([controls, extra]),
+    ).save(settings.norms_dir() / "obrazek")
+
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.nav.setCurrentRow(PAGE_ASSESSMENT)
+    page = window.assessment_page
+    page._dimensions = [Dimension("tempo", "Tempo", [Item(RATE, ("reading",), LOWER)])]
+    dialog = page.make_dialog(initial=recording(page, "P-017_obrazek.wav"))
+    qtbot.addWidget(dialog)
+    assert list(dialog.boxes) == ["phonation", "ddk", "spontaneous", "reading", "popis-obrazku"]
+    assert dialog.boxes["popis-obrazku"].label.text() == "Popis obrázku"
+    assert dialog.boxes["popis-obrazku"].list.count() == 1  # nahrávka běhu vlastní úlohy
+    dialog.add_recording(recording(page, "P-017_cteni.wav"))
+    assert page.save_from(dialog) is not None
+    ev = page.evaluation()
+    assert ev is not None and [i.task for i in ev.results[0].items] == ["reading", "popis-obrazku"]
+    assert all(i.score is not None for i in ev.results[0].items)
+    top = page.tree.topLevelItem(0)
+    assert top.text(1) == "Čtení, Popis obrázku" and top.child(1).text(1) == "Popis obrázku"
+    assert "Popis obrázku: " in page.selection_label.text()
+    cells = [page.recordings.item(r, 0).text() for r in range(page.recordings.rowCount())]
+    assert "Popis obrázku" in cells and page.card(0).detail.text().endswith("Popis obrázku")

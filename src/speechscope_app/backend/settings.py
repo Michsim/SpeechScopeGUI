@@ -216,6 +216,10 @@ class AppSettings:
         """Uložená hodnocení pacientů (stránka Hodnocení), jeden JSON na hodnocení."""
         return app_data_dir() / "assessments"
 
+    def tasks_file(self) -> Path:
+        """Vlastní úlohy uživatele (`backend/tasks.py`), vedle protokolů a norem."""
+        return app_data_dir() / "tasks.json"
+
     # --- statistika běhů --------------------------------------------------------
 
     def seconds_per_file(self, protocol_slug: str) -> float | None:

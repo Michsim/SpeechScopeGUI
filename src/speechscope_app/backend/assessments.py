@@ -19,8 +19,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .. import contract
-from . import meta
+from . import meta, tasks
 from .protocol import Protocol
 from .visits import Recording, Visit
 
@@ -56,8 +55,7 @@ class Assessment:
 
     @property
     def tasks(self) -> list[str]:
-        order = {t: i for i, t in enumerate(contract.TASKS)}
-        return sorted({r.task for r in self.recordings}, key=lambda t: order.get(t, 99))
+        return sorted({r.task for r in self.recordings}, key=tasks.task_order)
 
     def to_dict(self) -> dict:
         return {

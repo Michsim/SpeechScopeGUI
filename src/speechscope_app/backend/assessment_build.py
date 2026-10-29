@@ -24,7 +24,7 @@ import pandas as pd
 
 from .. import contract
 from ..i18n import tr
-from . import meta
+from . import meta, tasks
 from .assessments import Assessment, AssessmentStore, RecordingRef, new_id
 from .manifest import Manifest
 from .norm_build import PENDING, FolderScan, PlanState, TaskPlan, scan_folder
@@ -72,7 +72,7 @@ class AssessmentPlan(PlanState):
 
     def title(self, task: TaskPlan) -> str:
         return tr("Hodnocení {subject} · {task}").format(
-            subject=self.patient.subject, task=contract.TASK_SHORT.get(task.task, task.task)
+            subject=self.patient.subject, task=tasks.label(task.task)
         )
 
     def manifest_for(self, task: TaskPlan) -> Manifest:
@@ -195,7 +195,10 @@ def finish_plan(plan: AssessmentPlan, store: AssessmentStore) -> Assessment:
             file = str(record.get("file") or "")
             if not file or str(record.get("error") or "").strip() not in ("", "nan"):
                 continue  # nahrávka, která spadla, do hodnocení nepatří
-            task_name = contract.canonical_task(str(record.get("task") or task.task))
+            if tasks.is_custom(task.task):
+                task_name = task.task  # knihovna zapsala základní úlohu, hodnocení zná vlastní
+            else:
+                task_name = contract.canonical_task(str(record.get("task") or task.task))
             refs.append(RecordingRef(task.run_dir.name, row, file, task_name))
     if not refs:
         raise ValueError(tr("Žádná dávka hodnocení nemá tabulku výsledků."))

@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import contract
+from ..backend import tasks
 from ..backend.library import FeatureInfo
 from ..i18n import tr
 from . import theme
@@ -121,7 +122,7 @@ class RecordingDetailDialog(QDialog):
             head_lines.append(str(row["path"]))
         if row.get("task"):
             task = str(row["task"])
-            head_lines.append(tr("Úloha: {task}").format(task=contract.TASK_LABELS.get(task, task)))
+            head_lines.append(tr("Úloha: {task}").format(task=tasks.long_label(task)))
         head = QLabel("\n".join(head_lines))
         head.setObjectName("muted")
         head.setWordWrap(True)

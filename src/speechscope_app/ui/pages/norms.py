@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
+from ...backend import tasks
 from ...backend.norm_build import CANCELLED, ERROR, OK, PENDING, RUNNING, NormPlan, pending_plans
 from ...backend.norms import (
     NORM_SUFFIX,
@@ -170,9 +171,11 @@ class PlanCard(QFrame):
         theme.set_role(self.pill, self._role)
         head.addWidget(self.pill, 0, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(head)
-        tasks = ", ".join(contract.TASK_SHORT.get(t.task, t.task) for t in plan.tasks)
+        task_names = ", ".join(tasks.label(t.task) for t in plan.tasks)
         self.detail = QLabel(
-            tr("rozpracovaná · {n} kontrol · {tasks}").format(n=len(plan.controls), tasks=tasks)
+            tr("rozpracovaná · {n} kontrol · {tasks}").format(
+                n=len(plan.controls), tasks=task_names
+            )
         )
         self.detail.setObjectName("muted")
         self.detail.setWordWrap(True)
@@ -467,7 +470,7 @@ class NormsPage(QWidget):
         self.plan_table.setRowCount(len(plan.tasks))
         for row, task in enumerate(plan.tasks):
             cells = [
-                contract.TASK_LABELS.get(task.task, task.task),
+                tasks.long_label(task.task),
                 str(len(task.inputs)),
                 task.proto().display_name,
                 plan_status_text(task.status),
@@ -619,15 +622,13 @@ class NormsPage(QWidget):
 
     @staticmethod
     def _task_label(summary: TaskSummary) -> str:
-        return tr("{task}: {n}").format(
-            task=contract.TASK_SHORT.get(summary.task, summary.task), n=summary.subjects
-        )
+        return tr("{task}: {n}").format(task=tasks.label(summary.task), n=summary.subjects)
 
     def _fill_table(self, summaries: list[TaskSummary]) -> None:
         self.table.setRowCount(len(summaries))
         for row, s in enumerate(summaries):
             cells = [
-                contract.TASK_LABELS.get(s.task, s.task),
+                tasks.long_label(s.task),
                 str(s.subjects),
                 f"{s.female} / {s.male}",
                 format_age_range(s.age_range),

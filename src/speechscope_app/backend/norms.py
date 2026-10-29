@@ -33,7 +33,7 @@ import yaml
 
 from .. import contract, i18n
 from ..i18n import tr
-from . import meta
+from . import meta, tasks
 from .trash import send_to_trash
 
 NORM_FILE = "norm.yaml"
@@ -69,6 +69,8 @@ class NormInfo:
     library_version: str = ""
     created: str = ""  # ISO datum
     protocols: dict[str, str] = field(default_factory=dict)  # úloha -> jméno protokolu kontrol
+    # vlastní úlohy normy (klíč ve sloupci task): po načtení se zaregistrují
+    custom_tasks: list[tasks.CustomTask] = field(default_factory=list)
     names: dict[str, str] = field(default_factory=dict)
     descriptions: dict[str, str] = field(default_factory=dict)
 
@@ -96,12 +98,22 @@ class NormInfo:
         )
         if self.protocols:
             data["protocols"] = dict(self.protocols)
+        if self.custom_tasks:
+            data["custom_tasks"] = [t.to_dict() for t in self.custom_tasks]
         return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NormInfo:
         if int(data.get("format", 1)) > FORMAT_VERSION:
             raise ValueError("norma je z novější verze aplikace")
+        custom: list[tasks.CustomTask] = []
+        for item in data.get("custom_tasks") or []:
+            try:
+                custom.append(tasks.CustomTask.from_dict(dict(item)))
+            except (ValueError, TypeError):
+                continue  # neznámá základní úloha: úloha se vynechá, norma se načte
+        for task in custom:
+            tasks.registry().register(task)  # z importované normy jen do paměti
         return cls(
             name=str(data["name"]),
             description=str(data.get("description", "")),
@@ -111,6 +123,7 @@ class NormInfo:
             library_version=str(data.get("library_version", "")),
             created=str(data.get("created", "")),
             protocols={str(k): str(v) for k, v in (data.get("protocols") or {}).items()},
+            custom_tasks=custom,
             names={
                 k[len("name_") :]: str(v)
                 for k, v in data.items()
@@ -439,7 +452,7 @@ def norm_problems(norm: Norm) -> list[str]:
         if n < RECOMMENDED_CONTROLS:
             problems.append(
                 tr("Úloha {task}: jen {n} kontrol, doporučeno aspoň {min}.").format(
-                    task=contract.TASK_SHORT.get(task, task), n=n, min=RECOMMENDED_CONTROLS
+                    task=tasks.label(task), n=n, min=RECOMMENDED_CONTROLS
                 )
             )
     if meta.AGE not in norm.controls or norm.controls[meta.AGE].isna().all():
@@ -486,6 +499,25 @@ def all_norms(folder: Path) -> list[Norm]:
     return builtin_norms() + user_norms(folder)
 
 
+def register_custom_tasks(folder: Path) -> int:
+    """Vlastní úlohy ze všech norem do registru, bez čtení tabulek kontrol.
+
+    Volá hlavní okno hned po startu, dřív než se čtou běhy: index nahrávek musí
+    vědět, že běh s `task: popis-obrazku` patří vlastní úloze, ne čtení.
+    """
+    if not folder.is_dir():
+        return 0
+    n = 0
+    for path in sorted(folder.iterdir()):
+        if path.is_dir() and (path / NORM_FILE).is_file():
+            try:
+                data = yaml.safe_load((path / NORM_FILE).read_text(encoding="utf-8")) or {}
+                n += len(NormInfo.from_dict(data).custom_tasks)  # from_dict registruje
+            except (ValueError, KeyError, OSError, yaml.YAMLError):
+                continue
+    return n
+
+
 # --- přehled a správa (stránka Normy) -------------------------------------------
 
 NORM_SUFFIX = ".ssnorm"  # export: zip s norm.yaml a controls.csv
@@ -504,10 +536,9 @@ class TaskSummary:
 
 
 def task_summaries(norm: Norm) -> list[TaskSummary]:
-    """Přehled po úlohách v pořadí úloh knihovny; osoby se počítají jednou."""
-    order = {t: i for i, t in enumerate(contract.TASKS)}
+    """Přehled po úlohách v pořadí úloh knihovny, vlastní za nimi; osoby se počítají jednou."""
     out: list[TaskSummary] = []
-    for task in sorted(norm.tasks, key=lambda t: (order.get(t, len(order)), t)):
+    for task in sorted(norm.tasks, key=lambda t: (tasks.task_order(t), t)):
         rows = norm.controls[norm.controls["task"] == task]
         people = rows.drop_duplicates(meta.SUBJECT)
         sexes = people[meta.SEX] if meta.SEX in people else pd.Series(dtype=str)

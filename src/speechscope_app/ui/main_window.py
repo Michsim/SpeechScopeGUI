@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__, contract
+from ..backend import tasks
 from ..backend.assessment_build import PLAN_SUFFIX, AssessmentPlan, pending_plans
 from ..backend.assessment_build import finish_plan as finish_assessment_plan
 from ..backend.assessments import AssessmentStore
@@ -48,6 +49,7 @@ from ..backend.history import (
 )
 from ..backend.manifest import Manifest, read_manifest, write_normalized
 from ..backend.norm_build import CANCELLED, ERROR, OK, RUNNING, NormPlan, finish_plan
+from ..backend.norms import register_custom_tasks
 from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.results import merge_results
 from ..backend.settings import AppSettings
@@ -91,6 +93,7 @@ class Job:
     label: str = ""  # vlastní název běhu z Analýzy; prázdné = podle protokolu
     plan_kind: str = ""  # dávka plánu: "norm" (nová norma), "assessment"; prázdné = běžná
     plan: Path | None = None  # klíč plánu (složka normy, soubor plánu hodnocení)
+    plan_task: str = ""  # úloha v plánu (u vlastní úlohy její klíč, protokol má základní)
     subject: str = ""  # pacient dávky hodnocení (do run.json jako `patient`)
 
     def title(self) -> str:
@@ -123,6 +126,8 @@ class MainWindow(QMainWindow):
     def __init__(self, settings: AppSettings) -> None:
         super().__init__()
         self.settings = settings
+        tasks.registry().load(settings.tasks_file())  # vlastní úlohy uživatele
+        register_custom_tasks(settings.norms_dir())  # a z norem, dřív než se čtou běhy
         self.setWindowTitle(tr("SpeechScope"))
         self.resize(1100, 720)
 
@@ -715,7 +720,7 @@ class MainWindow(QMainWindow):
     def start_plan(self, kind: str, plan) -> int:  # noqa: ANN001
         """Uloží plán a zařadí jeho nespočítané dávky; vrátí, kolik jich zařadil."""
         plan.save()
-        queued = {(j.plan, j.proto.task) for j in self._queue if j.plan_kind == kind}
+        queued = {(j.plan, j.plan_task) for j in self._queue if j.plan_kind == kind}
         running = getattr(self, "_running_plan", None) if self.run_page.runner.running else None
         running_key = (running[1], running[2]) if running and running[0] == kind else None
         jobs = [
@@ -738,6 +743,7 @@ class MainWindow(QMainWindow):
             label=plan.title(task),
             plan_kind=kind,
             plan=plan.key,
+            plan_task=task.task,
             subject=plan.patient.subject if kind == "assessment" else "",
         )
 
@@ -775,10 +781,13 @@ class MainWindow(QMainWindow):
         assessment = ""
         if running and running[0] == "assessment":
             assessment = Path(running[1]).name.removesuffix(PLAN_SUFFIX)
+        task = str(running[2]) if running else ""
         return {
             "norm": self._running_norm_text(),
             "assessment": assessment,
             "patient": getattr(self, "_running_subject", "") if assessment else "",
+            # dávka vlastní úlohy: knihovna zná jen základní úlohu, historie a index vlastní
+            "task": task if tasks.is_custom(task) else "",
         }
 
     def _plan_status(self, status: str, run_dir: Path | None):  # noqa: ANN202
@@ -1241,7 +1250,9 @@ class MainWindow(QMainWindow):
         if job.merge_into is not None:
             suffix = "-znovu"
         self._running_merge = job.merge_into
-        self._running_plan = (job.plan_kind, job.plan, proto.task) if job.plan else None
+        self._running_plan = (
+            (job.plan_kind, job.plan, job.plan_task or proto.task) if job.plan else None
+        )
         dir_slug = slugify(job.label) if job.label.strip() else slug
         run_dir = unique_run_dir(self.settings.work_root, f"{stamp}_{dir_slug}{suffix}")
         run_dir.mkdir(parents=True, exist_ok=True)

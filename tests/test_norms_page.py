@@ -10,6 +10,7 @@ from pytestqt.qtbot import QtBot
 from test_norms import controls_frame
 
 from speechscope_app.backend import norms as norms_mod
+from speechscope_app.backend import tasks
 from speechscope_app.backend.norms import Norm, NormInfo
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import PAGE_ENV, PAGE_NORMS, PAGE_PROTOCOLS, MainWindow
@@ -175,3 +176,57 @@ def test_norms_page_empty(qtbot: QtBot, settings: AppSettings) -> None:
     page = window.norms_page
     assert page.count() == 0 and not page.empty.isHidden() and page.detail.isHidden()
     assert "stránce Normy" in window.assessment_page.no_norm.text()
+
+
+def test_new_norm_wizard_with_custom_task(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    """Vlastní úloha v kroku 1: řádek s podtitulkem, dávka jako základní úloha, norma
+    si klíč zapíše do tabulky kontrol i do norm.yaml a registr ji uloží pro příště."""
+    data = tmp_path / "data"
+    for folder in ("fonace", "obrazek"):
+        (data / folder).mkdir(parents=True)
+        for name in ("HC01_a.wav", "HC02_a.wav"):
+            (data / folder / name).write_bytes(b"RIFF")
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.nav.setCurrentRow(PAGE_NORMS)
+    page = window.norms_page
+    dialog = window.make_new_norm_dialog()
+    qtbot.addWidget(dialog)
+    dialog.name.setText("Obrázky")
+    dialog.set_folder("phonation", data / "fonace")
+    obrazek = tasks.CustomTask("popis-obrazku", "Popis obrázku", "phonation", "Fonace, základní")
+    row = dialog.add_custom_task(obrazek)
+    assert row.label.text() == "Popis obrázku" and "jako Fonace" in row.sub.text()
+    assert row.current_protocol() is not None and row.current_protocol().task == "phonation"
+    assert dialog.rows["popis-obrazku"] is row and row.remove.isVisibleTo(dialog)
+    extra = dialog.add_custom_task(tasks.CustomTask("zpev", "Zpěv", "reading"))
+    dialog.remove_custom_task("zpev")
+    assert "zpev" not in dialog.rows and extra.folder.isHidden()
+    dialog.set_folder("popis-obrazku", data / "obrazek")
+    assert "úloh: 2" in dialog.hint.text()
+    dialog.go_next()
+    assert dialog.step() == 1 and dialog.table.rowCount() == 2
+    dialog.set_age("HC01", 60)
+    dialog.set_age("HC02", 70)
+    dialog.go_next()
+    assert dialog.batches.item(1, 0).text() == "Popis obrázku"
+    plan = dialog.plan()
+    assert [t.task for t in plan.tasks] == ["phonation", "popis-obrazku"]
+    assert plan.tasks[1].proto().task == "phonation"  # knihovna dostane základní úlohu
+    assert [t.key for t in plan.info.custom_tasks] == ["popis-obrazku"]
+    assert settings.tasks_file().is_file() and tasks.registry().get("popis-obrazku") is not None
+
+    assert window.start_norm(plan) == 2
+    qtbot.waitUntil(lambda: (plan.folder / "norm.yaml").is_file(), timeout=30000)
+    qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=10000)
+    page.reload()
+    norm = page.current()
+    assert norm is not None and norm.tasks == ["phonation", "popis-obrazku"]
+    assert norm.info.protocols["popis-obrazku"] == "Fonace, základní"
+    assert norm.info.custom_tasks[0].name == "Popis obrázku"
+    assert "Popis obrázku" in page.table.item(1, 0).text()
+    # běh dávky je v historii pod vlastním jménem
+    runs = window.results_page.history
+    assert any("Popis obrázku" in runs.card(i).title.text() for i in range(runs.count()))

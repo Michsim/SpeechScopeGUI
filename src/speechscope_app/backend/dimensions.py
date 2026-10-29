@@ -32,7 +32,7 @@ import yaml
 
 from .. import contract, i18n
 from ..i18n import tr
-from . import meta
+from . import meta, tasks
 from .norms import (
     BOTH,
     DEFAULT_WINDOW,
@@ -208,7 +208,18 @@ class Evaluation:
 
 
 def _task_label(task: str) -> str:
-    return contract.TASK_SHORT.get(task, task)
+    return tasks.label(task)
+
+
+def _item_tasks(item: Item, values: dict[str, dict[str, float | None]]) -> list[str]:
+    """Úlohy vyšetření, ze kterých položka bere hodnotu: úlohy knihovny v pořadí položky,
+    pak vlastní úlohy, které se počítají jako některá z nich."""
+    present = [t for t in item.tasks if t in values]
+    custom = sorted(
+        (t for t in values if tasks.is_custom(t) and tasks.base_task(t) in item.tasks),
+        key=tasks.task_order,
+    )
+    return present + custom
 
 
 def _reference(items: list[ItemResult], selections: dict[str, Selection]) -> pd.Series:
@@ -265,17 +276,16 @@ def evaluate(
     values = visit_values(rows_by_task)
     sex = meta.parse_sex(sex) if sex else ""
     selections: dict[str, Selection] = {}
-    for task in sorted({t for d in dimensions for t in d.tasks}):
-        if task in values and task in norm.tasks:
+    needed = {t for d in dimensions for t in d.tasks}
+    for task in sorted(values, key=tasks.task_order):
+        if tasks.base_task(task) in needed and task in norm.tasks:
             selections[task] = norm.select(task, age=age, sex=sex, window=window, same_sex=same_sex)
 
     results: list[DimensionResult] = []
     for dim in dimensions:
         items: list[ItemResult] = []
         for item in dim.items:
-            for task in item.tasks:
-                if task not in values:
-                    continue  # vyšetření tuhle úlohu nemá
+            for task in _item_tasks(item, values):
                 value = values[task].get(item.column)
                 if task not in selections:
                     items.append(

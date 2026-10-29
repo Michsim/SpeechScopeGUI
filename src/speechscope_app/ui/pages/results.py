@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ... import contract
+from ...backend import tasks
 from ...backend.history import RunGroup, RunInfo, read_run
 from ...backend.library import FeatureInfo, Library, LibraryError
 from ...backend.results import failed_paths
@@ -315,7 +315,7 @@ class ResultsPage(QWidget):
         self.task_buttons = []
         for i, run in enumerate(group.runs):
             count = run.rows if run.rows is not None else run.total
-            label = contract.TASK_SHORT.get(run.task, run.task) or run.protocol_name
+            label = tasks.label(run.task) or run.protocol_name
             btn = QPushButton(f"{label} ({count})" if count else label)
             btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             btn.setCheckable(True)
@@ -327,7 +327,7 @@ class ResultsPage(QWidget):
             self.task_buttons.append(btn)
         for task in group.waiting_tasks():
             # úloha plánu, která ještě nemá běh: jen informace, nejde na ni kliknout
-            btn = QPushButton(tr("{task} · čeká").format(task=contract.TASK_SHORT.get(task, task)))
+            btn = QPushButton(tr("{task} · čeká").format(task=tasks.label(task)))
             btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             btn.setEnabled(False)
             self.task_layout.insertWidget(len(self.task_buttons), btn)

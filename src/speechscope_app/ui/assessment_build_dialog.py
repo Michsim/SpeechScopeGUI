@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import contract
-from ..backend import meta
+from ..backend import meta, tasks
 from ..backend.assessment_build import (
     AssessmentPlan,
     Patient,
@@ -244,11 +244,14 @@ class AssessmentFromRecordingsDialog(QDialog):
             head.setObjectName("muted")
             grid.addWidget(head, 0, col)
         self.rows: dict[str, TaskRow] = {}
-        for r, task in enumerate(contract.TASKS, start=1):
-            row = TaskRow(task, protocols, advanced)
+        # úlohy knihovny a za nimi vlastní úlohy z registru (z norem a nastavení)
+        customs = {t.key: t for t in tasks.registry().custom}
+        for r, task in enumerate(tasks.registry().keys(), start=1):
+            row = TaskRow(task, protocols, advanced, custom=customs.get(task))
+            row.remove.hide()
             row.folder.editingFinished.connect(lambda row=row: self._rescan(row))
             row.browse.clicked.connect(lambda _=False, row=row: self._browse(row))
-            grid.addWidget(row.label, r, 0)
+            grid.addWidget(row.name_box, r, 0)
             grid.addWidget(row.folder, r, 1)
             grid.addWidget(row.browse, r, 2)
             grid.addWidget(row.protocol, r, 3)

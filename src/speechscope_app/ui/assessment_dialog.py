@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import contract
-from ..backend import meta
+from ..backend import meta, tasks
 from ..backend.assessments import (
     Assessment,
     RecordingRef,
@@ -73,9 +73,7 @@ class PickRecordingDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle(
-            tr("Přidat nahrávku: {task}").format(task=contract.TASK_SHORT.get(task, task))
-        )
+        self.setWindowTitle(tr("Přidat nahrávku: {task}").format(task=tasks.label(task)))
         self.resize(720, 480)
         self._task = task
         self._recordings = [r for r in recordings if f"{r.run.dir.name}#{r.row}" not in taken]
@@ -136,8 +134,15 @@ class TaskBox:
 
     def __init__(self, task: str) -> None:
         self.task = task
-        self.label = QLabel(contract.TASK_SHORT.get(task, task))
+        self.label = QLabel(tasks.label(task))
         self.label.setObjectName("card_title")
+        custom = tasks.registry().get(task)
+        if custom is not None:
+            self.label.setToolTip(
+                tr("vlastní úloha · počítá se jako {task}").format(
+                    task=contract.TASK_SHORT.get(custom.base, custom.base)
+                )
+            )
         self.list = QListWidget()
         self.list.setMaximumHeight(72)
         self.add_btn = QPushButton(tr("Přidat…"))
@@ -212,7 +217,8 @@ class AssessmentDialog(QDialog):
         grid.setContentsMargins(12, 10, 12, 10)
         grid.setVerticalSpacing(10)
         self.boxes: dict[str, TaskBox] = {}
-        for row, task in enumerate(contract.TASKS):
+        # úlohy knihovny a za nimi vlastní úlohy z uložených norem
+        for row, task in enumerate(tasks.registry().keys()):
             tb = TaskBox(task)
             tb.add_btn.clicked.connect(lambda _=False, t=task: self.pick(t))
             tb.remove_btn.clicked.connect(lambda _=False, t=task: self.remove_selected(t))

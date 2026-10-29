@@ -362,6 +362,32 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   Koše, běhy zůstávají). Do složek s nahrávkami se nic nezapisuje. Zbývá:
   varianta z hotových běhů, Přidat kontroly… a varování na Hodnocení, když
   pacient nemá protokol z `NormInfo.protocols`.
+- **Vlastní úlohy** (`backend/tasks.py`, rozhodnuto 29. 10. 2026 večer, mockup
+  https://claude.ai/artifact/7tDEUpd2eP7RVwrXdPG5vz, `docs/mockups/vlastni-uloha/` mimo
+  git): `CustomTask` = klíč (slug názvu, `registry().new_key`), název, `base` = úloha
+  knihovny, jako která se počítá, výchozí protokol (jde změnit jako u ostatních
+  řádků) a pokyn pro pacienta. Knihovna dostává vždy jen `base` (protokol je
+  protokol základní úlohy, `work\<base>`); vlastní klíč žije v GUI: `TaskPlan.task`
+  a `Job.plan_task`, `run.json` dávky (`task`, `RunInfo.task` ho upřednostní před
+  `protocol.yaml`), index nahrávek (`VisitIndex`: celý běh s vlastním klíčem),
+  sloupec `task` v `controls.csv` normy (`finish_plan` přepíše základní úlohu
+  z `features.csv`), `NormInfo.protocols` a odkazy hodnocení. Registr
+  (`tasks.registry()`, `tasks.json` v datech aplikace, `settings.tasks_file()`)
+  načte hlavní okno při startu a hned k němu přidá úlohy ze všech `norm.yaml`
+  (`norms.register_custom_tasks`, dřív než se čtou běhy; `NormInfo.from_dict`
+  registruje jen do paměti, průvodce ukládá se `save=True`); `registry().version`
+  je v klíči cache indexu, aby nová úloha překlasifikovala běhy. Popisky všude přes
+  `tasks.label` / `long_label` / `task_order` (ne `contract.TASK_SHORT`), manifest
+  bere i vlastní klíče. Zakládá se jen v průvodci Nová norma („+ Přidat vlastní
+  úlohu…“ → `ui/custom_task_dialog.py`, řádek `TaskRow(custom=…)` s podtitulkem
+  a ×); Hodnocení z nahrávek a dialog Nového hodnocení nabízejí všechny vlastní
+  úlohy z registru za úlohami knihovny; Analýza je nenabízí (rozhodnutí
+  uživatele). Dimenze se vážou na úlohu knihovny: `evaluate` bere vlastní úlohu
+  jako další zdroj jejího `base` (`_item_tasks`: položka „F0 SD · Popis obrázku“
+  vedle „· Čtení“), kontroly se vybírají podle vlastního klíče, norma bez něj dá
+  položce důvod. Vlastní osa v pavouku zatím není (šlo by klíčem v
+  `dimensions.yaml`). Testy `tests/test_tasks.py`, průvodce v `test_norms_page`,
+  dialog a strom v `test_assessment`; `conftest` registr před každým testem maže.
 
 ## Pasti z knihovny, které GUI hlídá
 - Podproces vždy s `PYTHONUTF8=1` (`library.subprocess_env`). Bez toho

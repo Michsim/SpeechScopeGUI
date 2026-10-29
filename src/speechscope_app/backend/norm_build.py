@@ -23,9 +23,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from .. import contract
 from ..i18n import N_, Labels, tr
-from . import meta
+from . import meta, tasks
 from .discover import find_recordings
 from .manifest import Manifest, find_manifest, read_manifest
 from .norms import NORM_FILE, Norm, NormInfo, build_norm
@@ -179,7 +178,7 @@ class NormPlan(PlanState):
 
     def title(self, task: TaskPlan) -> str:
         return tr("Norma {name} · {task}").format(
-            name=self.info.display_name, task=contract.TASK_SHORT.get(task.task, task.task)
+            name=self.info.display_name, task=tasks.label(task.task)
         )
 
     def manifest_for(self, task: TaskPlan) -> Manifest:
@@ -280,7 +279,10 @@ def finish_plan(plan: NormPlan, library_version: str = "") -> Norm:
         table = task.table
         if table is None:
             continue
-        frames.append(pd.read_csv(table))
+        frame = pd.read_csv(table)
+        if tasks.is_custom(task.task):
+            frame["task"] = task.task  # knihovna zapsala základní úlohu, norma zná vlastní
+        frames.append(frame)
         protocols[task.task] = task.proto().name
     if not frames:
         raise ValueError(tr("Žádná dávka normy nemá tabulku výsledků."))
@@ -380,4 +382,4 @@ def read_controls_csv(path: Path) -> dict[str, Control]:
 
 
 def task_label(task: str) -> str:
-    return contract.TASK_SHORT.get(task, task)
+    return tasks.label(task)
