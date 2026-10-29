@@ -268,6 +268,8 @@ class AssessmentPage(QWidget):
         self._columns: dict[str, ColumnInfo] | None = None
         self._dimensions: list[Dimension] = load_dimensions()
         self._cards: list[VisitCard] = []
+        self._eval_cache: dict[str, Evaluation] = {}  # id hodnocení → vyhodnocení
+        self._eval_key: tuple = ()  # (norma, okno, pohlaví), pro které cache platí
         self._current: Visit | None = None
         self._evaluation: Evaluation | None = None
 
@@ -799,6 +801,7 @@ class AssessmentPage(QWidget):
             recordings = self._index.all_recordings()
         stored = self._store.all() if self._store is not None else []
         self._entries = [(a, *resolve(a, recordings)) for a in stored]
+        self._eval_cache.clear()  # vyšetření se složila znovu, tabulky mohly přibýt
         self._plans = pending_plans(self._store.folder) if self._store is not None else []
         self._fill_list(keep=keep)
 
@@ -809,11 +812,11 @@ class AssessmentPage(QWidget):
         self._index.refresh()
         return self._index.all_recordings()
 
-    def _visit_band(self, visit: Visit) -> str:
+    def _visit_band(self, assessment: Assessment, visit: Visit) -> str:
         norm = self.current_norm()
         if norm is None:
             return ""
-        return worst_band(self._evaluate(visit, norm))
+        return worst_band(self._cached_evaluation(assessment, visit, norm))
 
     def _fill_list(self, keep: str | None = None) -> None:
         if keep is None:
@@ -843,7 +846,7 @@ class AssessmentPage(QWidget):
             if needle and needle not in assessment.subject.lower():
                 continue
             item = QListWidgetItem()
-            card = VisitCard(visit, self._visit_band(visit), assessment)
+            card = VisitCard(visit, self._visit_band(assessment, visit), assessment)
             item.setSizeHint(card.sizeHint())
             self.visits.addItem(item)
             self.visits.setItemWidget(item, card)
@@ -1014,6 +1017,21 @@ class AssessmentPage(QWidget):
             same_sex=self.same_sex.isChecked(),
         )
 
+    def _cached_evaluation(self, assessment: Assessment, visit: Visit, norm: Norm) -> Evaluation:
+        """Vyhodnocení hodnocení; platí, dokud se nezmění norma, okno nebo pohlaví.
+
+        Štítky karet v seznamu na vybraném pacientovi nezávisí, takže kliknutí
+        na kartu nesmí přepočítávat všechny ostatní (60 ms na pacienta).
+        """
+        key = (id(norm), self.window_combo.currentData(), self.same_sex.isChecked())
+        if key != self._eval_key:
+            self._eval_cache.clear()
+            self._eval_key = key
+        cached = self._eval_cache.get(assessment.id)
+        if cached is None:
+            cached = self._eval_cache[assessment.id] = self._evaluate(visit, norm)
+        return cached
+
     def _recompute(self) -> None:
         visit, norm = self._current, self.current_norm()
         if visit is None:
@@ -1033,7 +1051,12 @@ class AssessmentPage(QWidget):
             self.about.setText("")
             return
         self.middle.show()
-        self._evaluation = self._evaluate(visit, norm)
+        current = self.current_assessment()
+        self._evaluation = (
+            self._cached_evaluation(current, visit, norm)
+            if current is not None
+            else self._evaluate(visit, norm)
+        )
         band = worst_band(self._evaluation)
         self.header.set_role(BAND_ROLES.get(band, "neutral"))
         pills = []
@@ -1058,7 +1081,7 @@ class AssessmentPage(QWidget):
             if not isinstance(card, VisitCard):
                 continue  # rozpracované hodnocení má štítek z plánu, na normě nezávisí
             band = (
-                worst_band(self._evaluate(card.visit, norm))
+                worst_band(self._cached_evaluation(card.assessment, card.visit, norm))
                 if card.visit is not visit
                 else worst_band(self._evaluation)
             )

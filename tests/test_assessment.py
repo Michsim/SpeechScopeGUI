@@ -11,6 +11,7 @@ from pytestqt.qtbot import QtBot
 from test_norms import HNR, JIT, RATE, controls_frame
 from test_visits import make_run
 
+from speechscope_app.backend import dimensions as evaluate_mod
 from speechscope_app.backend.assessment_build import Patient, new_plan
 from speechscope_app.backend.dimensions import Dimension, Item
 from speechscope_app.backend.norm_build import TaskPlan, default_protocol
@@ -334,6 +335,43 @@ def test_tree_marks_side_of_both_direction_item(qtbot: QtBot, settings: AppSetti
     # šipka i u osy pavouka a ve štítku hlavičky
     assert page.chart.axes()[0].label == "Tempo ▼"
     assert page.header._pill_widgets[0].text().startswith("Tempo ▼")
+
+
+def test_click_does_not_reevaluate_other_cards(
+    qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Štítky karet závisí jen na normě, okně a pohlaví: kliknutí nepočítá ostatní pacienty."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    save_norm(settings.norms_dir())
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.assessment_page
+    calls: list[str] = []
+    real = evaluate_mod.evaluate
+
+    def counted(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        calls.append(args[1] and next(iter(args[1])))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr("speechscope_app.ui.pages.assessment.evaluate", counted)
+    dialog = page.make_dialog(initial=recording(page, "P-017_fonace.wav"))
+    qtbot.addWidget(dialog)
+    for subject in ("P-A", "P-B", "P-C"):
+        dialog.subject.setText(subject)
+        assert page.save_from(dialog) is not None
+    assert page.count() == 3
+    calls.clear()
+    page.select_row(1)
+    page.select_row(2)
+    assert calls == []  # vše už je v cache z uložení
+    page.same_sex.setChecked(False)
+    assert len(calls) == 3  # změna výběru kontrol přepočítá každého jednou
+    calls.clear()
+    page.select_row(0)
+    assert calls == []
+    page.refresh()
+    assert len(calls) == 3  # po obnovení seznamu se počítá znovu (tabulky mohly přibýt)
 
 
 def test_spider_chart_and_formatting(qtbot: QtBot) -> None:

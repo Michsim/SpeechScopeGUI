@@ -262,7 +262,12 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `visit`, jinak z běhu). Na Výsledcích pravé tlačítko „Otevřít v Hodnocení“
   (`ResultsPage.assess_requested` → `MainWindow.show_assessment` →
   `show_row`) otevře dialog s tou nahrávkou; po uložení přepne na Hodnocení.
-  Stránka se obnoví při zobrazení a po skončeném běhu.
+  Stránka se obnoví při zobrazení a po skončeném běhu. Vyhodnocení pacientů
+  se drží v `_eval_cache` podle id hodnocení, dokud se nezmění norma, okno nebo
+  pohlaví (`_cached_evaluation`, `_eval_key`); `refresh` cache maže. Kliknutí
+  na kartu tak nepřepočítává ostatní (60 pacientů dřív ~3,5 s, teď ~50 ms);
+  `Selection` si cachuje hodnoty sloupců a průměry po osobách
+  (`subject_means`, jeden groupby pro všechny feature).
 - **Hodnocení z nahrávek** (mockup https://claude.ai/artifact/EELCDHfXjB8aHzdxxV2DJ5,
   `docs/mockups/hodnoceni-z-nahravek/` mimo git): Nové hodnocení… se nejdřív
   zeptá (`NewAssessmentChoiceDialog`: dvě klikací karty `ChoiceCard` z nahrávek /

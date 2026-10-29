@@ -27,6 +27,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -165,6 +166,10 @@ class Selection:
     window: int | None  # ± let; None = bez věkového omezení
     same_sex: bool
     widened: bool  # okno se muselo rozšířit, kontrol bylo málo
+    # cache: hodnoty sloupců po (sloupec, log) a průměry po osobách pro všechny
+    # sloupce najednou; Hodnocení volá score i control_z pro desítky položek
+    _values: dict[tuple[str, bool], pd.Series] = field(default_factory=dict, repr=False)
+    _means: pd.DataFrame | None = field(default=None, repr=False)
 
     @property
     def n(self) -> int:
@@ -187,13 +192,31 @@ class Selection:
 
     def values(self, column: str, *, log: bool = False) -> pd.Series:
         """Platné hodnoty sloupce u vybraných kontrol, případně po logaritmu."""
+        key = (column, log)
+        cached = self._values.get(key)
+        if cached is not None:
+            return cached
         if column not in self.frame:
-            return pd.Series(dtype=float)
-        vals = pd.to_numeric(self.frame[column], errors="coerce").dropna()
-        if log:
-            vals = vals[vals > 0]
-            vals = vals.map(math.log)
-        return vals.astype(float)
+            vals = pd.Series(dtype=float)
+        else:
+            vals = pd.to_numeric(self.frame[column], errors="coerce").dropna()
+            if log:
+                vals = vals[vals > 0]
+                vals = np.log(vals)
+            vals = vals.astype(float)
+        self._values[key] = vals
+        return vals
+
+    def subject_means(self) -> pd.DataFrame:
+        """Průměr každé feature po osobách (víc nahrávek = průměr), spočtený jednou."""
+        if self._means is None:
+            columns = [c for c in self.frame.columns if is_feature_column(str(c))]
+            if meta.SUBJECT not in self.frame or not columns:
+                self._means = pd.DataFrame()
+            else:
+                numeric = self.frame[columns].apply(pd.to_numeric, errors="coerce")
+                self._means = numeric.groupby(self.frame[meta.SUBJECT]).mean()
+        return self._means
 
     def stats(self, column: str) -> Stats | None:
         """Průměr a SD v původních jednotkách; None, když chybí data nebo rozptyl."""
@@ -212,20 +235,15 @@ class Selection:
         u pacienta ve `visit_values`), hodnoty otočené k patologii. Prázdná
         řada, když sloupec chybí nebo nemá rozptyl.
         """
-        if column not in self.frame or meta.SUBJECT not in self.frame:
+        means = self.subject_means()
+        if column not in means:
             return pd.Series(dtype=float)
         ref = self.values(column, log=log)
         if len(ref) < 2 or not float(ref.std(ddof=1)) > 0:
             return pd.Series(dtype=float)
-        raw = pd.to_numeric(self.frame[column], errors="coerce")
-        per = (
-            pd.DataFrame({"subject": self.frame[meta.SUBJECT], "value": raw})
-            .dropna()
-            .groupby("subject")["value"]
-            .mean()
-        )
+        per = means[column].dropna()
         if log:
-            per = per[per > 0].map(math.log)
+            per = np.log(per[per > 0])
         z = (per - float(ref.mean())) / float(ref.std(ddof=1))
         z = z.abs() if direction == BOTH else z * direction
         return z.astype(float)
