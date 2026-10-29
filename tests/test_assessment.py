@@ -11,10 +11,13 @@ from pytestqt.qtbot import QtBot
 from test_norms import HNR, JIT, RATE, controls_frame
 from test_visits import make_run
 
+from speechscope_app.backend.assessment_build import Patient, new_plan
+from speechscope_app.backend.norm_build import TaskPlan, default_protocol
 from speechscope_app.backend.norms import Norm, NormInfo
+from speechscope_app.backend.protocol import builtin_protocols
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import PAGE_ASSESSMENT, PAGE_RESULTS, MainWindow
-from speechscope_app.ui.pages.assessment import format_number, worst_band
+from speechscope_app.ui.pages.assessment import PendingCard, format_number, worst_band
 from speechscope_app.ui.widgets.spider_chart import Axis, SpiderChart, format_sd
 
 PAUSE = "acoustic.timing.pauses.median"  # jediná položka dimenze Pauzy a tempo
@@ -277,6 +280,36 @@ def test_norm_protocol_mismatch_is_shown(qtbot: QtBot, settings: AppSettings) ->
     page.save_from(dialog)
     assert page.recordings.item(0, 3).text() == "jiný protokol než norma"
     assert "jen orientační" in page.recordings_note.text()
+
+
+def test_recompute_with_pending_plan_in_list(qtbot: QtBot, settings: AppSettings) -> None:
+    """Rozpracované hodnocení v seznamu nesmí shodit přepočet štítků (PendingCard nemá visit)."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    save_norm(settings.norms_dir())
+    proto = default_protocol("phonation", builtin_protocols()).to_dict()
+    new_plan(
+        settings.assessments_dir(),
+        Patient("P-099", 70, "f", "2026-10-20"),
+        "cs",
+        [TaskPlan("phonation", proto, [settings.work_root / "x.wav"])],
+    ).save()
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.assessment_page
+    window.nav.setCurrentRow(PAGE_ASSESSMENT)
+    dialog = page.make_dialog(initial=recording(page, "P-017_fonace.wav"))
+    qtbot.addWidget(dialog)
+    assert page.save_from(dialog) is not None
+    assert page.count() == 2 and isinstance(page.card(0), PendingCard)
+    page.select_row(1)
+    assert page.card(1).pill.text() == "mimo normu"
+    page.same_sex.setChecked(False)  # přepočet projde všechny karty včetně rozpracované
+    page.window_combo.setCurrentIndex(3)
+    assert page.evaluation() is not None and page.card(1).pill.text() == "mimo normu"
+    assert page.card(0).title.text() == "P-099"
+    page.select_row(0)
+    assert page.current_plan() is not None and not page.plan_detail.isHidden()
 
 
 def test_spider_chart_and_formatting(qtbot: QtBot) -> None:

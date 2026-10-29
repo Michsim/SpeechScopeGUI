@@ -1048,6 +1048,8 @@ class AssessmentPage(QWidget):
         self.image_btn.setEnabled(bool(self._evaluation.shown))
         # štítky v seznamu podle téže normy a téhož okna
         for card in self._cards:
+            if not isinstance(card, VisitCard):
+                continue  # rozpracované hodnocení má štítek z plánu, na normě nezávisí
             band = (
                 worst_band(self._evaluate(card.visit, norm))
                 if card.visit is not visit

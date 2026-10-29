@@ -247,8 +247,9 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   Stránka se obnoví při zobrazení a po skončeném běhu.
 - **Hodnocení z nahrávek** (mockup https://claude.ai/artifact/EELCDHfXjB8aHzdxxV2DJ5,
   `docs/mockups/hodnoceni-z-nahravek/` mimo git): Nové hodnocení… se nejdřív
-  zeptá (`NewAssessmentChoiceDialog`: z nahrávek / z hotových běhů; z Výsledků
-  rovnou z hotových). Průvodce `ui/assessment_build_dialog.py`
+  zeptá (`NewAssessmentChoiceDialog`: dvě klikací karty `ChoiceCard` z nahrávek /
+  z hotových běhů, role karty `option`/`chosen` v theme, dvojklik potvrdí;
+  z Výsledků rovnou z hotových). Průvodce `ui/assessment_build_dialog.py`
   (`AssessmentFromRecordingsDialog`): pacient, věk, pohlaví, datum, jazyk a
   složka s nahrávkami na úlohu (sdílí `TaskRow` s Novou normou; složka
   s `manifest.csv` se sloupcem `task` vyplní i ostatní úlohy a údaje
