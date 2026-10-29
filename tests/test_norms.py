@@ -70,10 +70,12 @@ def norm() -> Norm:
 
 
 def test_select_age_window_and_sex(norm: Norm) -> None:
-    sel = norm.select("phonation", age=64)
-    assert sel.window == 10 and not sel.widened and sel.n >= 15
+    sel = norm.select("phonation", age=64)  # výchozí ±5: 60 kontrol 40 až 85 dá v okně 15
+    assert sel.window == 5 and not sel.widened and sel.n >= 15
     lo, hi = sel.age_range
-    assert lo >= 54 and hi <= 74
+    assert lo >= 59 and hi <= 69
+    wide = norm.select("phonation", age=64, window=10)
+    assert wide.window == 10 and not wide.widened and wide.n > sel.n
     both = norm.select("phonation", age=64, sex="m", same_sex=True)
     assert both.same_sex and both.n_female == 0 and both.n_male == both.n
     # bez věku celá norma
@@ -85,8 +87,10 @@ def test_select_age_window_and_sex(norm: Norm) -> None:
 
 def test_select_widens_when_few_controls() -> None:
     norm = Norm(NormInfo(name="Malá"), controls_frame(n=24))
-    sel = norm.select("phonation", age=85)  # na kraji věku je v okně ±10 jen pár lidí
-    assert sel.widened and sel.n >= 15 and sel.window in (15, 20, None)
+    sel = norm.select("phonation", age=85)  # na kraji věku je v okně ±5 jen pár lidí
+    assert sel.widened and sel.n >= 15 and sel.window in (10, 15, 20, None)
+    sel = norm.select("phonation", age=85, window=10)  # rozšiřuje se jen nad zvolené okno
+    assert sel.widened and sel.window in (15, 20, None)
     tiny = Norm(NormInfo(name="Mini"), controls_frame(n=6))
     sel = tiny.select("phonation", age=60)
     assert sel.window is None and sel.n == 6  # ani bez okna není dost, vrátí se vše

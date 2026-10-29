@@ -66,7 +66,7 @@ from ...backend.dimensions import (
 from ...backend.history import run_key
 from ...backend.library import FeatureInfo, Library, LibraryError
 from ...backend.norm_build import RUNNING
-from ...backend.norms import BOTH, Norm, Selection, all_norms
+from ...backend.norms import BOTH, DEFAULT_WINDOW, Norm, Selection, all_norms
 from ...backend.visits import Recording, Visit, VisitIndex
 from ...i18n import tr
 from .. import theme
@@ -94,10 +94,10 @@ BAND_LABELS: dict[str, str] = {
     "bad": tr("mimo normu"),
 }
 BAND_ROLES: dict[str, str] = {"ok": "ok", "warn": "warn", "bad": "missing"}
-WINDOWS: tuple[tuple[str, int | None], ...] = (
+WINDOWS: tuple[tuple[str, int | None], ...] = (  # výchozí ±5 (30. 10. 2026)
+    ("± 3 let", 3),
+    ("± 5 let", 5),
     ("± 10 let", 10),
-    ("± 15 let", 15),
-    ("± 20 let", 20),
     (tr("bez omezení"), None),
 )
 
@@ -375,6 +375,7 @@ class AssessmentPage(QWidget):
         self.window_combo = QComboBox()
         for label, value in WINDOWS:
             self.window_combo.addItem(label, value)
+        self.window_combo.setCurrentIndex(self.window_combo.findData(DEFAULT_WINDOW))
         self.window_combo.currentIndexChanged.connect(self._recompute)
         norm_row.addWidget(self.window_combo)
         self.same_sex = QCheckBox(tr("jen stejné pohlaví"))

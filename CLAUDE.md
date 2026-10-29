@@ -169,8 +169,10 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   (`backend/norms.py`): tabulka kontrol se sloupci `subject`, `task`, `age`,
   `sex` a feature, žádné cesty ani jména. Přibalené v `speechscope_app/norms/`
   (zatím žádná), vlastní v `settings.norms_dir()`. `Norm.select(task, age, sex)`
-  vybere kontroly ve věkovém okně ±10 let (`DEFAULT_WINDOW`), pod 15 kontrol
-  (`MIN_CONTROLS`) okno rozšíří na ±15, ±20, bez okna a označí `widened`;
+  vybere kontroly ve věkovém okně ±5 let (`DEFAULT_WINDOW`, do 30. 10. 2026 ±10;
+  na Hodnocení volba ±3, ±5, ±10, bez omezení), pod 15 kontrol
+  (`MIN_CONTROLS`) okno rozšíří na další z ±5, ±10, ±15, ±20, pak bez okna
+  (`WIDER_WINDOWS`) a označí `widened`;
   `same_sex` se pustí dřív než věk. `Selection.score` dává z-skóre otočené
   k patologii (kladné = horší), percentil mezi kontrolami a pásmo
   `ok` < 1 SD < `warn` < 2 SD < `bad`; `log=True` počítá po logaritmu.

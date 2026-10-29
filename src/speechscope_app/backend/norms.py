@@ -40,8 +40,8 @@ NORM_FILE = "norm.yaml"
 CONTROLS_FILE = "controls.csv"
 FORMAT_VERSION = 1
 
-DEFAULT_WINDOW = 10  # ± let kolem věku pacienta
-WIDER_WINDOWS: tuple[int | None, ...] = (15, 20, None)  # když je kontrol málo; None = bez okna
+DEFAULT_WINDOW = 5  # ± let kolem věku pacienta (do 30. 10. 2026 bylo 10)
+WIDER_WINDOWS: tuple[int, ...] = (5, 10, 15, 20)  # když je kontrol málo, pak bez okna
 MIN_CONTROLS = 15  # pod tolik se okno rozšíří
 RECOMMENDED_CONTROLS = 20  # pod tolik vlastní norma varuje
 
@@ -351,7 +351,9 @@ class Norm:
         for use_sex in (True, False) if want_sex else (False,):
             pool = rows[rows[meta.SEX] == sex] if use_sex else rows
             windows: tuple[int | None, ...] = (
-                (window, *WIDER_WINDOWS) if age is not None else (None,)
+                (window, *(w for w in WIDER_WINDOWS if window is None or w > window), None)
+                if age is not None
+                else (None,)
             )
             for i, w in enumerate(windows):
                 if w is None or meta.AGE not in pool:
