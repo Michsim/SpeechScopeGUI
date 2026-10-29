@@ -203,6 +203,31 @@ class Selection:
             return None
         return Stats(float(vals.mean()), sd, int(len(vals)))
 
+    def control_z(self, column: str, *, direction: int = HIGHER, log: bool = False) -> pd.Series:
+        """Z-skóre každé vybrané kontroly stejným postupem jako `score` pacienta.
+
+        Index je osoba (víc nahrávek jedné osoby = průměr hodnot, jako
+        u pacienta ve `visit_values`), hodnoty otočené k patologii. Prázdná
+        řada, když sloupec chybí nebo nemá rozptyl.
+        """
+        if column not in self.frame or meta.SUBJECT not in self.frame:
+            return pd.Series(dtype=float)
+        ref = self.values(column, log=log)
+        if len(ref) < 2 or not float(ref.std(ddof=1)) > 0:
+            return pd.Series(dtype=float)
+        raw = pd.to_numeric(self.frame[column], errors="coerce")
+        per = (
+            pd.DataFrame({"subject": self.frame[meta.SUBJECT], "value": raw})
+            .dropna()
+            .groupby("subject")["value"]
+            .mean()
+        )
+        if log:
+            per = per[per > 0].map(math.log)
+        z = (per - float(ref.mean())) / float(ref.std(ddof=1))
+        z = z * direction
+        return z.astype(float)
+
     def score(
         self, column: str, value: float | None, *, direction: int = HIGHER, log: bool = False
     ) -> Score | None:

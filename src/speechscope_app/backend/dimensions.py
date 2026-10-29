@@ -3,9 +3,17 @@
 Definice je v `assets/dimensions.yaml`: dimenze → položky (sloupec, úlohy,
 směr patologie, logaritmus). Vyhodnocení dostane hodnoty vyšetření po
 úlohách (jedna nebo víc nahrávek na úlohu, bere se průměr), normu a věk a
-pohlaví pacienta, a vrátí pro každou dimenzi skóre (průměr z-skóre položek
-otočených k patologii), položky s čísly a důvod, proč dimenze nebo položka
-chybí. Pavouk kreslí jen dimenze se skóre.
+pohlaví pacienta, a vrátí pro každou dimenzi skóre, položky s čísly a důvod,
+proč dimenze nebo položka chybí. Pavouk kreslí jen dimenze se skóre.
+
+Skóre dimenze: průměr z-skóre položek otočených k patologii se ještě
+standardizuje rozdělením téhož průměru u vybraných kontrol. Průměr víc
+z-skóre má totiž SD menší než 1 (u nezávislých položek 1/√k), takže by
+hranice 1 a 2 SD byly příliš mírné a dimenze s různým počtem položek
+nesrovnatelné. Kontrola dostane skóre jen z položek, které má pacient;
+kontroly bez některé z nich se do rozdělení neberou (když by jich zbylo
+méně než `MIN_REFERENCE`, vezmou se i neúplné). Percentil dimenze je
+pořadí pacienta mezi kontrolami.
 """
 
 from __future__ import annotations
@@ -143,12 +151,19 @@ class ItemResult:
         return self.score.band if self.score else ""
 
 
+MIN_REFERENCE = 5  # pod tolik úplných kontrol se rozdělení dimenze bere i z neúplných
+
+
 @dataclass(slots=True)
 class DimensionResult:
     dimension: Dimension
-    score: float | None  # průměr z položek otočených k patologii; None = bez dat
+    score: float | None  # SD od kontrol (kladné = horší), viz docstring modulu; None = bez dat
     items: list[ItemResult]
     reason: str = ""  # proč dimenze chybí; prázdné = má skóre
+    raw: float | None = None  # prostý průměr z-skóre položek před standardizací
+    percentile: float | None = None  # podíl kontrol, které jsou na tom lépe nebo stejně
+    control_sd: float | None = None  # SD prostého průměru u kontrol; None = nešlo spočítat
+    n_controls: int = 0  # kolik kontrol rozdělení dimenze dalo
 
     @property
     def band(self) -> str:
@@ -179,6 +194,42 @@ class Evaluation:
 
 def _task_label(task: str) -> str:
     return contract.TASK_SHORT.get(task, task)
+
+
+def _reference(items: list[ItemResult], selections: dict[str, Selection]) -> pd.Series:
+    """Prostý průměr z-skóre týchž položek u každé kontroly (index = osoba)."""
+    columns = {
+        f"{i.task}:{i.item.column}": selections[i.task].control_z(
+            i.item.column, direction=i.item.direction, log=i.item.log
+        )
+        for i in items
+        if i.score is not None
+    }
+    table = pd.DataFrame(columns)
+    if table.empty:
+        return pd.Series(dtype=float)
+    complete = table.dropna()
+    if len(complete) >= MIN_REFERENCE:
+        return complete.mean(axis=1)
+    return table.dropna(how="all").mean(axis=1)
+
+
+def _dimension_result(
+    dim: Dimension, items: list[ItemResult], reference: pd.Series
+) -> DimensionResult:
+    zs = [i.score.z for i in items if i.score is not None]
+    raw = sum(zs) / len(zs)
+    result = DimensionResult(dim, raw, items, raw=raw)
+    if len(reference) < 2:
+        return result
+    sd = float(reference.std(ddof=1))
+    if not sd > 0:
+        return result
+    result.score = (raw - float(reference.mean())) / sd
+    result.percentile = 100.0 * float((reference <= raw).mean())
+    result.control_sd = sd
+    result.n_controls = int(len(reference))
+    return result
 
 
 def evaluate(
@@ -230,9 +281,8 @@ def evaluate(
                 )
                 reason = "" if score else tr("norma nemá pro tento sloupec dost kontrol")
                 items.append(ItemResult(item, task, value, score, reason))
-        scored = [i.score.z for i in items if i.score is not None]
-        if scored:
-            results.append(DimensionResult(dim, sum(scored) / len(scored), items))
+        if any(i.score is not None for i in items):
+            results.append(_dimension_result(dim, items, _reference(items, selections)))
             continue
         if items:
             # vyšetření úlohu má, ale norma nebo tabulka ne: důvod z položky

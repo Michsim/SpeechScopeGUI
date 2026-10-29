@@ -199,8 +199,15 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   s `NormInfo.protocols`.
 - **Dimenze** (`assets/dimensions.yaml`, `backend/dimensions.py`): dimenze →
   položky (sloupec, úlohy, směr `higher`/`lower`, `log`). `evaluate` bere
-  hodnoty vyšetření po úlohách (víc nahrávek = průměr po feature), skóre dimenze je průměr
-  z položek, dimenze bez položky má `reason` a v pavouku není.
+  hodnoty vyšetření po úlohách (víc nahrávek = průměr po feature); skóre dimenze
+  je průměr z-skóre položek **standardizovaný rozdělením téhož průměru
+  u vybraných kontrol** (`Selection.control_z` po osobách, `_reference`:
+  kontroly s úplnou sadou položek pacienta, pod `MIN_REFERENCE` = 5 i neúplné;
+  `DimensionResult.raw`, `control_sd`, `n_controls`, `percentile` = pořadí
+  mezi kontrolami, tooltip na z ve stromu). Důvod (29. 10. 2026, připomínka
+  kolegy): průměr k z-skóre má SD < 1 (nezávislé 1/√k), takže by hranice
+  1 a 2 SD byly příliš mírné a dimenze s různým počtem položek nesrovnatelné.
+  Dimenze bez položky má `reason` a v pavouku není.
   `test_dimensions` hlídá, že každá položka existuje v katalogu falešky.
   Výběr položek určil uživatel 28. 10. 2026 (klinický rozum, neměnit bez
   domluvy): Kvalita hlasu = HNR, CPPS, F0 SD z fonace + CPPS ze spontánní

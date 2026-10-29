@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 from test_norms import HNR, JIT, RATE, controls_frame
@@ -114,7 +115,13 @@ def test_evaluate_scores_dimensions_and_explains_missing(tmp_path: Path) -> None
     assert voice.shown and voice.score > 2 and voice.band == "bad" and len(voice.scored) == 2
     assert all(i.score.z > 0 for i in voice.items)  # obě položky otočené k patologii
     assert pauses.shown and pauses.items[0].task == "reading" and pauses.items[0].value == 2.6
-    assert pauses.score == pytest.approx(pauses.items[0].score.z)
+    assert pauses.score == pytest.approx(pauses.items[0].score.z)  # jedna položka: SD kontrol 1
+    assert pauses.control_sd == pytest.approx(1.0) and pauses.n_controls == pauses.items[0].score.n
+    assert pauses.percentile == pytest.approx(pauses.items[0].score.percentile)
+    # dvě málo korelované položky: průměr jejich z má u kontrol SD pod 1, skóre se přeškáluje
+    assert voice.control_sd is not None and 0.5 < voice.control_sd < 1
+    assert voice.score == pytest.approx(voice.raw / voice.control_sd, rel=0.05)
+    assert voice.score > voice.raw and voice.percentile is not None
     assert not language.shown and language.reason == "potřebuje úlohu Spontánní řeč"
     assert [r.dimension.key for r in ev.shown] == ["voice", "pauses"]
     assert ev.missing == [language]
@@ -131,3 +138,30 @@ def test_evaluate_scores_dimensions_and_explains_missing(tmp_path: Path) -> None
     item_jit, item_hnr = ev3.results[0].items
     assert item_jit.score is None and item_jit.reason == "hodnota chybí" and item_hnr.score
     assert ev3.selections["phonation"].window is None  # bez věku celá norma
+
+
+def test_dimension_score_is_standardized_by_controls() -> None:
+    """Průměr k nezávislých z-skóre má SD 1/√k; po standardizaci kontrolami je zase 1."""
+    rng = np.random.default_rng(3)
+    n = 200
+    cols = [f"acoustic.x.y.c{i}" for i in range(4)]
+    frame = pd.DataFrame({"subject": [f"HC{i}" for i in range(n)], "task": "phonation"})
+    for c in cols:
+        frame[c] = rng.normal(0, 1, n)
+    norm = Norm(NormInfo(name="Nezávislé"), frame)
+    dims = [Dimension("d", "D", [Item(c, ("phonation",), HIGHER) for c in cols])]
+    patient = pd.DataFrame({c: [1.5] for c in cols})  # každá položka +1,5 SD
+    ev = evaluate(dims, {"phonation": patient}, norm)
+    (d,) = ev.results
+    assert d.raw == pytest.approx(1.5, abs=0.15)
+    assert d.control_sd == pytest.approx(0.5, abs=0.08)  # 1/√4
+    assert d.score == pytest.approx(3.0, abs=0.4) and d.band == "bad"
+    assert d.n_controls == n and d.percentile is not None and d.percentile > 95
+    # kontrola bez jedné položky se do rozdělení nebere, dokud je úplných dost
+    frame.loc[frame.index[:10], cols[0]] = float("nan")
+    ev2 = evaluate(dims, {"phonation": patient}, Norm(NormInfo(name="Díry"), frame))
+    assert ev2.results[0].n_controls == n - 10
+    # pod MIN_REFERENCE úplných kontrol se berou i neúplné
+    frame.loc[frame.index[10:], cols[1]] = float("nan")
+    ev3 = evaluate(dims, {"phonation": patient}, Norm(NormInfo(name="Děravé"), frame))
+    assert ev3.results[0].n_controls == n and ev3.results[0].score is not None

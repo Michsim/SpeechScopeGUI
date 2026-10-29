@@ -1161,6 +1161,7 @@ class AssessmentPage(QWidget):
                 ]
             )
             top.setData(0, Qt.ItemDataRole.UserRole, result)
+            top.setToolTip(4, _score_tooltip(result))
             font = top.font(0)
             font.setBold(True)
             top.setFont(0, font)
@@ -1372,10 +1373,24 @@ def _selection_part(task: str, sel: Selection) -> str:
 
 
 def _percentile_text(result: DimensionResult) -> str:
+    if result.percentile is not None:
+        return f"{result.percentile:.0f}"
     scored = result.scored
     if not scored:
         return ""
     return f"{sum(i.score.percentile for i in scored) / len(scored):.0f}"
+
+
+def _score_tooltip(result: DimensionResult) -> str:
+    if result.score is None or result.raw is None:
+        return ""
+    if result.control_sd is None:
+        return tr("Prostý průměr z-skóre položek; rozdělení u kontrol nešlo spočítat.")
+    return tr(
+        "Průměr z-skóre položek {raw} přepočtený na SD kontrol (u {n} kontrol má SD {sd})."
+    ).format(
+        raw=format_number(result.raw), n=result.n_controls, sd=format_number(result.control_sd)
+    )
 
 
 def _colorize(item: QTreeWidgetItem, band: str) -> None:
