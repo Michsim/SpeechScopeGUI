@@ -13,6 +13,7 @@ import pytest
 from speechscope_app.backend import meta
 from speechscope_app.backend import norms as norms_mod
 from speechscope_app.backend.norms import (
+    BOTH,
     HIGHER,
     LOWER,
     Norm,
@@ -104,7 +105,27 @@ def test_score_direction_log_and_percentile(norm: Norm) -> None:
     assert sel.score(JIT, -1.0, log=True) is None  # logaritmus záporného čísla
     assert sel.score("acoustic.nope", 1.0) is None
     assert band(0.99) == "ok" and band(1.0) == "warn" and band(2.0) == "bad"
+    # strana odchylky zůstává i po otočení
     assert worse.mean == pytest.approx(sel.stats(JIT).mean) and worse.n == 60
+    assert low_hnr.signed_z < 0 and worse.signed_z > 0
+
+
+def test_score_both_directions(norm: Norm) -> None:
+    """Směr BOTH: odchylka na kteroukoli stranu je horší, z v absolutní hodnotě."""
+    sel = norm.select("reading")
+    slow = sel.score(RATE, 3.0, direction=BOTH)
+    fast = sel.score(RATE, 5.4, direction=BOTH)
+    assert slow is not None and fast is not None
+    assert slow.z > 2 and slow.signed_z < 0 and slow.band == "bad"
+    assert fast.z > 2 and fast.signed_z > 0 and fast.band == "bad"
+    assert slow.percentile > 95 and fast.percentile > 95
+    typical = sel.score(RATE, 4.2, direction=BOTH)
+    assert typical is not None and typical.z < 0.5 and typical.percentile < 40
+    # kontroly: |z| po osobách, průměr nad nulou
+    cz = sel.control_z(RATE, direction=BOTH)
+    assert len(cz) == sel.n and (cz >= 0).all() and 0.6 < cz.mean() < 1.0
+    plain = sel.control_z(RATE, direction=LOWER)
+    assert abs(float(plain.mean())) < 1e-9 and float(plain.std(ddof=1)) == pytest.approx(1.0)
 
 
 def test_build_norm_from_run_tables_with_aliases(tmp_path: Path) -> None:

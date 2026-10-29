@@ -54,11 +54,18 @@ from ...backend.assessments import (
     norm_match,
     resolve,
 )
-from ...backend.dimensions import Dimension, DimensionResult, Evaluation, evaluate, load_dimensions
+from ...backend.dimensions import (
+    Dimension,
+    DimensionResult,
+    Evaluation,
+    ItemResult,
+    evaluate,
+    load_dimensions,
+)
 from ...backend.history import run_key
 from ...backend.library import FeatureInfo, Library, LibraryError
 from ...backend.norm_build import RUNNING
-from ...backend.norms import Norm, Selection, all_norms
+from ...backend.norms import BOTH, Norm, Selection, all_norms
 from ...backend.visits import Recording, Visit, VisitIndex
 from ...i18n import tr
 from .. import theme
@@ -1033,7 +1040,7 @@ class AssessmentPage(QWidget):
         for result in self._evaluation.shown:
             pills.append(
                 (
-                    f"{result.dimension.display_name} {format_sd(result.score or 0.0)}",
+                    f"{_dimension_label(result)} {format_sd(result.score or 0.0)}",
                     BAND_ROLES.get(result.band, "neutral"),
                     "",
                     None,
@@ -1119,7 +1126,7 @@ class AssessmentPage(QWidget):
         return "\n".join(lines)
 
     def _fill_chart(self, evaluation: Evaluation) -> None:
-        axes = [Axis(r.dimension.display_name, r.score or 0.0, r.band) for r in evaluation.shown]
+        axes = [Axis(_dimension_label(r), r.score or 0.0, r.band) for r in evaluation.shown]
         self.chart.set_axes(axes)
         missing = [
             f"{r.dimension.display_name}: {r.reason}" for r in evaluation.missing if r.reason
@@ -1180,6 +1187,8 @@ class AssessmentPage(QWidget):
                         )
                         z_text = format_sd(item.score.z).removesuffix(" SD")
                         pct = f"{item.score.percentile:.0f}"
+                        if item.item.direction == BOTH:
+                            z_text += " \u25b2" if item.score.signed_z >= 0 else " \u25bc"
                     else:
                         norm_text, z_text, pct = item.reason, "", ""
                     child = QTreeWidgetItem(
@@ -1195,6 +1204,7 @@ class AssessmentPage(QWidget):
                     )
                     child.setData(0, Qt.ItemDataRole.UserRole, item)
                     child.setToolTip(0, item.item.column)
+                    child.setToolTip(4, _item_z_tooltip(item))
                     if item.score is not None:
                         _colorize(child, item.band)
                     else:
@@ -1379,6 +1389,24 @@ def _percentile_text(result: DimensionResult) -> str:
     if not scored:
         return ""
     return f"{sum(i.score.percentile for i in scored) / len(scored):.0f}"
+
+
+def _dimension_label(result: DimensionResult) -> str:
+    """Název dimenze; u dimenze z položek `both` se šipkou, kterým směrem pacient vybočil."""
+    arrow = {1: " ▲", -1: " ▼"}.get(result.side, "")
+    return result.dimension.display_name + arrow
+
+
+def _item_z_tooltip(item: ItemResult) -> str:
+    if item.score is None:
+        return ""
+    if item.item.direction == BOTH:
+        side = tr("nad") if item.score.signed_z >= 0 else tr("pod")
+        return tr(
+            "Odchylka na obě strany je horší; pacient je {side} průměrem kontrol "
+            "({z} SD bez otočení)."
+        ).format(side=side, z=format_sd(item.score.signed_z).removesuffix(" SD"))
+    return tr("Kladné = horším směrem.")
 
 
 def _score_tooltip(result: DimensionResult) -> str:

@@ -1,7 +1,10 @@
 """Dimenze řeči (kvalita hlasu, artikulace, prozódie…) a jejich skóre proti normě.
 
 Definice je v `assets/dimensions.yaml`: dimenze → položky (sloupec, úlohy,
-směr patologie, logaritmus). Vyhodnocení dostane hodnoty vyšetření po
+směr patologie `higher` / `lower` / `both`, logaritmus). Směr `both` = odchylka
+na kteroukoli stranu je horší (tempo řeči: zrychlené i zpomalené); z-skóre se
+bere v absolutní hodnotě, percentil mezi kontrolami podle |z|, a strana
+odchylky zůstává ve `Score.signed_z`. Vyhodnocení dostane hodnoty vyšetření po
 úlohách (jedna nebo víc nahrávek na úlohu, bere se průměr), normu a věk a
 pohlaví pacienta, a vrátí pro každou dimenzi skóre, položky s čísly a důvod,
 proč dimenze nebo položka chybí. Pavouk kreslí jen dimenze se skóre.
@@ -31,6 +34,7 @@ from .. import contract, i18n
 from ..i18n import tr
 from . import meta
 from .norms import (
+    BOTH,
     DEFAULT_WINDOW,
     HIGHER,
     LOWER,
@@ -48,7 +52,7 @@ DIMENSIONS_FORMAT = 1
 class Item:
     column: str
     tasks: tuple[str, ...]
-    direction: int = HIGHER  # HIGHER: vyšší = horší, LOWER: nižší = horší
+    direction: int = HIGHER  # HIGHER: vyšší = horší, LOWER: nižší = horší, BOTH: obojí
     log: bool = False
 
     @property
@@ -76,15 +80,16 @@ class Dimension:
 
 def _parse_item(data: dict[str, Any]) -> Item:
     direction = str(data.get("direction", "higher")).lower()
-    if direction not in ("higher", "lower"):
-        raise ValueError(f"položka {data.get('column')!r}: směr musí být higher nebo lower")
+    directions = {"higher": HIGHER, "lower": LOWER, "both": BOTH}
+    if direction not in directions:
+        raise ValueError(f"položka {data.get('column')!r}: směr musí být higher, lower nebo both")
     tasks = data.get("tasks") or ([data["task"]] if data.get("task") else [])
     if not tasks:
         raise ValueError(f"položka {data.get('column')!r}: chybí úlohy")
     return Item(
         column=str(data["column"]),
         tasks=tuple(contract.canonical_task(str(t)) for t in tasks),
-        direction=HIGHER if direction == "higher" else LOWER,
+        direction=directions[direction],
         log=bool(data.get("log", False)),
     )
 
@@ -172,6 +177,16 @@ class DimensionResult:
     @property
     def scored(self) -> list[ItemResult]:
         return [i for i in self.items if i.score is not None]
+
+    @property
+    def side(self) -> int:
+        """Strana odchylky u dimenze ze samých položek `both`: 1 nad kontrolami,
+        -1 pod nimi, 0 když se položky neshodnou nebo směr není `both`."""
+        scored = self.scored
+        if not scored or any(i.item.direction != BOTH for i in scored):
+            return 0
+        signs = {1 if i.score.signed_z >= 0 else -1 for i in scored}
+        return signs.pop() if len(signs) == 1 else 0
 
     @property
     def shown(self) -> bool:

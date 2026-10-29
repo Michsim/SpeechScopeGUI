@@ -12,15 +12,16 @@ from test_norms import HNR, JIT, RATE, controls_frame
 from test_visits import make_run
 
 from speechscope_app.backend.assessment_build import Patient, new_plan
+from speechscope_app.backend.dimensions import Dimension, Item
 from speechscope_app.backend.norm_build import TaskPlan, default_protocol
-from speechscope_app.backend.norms import Norm, NormInfo
+from speechscope_app.backend.norms import BOTH, Norm, NormInfo
 from speechscope_app.backend.protocol import builtin_protocols
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import PAGE_ASSESSMENT, PAGE_RESULTS, MainWindow
 from speechscope_app.ui.pages.assessment import PendingCard, format_number, worst_band
 from speechscope_app.ui.widgets.spider_chart import Axis, SpiderChart, format_sd
 
-PAUSE = "acoustic.timing.pauses.median"  # jediná položka dimenze Pauzy a tempo
+PAUSE = "acoustic.timing.pauses.median"  # jediná položka dimenze Pauzy
 
 
 @pytest.fixture
@@ -194,12 +195,12 @@ def test_manual_assessment_create_score_edit_and_delete(
     assert worst_band(ev) == "bad" and page.header.property("role") == "missing"
     assert page.card(0).pill.text() == "mimo normu"
     axes = page.chart.axes()
-    assert [a.label for a in axes] == ["Kvalita hlasu", "Pauzy a tempo"] and axes[0].band == "bad"
+    assert [a.label for a in axes] == ["Kvalita hlasu", "Pauzy"] and axes[0].band == "bad"
     assert "Jazyk: potřebuje úlohu Spontánní řeč" in page.missing_label.text()
     assert page.tree.topLevelItemCount() == 7
     voice = page.tree.topLevelItem(0)
-    assert voice.text(0) == "Kvalita hlasu" and voice.childCount() == 3 and voice.isExpanded()
-    hnr = voice.child(0)  # HNR, CPPS, F0 SD z fonace; CPPS ze spontánní řeči tu není
+    assert voice.text(0) == "Kvalita hlasu" and voice.childCount() == 2 and voice.isExpanded()
+    hnr = voice.child(0)  # HNR a CPP z fonace; CPP ze spontánní řeči tu není
     assert hnr.text(1) == "Fonace" and hnr.text(2).startswith("12,0")
     assert "Fonace: " in page.selection_label.text() and "jen muži" in page.selection_label.text()
     assert "60 osob" in page.about.text() and page.image_btn.isEnabled()
@@ -310,6 +311,29 @@ def test_recompute_with_pending_plan_in_list(qtbot: QtBot, settings: AppSettings
     assert page.card(0).title.text() == "P-099"
     page.select_row(0)
     assert page.current_plan() is not None and not page.plan_detail.isHidden()
+
+
+def test_tree_marks_side_of_both_direction_item(qtbot: QtBot, settings: AppSettings) -> None:
+    """Položka se směrem both ukáže ve stromu, na kterou stranu pacient vybočil."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    save_norm(settings.norms_dir())
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.assessment_page
+    page._dimensions = [Dimension("tempo", "Tempo", [Item(RATE, ("reading",), BOTH)])]
+    dialog = page.make_dialog(initial=recording(page, "P-017_cteni.wav"))
+    qtbot.addWidget(dialog)
+    assert page.save_from(dialog) is not None
+    top = page.tree.topLevelItem(0)
+    assert top.text(0) == "Tempo" and top.childCount() == 1
+    child = top.child(0)
+    assert child.text(4).endswith("▼")  # tempo 2,5 je pod kontrolami (4,2)
+    assert "pod průměrem kontrol" in child.toolTip(4)
+    assert page.evaluation().results[0].band == "bad"
+    # šipka i u osy pavouka a ve štítku hlavičky
+    assert page.chart.axes()[0].label == "Tempo ▼"
+    assert page.header._pill_widgets[0].text().startswith("Tempo ▼")
 
 
 def test_spider_chart_and_formatting(qtbot: QtBot) -> None:

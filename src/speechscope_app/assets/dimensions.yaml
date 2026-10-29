@@ -1,12 +1,9 @@
 # Dimenze řeči pro srovnání s normou (pavouk) a jejich položky.
-#
-# Položka = sloupec tabulky feature, úlohy, ze kterých se bere, a směr
-# patologie: `higher` = vyšší hodnota je horší, `lower` = nižší je horší.
-# `log: true` počítá z-skóre po logaritmu (šikmé rozdělení: pauzy, VOT).
-# Skóre dimenze je průměr z-skóre položek otočených k patologii; položka
-# bez dat se vynechá, dimenze bez jediné položky se v pavouku neukáže.
-# Jména se překládají jako u protokolů (`name_en`).
+# direction: higher = vyšší hodnota je horší, lower = nižší je horší,
+# both = odchylka na kteroukoli stranu je horší (z-skóre v absolutní hodnotě).
+# log: true = z-skóre po logaritmu (šikmé rozdělení: pauzy, VOT).
 format: 1
+
 dimensions:
   - key: voice
     name: Kvalita hlasu
@@ -21,52 +18,44 @@ dimensions:
       - column: acoustic.quality.cpp.cpp
         tasks: [spontaneous]
         direction: lower
-      - column: acoustic.pitch.f0.std
-        tasks: [phonation]
-        direction: higher
-        log: true
 
   - key: articulation
     name: Artikulace
     name_en: Articulation
     items:
-      - column: acoustic.ddk.rate
-        tasks: [ddk]
-        direction: lower
       - column: acoustic.ddk.vot.median
         tasks: [ddk]
         direction: higher
-        #log: true
-      #- column: acoustic.ddk.vowel_length
-      #  tasks: [ddk]
-      #  direction: lower
       - column: acoustic.articulation.vowels.FRI
         tasks: [spontaneous, reading]
         direction: lower
-      #- column: acoustic.timing.speech_rate.articulation_rate
-      #  tasks: [spontaneous, reading]
-      #  direction: lower
-
-  - key: rhythm
-    name: Rytmus řeči
-    name_en: Speech rhythm
-    items:
       - column: acoustic.ddk.regularity
         tasks: [ddk]
         direction: higher
         log: true
-      #- column: acoustic.ddk.deceleration
+      #- column: acoustic.ddk.intensity.rirv
       #  tasks: [ddk]
-      #  direction: higher
-      - column: acoustic.ddk.intensity.rirv
+      #  direction: lower
+
+  - key: tempo
+    name: Tempo řeči
+    name_en: Speech tempo
+    items:
+      - column: acoustic.ddk.rate
         tasks: [ddk]
-        direction: higher
-      #- column: acoustic.timing.speech_rate.speech_rate_variability
-      #  tasks: [spontaneous, reading]
-      #  direction: higher
+        direction: both  # zpomalené i zrychlené (festinace) tempo je patologické
       - column: acoustic.timing.speech_rate.articulation_rate
         tasks: [spontaneous, reading]
-        direction: lower
+        direction: both
+
+  - key: pauses
+    name: Pauzy
+    name_en: Pauses
+    items:
+      - column: acoustic.timing.pauses.median
+        tasks: [spontaneous, reading]
+        direction: higher
+        log: true
 
   - key: prosody
     name: Prozódie
@@ -79,25 +68,16 @@ dimensions:
         tasks: [reading, spontaneous]
         direction: lower
 
-  - key: pauses
-    name: Pauzy a tempo
-    name_en: Pauses and tempo
-    items:
-      - column: acoustic.timing.pauses.median
-        tasks: [spontaneous, reading]
-        direction: higher
-        #log: true
-
   - key: breathing
     name: Dýchání
     name_en: Breathing
     items:
       - column: acoustic.timing.breaths.per_minute
         tasks: [spontaneous, reading]
-        direction: higher
+        direction: both
       - column: acoustic.timing.breaths.median
         tasks: [spontaneous, reading]
-        direction: higher
+        direction: both
         log: true
 
   - key: language

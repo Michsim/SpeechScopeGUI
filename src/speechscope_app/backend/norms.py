@@ -46,6 +46,7 @@ RECOMMENDED_CONTROLS = 20  # pod tolik vlastní norma varuje
 
 HIGHER = 1  # vyšší hodnota = horší
 LOWER = -1
+BOTH = 0  # odchylka na kteroukoli stranu = horší (z-skóre v absolutní hodnotě)
 
 _FEATURE_PREFIXES = tuple(f"{d}." for d in contract.DOMAINS)
 
@@ -135,11 +136,12 @@ class Stats:
 @dataclass(slots=True)
 class Score:
     value: float
-    z: float  # otočené k patologii: kladné = horší než norma
+    z: float  # otočené k patologii: kladné = horší než norma; u BOTH absolutní hodnota
     percentile: float  # podíl kontrol, které jsou na tom lépe nebo stejně (0 až 100)
     mean: float  # průměr kontrol v původních jednotkách
     sd: float
     n: int
+    signed_z: float = 0.0  # prosté z-skóre: kladné = nad průměrem kontrol (bez otočení)
 
     @property
     def band(self) -> str:
@@ -225,7 +227,7 @@ class Selection:
         if log:
             per = per[per > 0].map(math.log)
         z = (per - float(ref.mean())) / float(ref.std(ddof=1))
-        z = z * direction
+        z = z.abs() if direction == BOTH else z * direction
         return z.astype(float)
 
     def score(
@@ -240,18 +242,21 @@ class Selection:
         if log:
             if value <= 0:
                 return None
-            vals = self.values(column, log=True)
-            if len(vals) < 2 or not float(vals.std(ddof=1)) > 0:
+            ref = self.values(column, log=True)
+            if len(ref) < 2 or not float(ref.std(ddof=1)) > 0:
                 return None
-            z = (math.log(value) - float(vals.mean())) / float(vals.std(ddof=1))
-            raw = self.values(column)
-            raw = raw[raw > 0]
+            x = math.log(value)
         else:
-            z = (value - plain.mean) / plain.sd
-            raw = self.values(column)
-        z *= direction
-        signed_controls = raw * direction
-        percentile = 100.0 * float((signed_controls <= value * direction).mean())
+            ref = self.values(column)
+            x = float(value)
+        mean, sd = float(ref.mean()), float(ref.std(ddof=1))
+        signed = (x - mean) / sd
+        controls = (ref - mean) / sd
+        if direction == BOTH:
+            z, controls = abs(signed), controls.abs()
+        else:
+            z, controls = signed * direction, controls * direction
+        percentile = 100.0 * float((controls <= z).mean())
         return Score(
             value=float(value),
             z=float(z),
@@ -259,6 +264,7 @@ class Selection:
             mean=plain.mean,
             sd=plain.sd,
             n=plain.n,
+            signed_z=float(signed),
         )
 
 

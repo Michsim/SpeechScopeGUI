@@ -19,7 +19,7 @@ from speechscope_app.backend.dimensions import (
     visit_values,
 )
 from speechscope_app.backend.library import Library
-from speechscope_app.backend.norms import HIGHER, LOWER, Norm, NormInfo
+from speechscope_app.backend.norms import BOTH, HIGHER, LOWER, Norm, NormInfo
 
 
 def test_bundled_dimensions_match_library_catalog(fake_library: Library) -> None:
@@ -27,9 +27,9 @@ def test_bundled_dimensions_match_library_catalog(fake_library: Library) -> None
     assert [d.key for d in dims] == [
         "voice",
         "articulation",
-        "rhythm",
-        "prosody",
+        "tempo",
         "pauses",
+        "prosody",
         "breathing",
         "language",
     ]
@@ -59,6 +59,7 @@ def test_parse_dimensions_validates() -> None:
                     "items": [
                         {"column": "a.b.c", "task": "story", "direction": "lower"},
                         {"column": "a.b.d", "tasks": ["ddk"], "log": True},
+                        {"column": "a.b.e", "tasks": ["ddk"], "direction": "both"},
                     ],
                 }
             ]
@@ -66,6 +67,7 @@ def test_parse_dimensions_validates() -> None:
     )
     assert dims[0].items[0].tasks == ("spontaneous",) and dims[0].items[0].direction == LOWER
     assert dims[0].items[1].direction == HIGHER and dims[0].items[1].log
+    assert dims[0].items[2].direction == BOTH
     assert dims[0].items[0].feature == "a.b.c" and Item("a.b.c.d", ("ddk",)).feature == "a.b.c"
     with pytest.raises(ValueError):
         parse_dimensions({"dimensions": [{"key": "x", "name": "X", "items": [{"column": "c"}]}]})
@@ -165,3 +167,22 @@ def test_dimension_score_is_standardized_by_controls() -> None:
     frame.loc[frame.index[10:], cols[1]] = float("nan")
     ev3 = evaluate(dims, {"phonation": patient}, Norm(NormInfo(name="Děravé"), frame))
     assert ev3.results[0].n_controls == n and ev3.results[0].score is not None
+
+
+def test_evaluate_both_direction_item() -> None:
+    """Položka `both`: pomalé i rychlé tempo vyjde stejně špatně, strana je ve signed_z."""
+    norm = Norm(NormInfo(name="Test"), controls_frame())
+    dims = [Dimension("tempo", "Tempo", [Item(RATE, ("reading",), BOTH)])]
+    slow = evaluate(dims, {"reading": pd.DataFrame({RATE: [3.0]})}, norm).results[0]
+    fast = evaluate(dims, {"reading": pd.DataFrame({RATE: [5.4]})}, norm).results[0]
+    assert slow.shown and fast.shown and slow.band == "bad" and fast.band == "bad"
+    assert slow.items[0].score.signed_z < 0 < fast.items[0].score.signed_z
+    # standardizace kontrolami: |z| má u kontrol průměr ~0,8, typický pacient vyjde kolem nuly
+    typical = evaluate(dims, {"reading": pd.DataFrame({RATE: [4.2]})}, norm).results[0]
+    assert typical.control_sd is not None and typical.score < 0 and typical.band == "ok"
+    assert slow.score > slow.raw  # |z| 2,4 minus průměr kontrol 0,8 děleno SD ~0,6
+    assert slow.side == -1 and fast.side == 1  # strana pro šipku u osy pavouka
+    # smíšené směry nebo položka bez both: bez strany
+    mixed = Dimension("m", "M", [Item(RATE, ("reading",), BOTH), Item(HNR, ("phonation",), LOWER)])
+    rows = {"reading": pd.DataFrame({RATE: [3.0]}), "phonation": pd.DataFrame({HNR: [12.0]})}
+    assert evaluate([mixed], rows, norm).results[0].side == 0

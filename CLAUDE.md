@@ -198,7 +198,13 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   při prohlížení. `norm_match` porovná protokol běhu (`protocol.yaml`)
   s `NormInfo.protocols`.
 - **Dimenze** (`assets/dimensions.yaml`, `backend/dimensions.py`): dimenze →
-  položky (sloupec, úlohy, směr `higher`/`lower`, `log`). `evaluate` bere
+  položky (sloupec, úlohy, směr `higher`/`lower`/`both`, `log`). Směr `both`
+  (29. 10. 2026, tempo řeči je patologické oběma směry): `Selection.score`
+  i `control_z` berou |z|, percentil podle |z|, strana odchylky je ve
+  `Score.signed_z`; strom na Hodnocení u takové položky ukáže ▲/▼ a tooltip,
+  pásmo „lepší než kontroly“ u ní neexistuje. Dimenze ze samých položek
+  `both`, které vybočily stejným směrem, má šipku i u osy pavouka a ve
+  štítku hlavičky (`DimensionResult.side`, `_dimension_label`). `evaluate` bere
   hodnoty vyšetření po úlohách (víc nahrávek = průměr po feature); skóre dimenze
   je průměr z-skóre položek **standardizovaný rozdělením téhož průměru
   u vybraných kontrol** (`Selection.control_z` po osobách, `_reference`:
@@ -209,14 +215,19 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   1 a 2 SD byly příliš mírné a dimenze s různým počtem položek nesrovnatelné.
   Dimenze bez položky má `reason` a v pavouku není.
   `test_dimensions` hlídá, že každá položka existuje v katalogu falešky.
-  Výběr položek určil uživatel 28. 10. 2026 (klinický rozum, neměnit bez
-  domluvy): Kvalita hlasu = HNR, CPPS, F0 SD z fonace + CPPS ze spontánní
-  řeči; Artikulace = DDK tempo, VOT, délka vokálu + FRI a artikulační tempo
-  ze čtení a spontánní řeči (bez VSA, VAI); Rytmus = DDK regularita,
-  zpomalování, RIRV + variabilita tempa (bez VSDR); Prozódie = F0 SD a SD
-  intenzity ze čtení a spontánní řeči (bez F0 rozsahu a bez DDK); Pauzy
-  a tempo = jen medián pauz; Dýchání = nádechy za minutu a medián; Jazyk =
-  MATTR, hustota obsahových slov, MLU, entropie slov.
+  Výběr položek určuje uživatel sám v YAML (klinický rozum, neměnit bez
+  domluvy; naposledy upravil 29. 10. 2026, pořadí voice,
+  articulation, tempo, pauses, prosody, breathing, language): Kvalita hlasu
+  = HNR, CPP (`cpp.cpp`, ne CPPS) z fonace + CPP ze spontánní řeči (bez F0 SD);
+  Artikulace = VOT medián, FRI ze čtení a spontánní řeči, DDK regularita (log)
+  (RIRV zakomentované); Tempo řeči = DDK tempo a artikulační tempo ze čtení
+  a spontánní řeči, obojí `both`; Pauzy = medián pauz (log); Prozódie = F0 SD
+  a SD intenzity ze čtení a spontánní řeči; Dýchání = nádechy za minutu
+  a medián (log), obojí `both`; Jazyk = MATTR, hustota obsahových slov, MLU,
+  entropie slov. Změna
+  YAML se projeví hned při příštím zobrazení (norma má jen surové hodnoty
+  kontrol, z-skóre, log i směr se počítají až při prohlížení), aplikaci stačí
+  restartovat; nová feature v dimenzi musí být i v tabulce normy.
 - **Stránka Hodnocení** (`ui/pages/assessment.py`, `AssessmentPage`): vlevo
   uložená hodnocení (`VisitCard` se štítkem nejhoršího pásma `worst_band`:
   v normě, hraniční, mimo normu, bez normy; úlohy s počtem nahrávek
