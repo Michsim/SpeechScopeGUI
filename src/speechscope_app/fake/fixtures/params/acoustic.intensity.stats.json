@@ -1,7 +1,7 @@
 {
   "kind": "feature",
   "name": "acoustic.intensity.stats",
-  "version": "1.0",
+  "version": "2.0",
   "tasks": [
     "reading",
     "spontaneous"
@@ -9,25 +9,86 @@
   "requires": [],
   "vad": {
     "supported": true,
-    "required": true,
+    "required": false,
     "default": {
-      "reading": true,
-      "spontaneous": true
+      "reading": false,
+      "spontaneous": false
     }
   },
   "description": "",
   "outputs": {
-    "median": "Medián relativní intenzity v řeči (dB)",
-    "mean": "Průměr relativní intenzity v řeči (dB)",
-    "std": "Směrodatná odchylka relativní intenzity v řeči (dB)",
-    "kurt": "Špičatost relativní intenzity v řeči (-)"
+    "median": "Medián relativní intenzity ve znělé řeči (dB)",
+    "mean": "Průměr relativní intenzity ve znělé řeči (dB)",
+    "std": "Směrodatná odchylka relativní intenzity ve znělé řeči (dB)",
+    "kurt": "Špičatost relativní intenzity ve znělé řeči (-)",
+    "voiced_fraction": "Podíl znělých rámců ze signálu, ze kterého se počítalo (0–1)"
   },
   "params": {
+    "envelope": {
+      "default": "praat",
+      "type": "str",
+      "description": "Obálka intenzity: praat (Kaiserovo okno 3.2/min_pitch, krok timestep) nebo moving_average (klouzavý průměr window_duration po vzorcích, verze 1.0)",
+      "choices": [
+        "praat",
+        "moving_average"
+      ]
+    },
+    "min_pitch": {
+      "default": 100.0,
+      "type": "float",
+      "description": "Nejnižší F0 pro Praatovu obálku; okno je 3.2/min_pitch s (Hz)",
+      "gt": 0
+    },
     "window_duration": {
       "default": 0.112,
       "type": "float",
-      "description": "Délka okna obálky intenzity (s)",
+      "description": "Délka okna obálky moving_average (s)",
       "gt": 0
+    },
+    "frames": {
+      "default": "voiced",
+      "type": "str",
+      "description": "Rámce, ze kterých se počítají statistiky: voiced (znělé podle SWIPE) nebo all (všechny, verze 1.0)",
+      "choices": [
+        "voiced",
+        "all"
+      ]
+    },
+    "f_min": {
+      "default": 60.0,
+      "type": "float",
+      "description": "Nejnižší hledaná F0 pro znělost (Hz)",
+      "gt": 0
+    },
+    "f_max": {
+      "default": 400.0,
+      "type": "float",
+      "description": "Nejvyšší hledaná F0 pro znělost (Hz)",
+      "gt": 0
+    },
+    "timestep": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Krok rámců trackeru i Praatovy obálky (s)",
+      "gt": 0
+    },
+    "strength_threshold": {
+      "default": 0.3,
+      "type": "float",
+      "description": "Minimální síla tónu SWIPE, pod kterou je rámec neznělý",
+      "ge": 0,
+      "le": 1
+    },
+    "drop_bounds": {
+      "default": true,
+      "type": "bool",
+      "description": "Rámce, kde SWIPE narazil na f_min nebo f_max, brát jako neznělé"
+    },
+    "min_voiced_seconds": {
+      "default": 2.0,
+      "type": "float",
+      "description": "Nejmenší úhrn znělých rámců (s); pod ním se nic nevydá a důvod jde do notes",
+      "ge": 0
     }
   }
 }

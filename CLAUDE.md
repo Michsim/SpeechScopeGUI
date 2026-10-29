@@ -382,6 +382,15 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   obecná akustika se na úloze ddk nepočítá. Model jde jen z vydání na GitHubu
   s tokenem (`models download --only ddk`), pro kliniky z balíku v3. Dotaz
   před Spustit na nepřipravený provider platí i tady.
+- Intenzita 2.0 a fonace (knihovna 29. 10. 2026, verze zůstala 0.4.0):
+  `acoustic.intensity.stats` počítá jen ze znělých rámců podle SWIPE
+  (Praatova obálka, nový sloupec `voiced_fraction`, VAD volitelný a výchozí
+  vypnutý, `requires` prázdné); perturbace 1.1, CPP 1.2 a MFCC 1.2 u fonace
+  nejdřív ořežou ticho na hlas (`trim_silence`, `trim_margin`). Hodnoty SD
+  intenzity (dimenze Prozódie) i jitter, shimmer, HNR, CPP z fonace jsou
+  proto jiné než ve starších bězích a normách; normu i hodnocení je třeba
+  spočítat znovu, GUI to nepozná (verze knihovny se nezměnila). Fixtury
+  falešky zachycené znovu, kopie dokumentace v `docs/speechscope-library/`.
 - Knihovna zapisuje `features.csv` průběžně po každé nahrávce (přes
   `.part` a přejmenování). Po Zrušit nebo chybě GUI ukáže částečnou
   tabulku. Soubor nesmí být během běhu otevřený v Excelu, **ani GUI ho

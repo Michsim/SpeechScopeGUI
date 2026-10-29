@@ -1,7 +1,7 @@
 {
   "kind": "feature",
   "name": "acoustic.spectral.mfcc",
-  "version": "1.1",
+  "version": "1.2",
   "tasks": [
     "phonation",
     "reading",
@@ -87,6 +87,22 @@
     "global_delta_c1_16": "Mean of the standard deviations of the deltas of c1 to c16"
   },
   "params": {
+    "trim_silence": {
+      "default": "phonation",
+      "type": "str",
+      "description": "Trim silence before the first and after the last voiced frame (SWIPE, F0 settings): phonation (phonation task only), always, never. Not applied with VAD",
+      "choices": [
+        "phonation",
+        "always",
+        "never"
+      ]
+    },
+    "trim_margin": {
+      "default": 0.05,
+      "type": "float",
+      "description": "Margin kept before and after the voice when trimming (s)",
+      "ge": 0
+    },
     "window_length": {
       "default": 25.0,
       "type": "float",

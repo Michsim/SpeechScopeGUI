@@ -137,7 +137,7 @@
   },
   {
     "name": "acoustic.intensity.stats",
-    "version": "1.0",
+    "version": "2.0",
     "tasks": [
       "reading",
       "spontaneous"
@@ -145,16 +145,18 @@
     "requires": [],
     "description": "",
     "outputs": {
-      "median": "Medián relativní intenzity v řeči (dB)",
-      "mean": "Průměr relativní intenzity v řeči (dB)",
-      "std": "Směrodatná odchylka relativní intenzity v řeči (dB)",
-      "kurt": "Špičatost relativní intenzity v řeči (-)"
+      "median": "Medián relativní intenzity ve znělé řeči (dB)",
+      "mean": "Průměr relativní intenzity ve znělé řeči (dB)",
+      "std": "Směrodatná odchylka relativní intenzity ve znělé řeči (dB)",
+      "kurt": "Špičatost relativní intenzity ve znělé řeči (-)",
+      "voiced_fraction": "Podíl znělých rámců ze signálu, ze kterého se počítalo (0–1)"
     },
     "columns": [
       "acoustic.intensity.stats.median",
       "acoustic.intensity.stats.mean",
       "acoustic.intensity.stats.std",
-      "acoustic.intensity.stats.kurt"
+      "acoustic.intensity.stats.kurt",
+      "acoustic.intensity.stats.voiced_fraction"
     ]
   },
   {
@@ -192,7 +194,7 @@
   },
   {
     "name": "acoustic.quality.cpp",
-    "version": "1.1",
+    "version": "1.2",
     "tasks": [
       "phonation",
       "reading",
@@ -211,7 +213,7 @@
   },
   {
     "name": "acoustic.quality.perturbation",
-    "version": "1.0",
+    "version": "1.1",
     "tasks": [
       "phonation"
     ],
@@ -261,7 +263,7 @@
   },
   {
     "name": "acoustic.spectral.mfcc",
-    "version": "1.1",
+    "version": "1.2",
     "tasks": [
       "phonation",
       "reading",

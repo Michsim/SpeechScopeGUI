@@ -15,8 +15,14 @@ aplikace (Flet) žije v samostatném repu a volá odsud CLI jako subprocess.
 - **Jméno feature** = `acoustic.*` nebo `linguistic.*`. Úloha NENÍ ve jménu –
   feature jen deklaruje `tasks`, pro které dává smysl. Stejný kód pro pauzy
   běží na pohádce, monologu i čtení.
-- **Úlohy**: `phonation`, `ddk`, `story` (vyprávění pohádky), `monologue`,
-  `reading` (čtený text). Úloha je vlastnost nahrávky, nedetekuje se.
+- **Úlohy**: `phonation`, `ddk`, `spontaneous` (spontánní řeč: pohádka
+  i monolog), `reading` (čtený text). Úloha je vlastnost nahrávky,
+  nedetekuje se. Od 0.4.0 (28. 10. 2026, necommitováno) jsou dřívější
+  `story` a `monologue` jedna úloha, nikde se nelišily; stará jména jsou
+  aliasy (`signal.TASK_ALIASES`, `canonical_task`, varování jednou za
+  proces) v `discover`, `registry.select`, `Vad.default_for`, `api`
+  a `load_signal`. Výstupní sloupec `task` je vždy `spontaneous`. GUI musí
+  přejít na nové jméno a čekat verzi 0.4.0.
 - **Výběr**: `select(task, domain, names)` v `registry.py`. Feature mimo úlohu
   = `SelectionError`, nikdy tiché NaN. Spouští se jen providery, které vybrané
   feature potřebují (`plan()`), takže `--domain acoustic` nikdy nespustí Whisper.
@@ -55,7 +61,9 @@ aplikace (Flet) žije v samostatném repu a volá odsud CLI jako subprocess.
   `speechscope models download`. **Nikdy nic nenačítat ze složky `legacy/`**,
   ta v provozu nebude existovat.
 - Model je „na místě“ jen se všemi `markers` z katalogu (samotná složka
-  nestačí, zůstane po přerušeném stažení). Stahování i rozbalení jde přes
+  nestačí, zůstane po přerušeném stažení). Výměna staré kopie za novou jde
+  přes `<model>.old` a `_rename_retry` (Windows drží složky kvůli antiviru;
+  12. 9. 2026 to smazalo starou i novou Stanzu). Stahování i rozbalení jde přes
   `<model>.part` a na místo se přejmenuje až hotové (`_install`). Balík pro
   kliniky: `models pack` → zip bez komprese s `manifest.json` (SHA-256),
   `models unpack` ho ověřuje; verze formátu `BUNDLE_VERSION`. Pro kliniky
@@ -69,6 +77,12 @@ aplikace (Flet) žije v samostatném repu a volá odsud CLI jako subprocess.
   na torchi. `transcript.device` je `auto`, `compute_type` taky `auto` – to
   vybere nejrychlejší podporovanou přesnost. Na `float16` trvá dvouminutová
   nahrávka 97 s, na `int8_float16` 46 s, proto je `auto` výchozí.
+- **Whisper bez kontextu předchozího okna.** `transcript.condition_on_previous_text`
+  je `false` (11. 9. 2026): u patologické řeči se jinak dekodér zacyklí
+  a opakuje jednu větu (těžká nahrávka 156 s → 92 s, text bez smyček).
+  `beam_size=5` nechat; beam 1 je 5× rychlejší, ale u těžkých nahrávek
+  kazí text. Když model na kartě spadne (CUDA, paměť), `_get_model`
+  dopočítá na CPU v `int8` a zaloguje to, běh nepadá.
 - **Segmentace jede přes ONNX na procesoru** (sekce níže); torchová cesta
   zůstává jako záloha a přináší `torch+cpu`. Časy torch na dvouminutové
   nahrávce: pyannote 12 s, conformer 39 s.
@@ -158,6 +172,84 @@ Známé meze:
 - Log jde jen na stderr; soubor přes `--log-file`, úroveň `--log-level`.
   GUI má `--log-file` předávat, jinak se nic neukládá.
 
+## Vzdálená plocha a virtuální stroje (11. 9. 2026)
+- **DirectML ve vzdálené ploše (RDP) kartu nevidí**: chyba `C0262002`
+  při vytváření session. `onnx_session.probe_gpu` to zkusí předem,
+  při neúspěchu spadne na CPU a `doctor` hlásí `gpu.remote_session`
+  (RDP relace podle `SESSIONNAME`/`WTSActiveConsole`) a
+  `gpu.onnxruntime_gpu_usable` (false = karta je, ale nejde použít).
+  GUI z toho dělá oranžovou kartu v Prostředí.
+- **Hlášky onnxruntime jdou na stderr.** DirectML sype varování na stdout
+  a rozbíjelo to JSON průběhu; `onnx_session` při vytváření session
+  přesměruje stdout (fd 1) na stderr. Na stdout smí jen `--progress-json`.
+- **VM s kartou přes passthrough v režimu WDDM** (simekm16, RTX PRO 4500,
+  10 vCPU EPYC): Whisper ~80 s na 2 min nahrávky při 8 % využití karty,
+  latence na každý krok dekodéru, beam 1 skoro nepomůže, int8 taky ne.
+  Řešení je režim TCC (`nvidia-smi -dm 1`), ne parametry knihovny.
+  Uživatel zatím nechal být.
+
+## DDK (27. 10. 2026, necommitováno)
+Zdroj `../ddk_stuff_pro_michala/vycistene/` (Melechovsky), kopie skriptů
+v `legacy/ddk/`. Obecná akustika (F0, CPP, LTAS, MFCC) na `ddk` už není.
+- Provider `ddk_events` (`providers/ddk.py`), síť a logika
+  v `providers/backends/ddk_evo.py`, MATLAB náhrady v `matlab_compat.py`
+  (`findpeaks` vrací pozice od 1, logika počítá od 1, ven jde od 0).
+  Výběr slabik (`skip_syllables` 3, `max_syllables` 30, `min_syllables` 18)
+  jsou parametry provideru, ne feature; nedostatek = `DdkEvents.problem`,
+  feature ho vyhodí jako `InsufficientData`. Cache `ddk_events/<zaklad>.txt`
+  (celé vzorky na 16 kHz), selhání detekce jako `# chyba: ...`.
+- Feature `acoustic.ddk.rate|regularity|deceleration|vot|vowel_length|intensity`
+  (`features/acoustic/ddk.py`), jen `tasks={"ddk"}`, jen /pataka/.
+- Model `models/ddk-onnx/` (`ddk_evo.onnx` 628 MB float32, `meta.json` se
+  SHA-256, `convert.py`): tf2onnx 1.16.1, opset 17, vstup `audio`
+  (N, 7200, 1), výstupy E, V, O. Katalog `ddk`, vydání `models-ddk-v1`,
+  příloha `ddk-onnx.zip` (`models pack-onnx --model ddk`), **zatím
+  nenahráno**. Export z knihovny není (TF nesmí do závislostí).
+- Ověřeno: TF vs ONNX max 1.07e-6 na 461 nahrávkách; pozice po step2
+  s ONNX a resampy 0.2.2 shodné s autorovým `EVOfinal2fulltest.mat` 461/461.
+  **Autor převzorkoval resampy 0.2.2**; resampy 0.4.3 (v `.venv` u DDK)
+  dává jiný signál a sedí jen 38/461, takže tvrzení v DDK CLAUDE.md platí
+  jen pro step2. Knihovna převzorkovává soxr ze skutečné fs (legacy natvrdo
+  48 kHz) – vědomá odchylka. Zlatý test `tests/golden/test_golden_ddk.py`
+  (`SPEECHSCOPE_GOLDEN_DDK_DIR`) dává oběma stejné křivky: 461/461 pozice
+  i 8 feature (`rtol` 1e-6).
+- DirectML: pozice shodné s CPU, 0.23 s proti 1.4 s na nahrávku;
+  `onnx_device=auto` výchozí.
+
+## Intenzita 2.0 (29. 10. 2026, necommitováno)
+`acoustic.intensity.stats` měří variabilitu hlasitosti **jen ve znělých
+rámcích**: obálka Praat `To Intensity` (Kaiser 3.2/`min_pitch`=32 ms,
+krok `timestep` 10 ms, dB přepočtené na plný rozsah, sinus amplitudy 1 =
+−3 dB), znělost `pitch.swipe_voiced_frames` (stejná pravidla jako F0 1.1:
+60–400 Hz, síla 0.3, meze ven). VAD volitelný, výchozí vypnutý; bez
+segmentace se liší od conformeru o 0.1–0.3 dB. Nový sloupec
+`voiced_fraction`, pod `min_voiced_seconds` (2 s) InsufficientData.
+Důvod: std dB obálky přes všechnu řeč byla dvouvrcholová a rostla
+s odstupem hlasu od pozadí a s tím, kolik tichého `su` conformer nechá
+v řeči (PN693 monolog 10.7 dB proti normě 6.0 ± 0.7, pyannote 7.1, znělé
+rámce 4.5). Legacy hodnotu dá `envelope=moving_average`, `frames=all`,
+`--vad`; `intensity_stats()` zůstala pro zlatý test beze změny (prošel na
+`zkouska.wav` se složkou sestavenou z `data/` + `work/segments`). Norma
+z kontrol se musí přepočítat: čtení ~5.2 ± 0.9 dB místo 5.8 ± 0.6. Studie
+variant (112 vs 32 ms, Praat ac/cc vs SWIPE, s VAD i bez) je ve scratchpadu
+sezení (`voiced_std*.py`, `*_data2.csv`), do repa nepatří. Testy
+v `test_features_ported2.py`; `test_intenzita_a_pauzy_pres_extract_s_labely`
+teď čeká NaN s důvodem v `notes`, protože syntetika má jen 0.7 s znělé řeči.
+
+## Ořez na hlas u fonace (29. 10. 2026, necommitováno)
+Fonace nemá segmentaci a ticho před nasazením hlasu (PN693a1: 3.3 s) šlo
+do výpočtu. Sdílený helper v `pitch.py`: `voiced_extent` (první až poslední
+znělý rámec SWIPE s rezervou), `should_trim`, `trim_to_voice`, parametry
+`TRIM_PARAMS` (`trim_silence` = phonation | always | never, `trim_margin`
+0.05 s). S VAD (`sig.spans` není None) se ořez nikdy neuplatní, souvislá
+řeč je beze změny, zlaté testy prošly. Zapojeno: perturbace 1.1
+(`keep_middle` se bere z hlasu, ne ze souboru; jitter se podle ticha
+před hlasem měnil o 30 %), CPP 1.2 (medián klesal o 2–5 %), MFCC 1.2
+(std koeficientů několikanásobně). Po ořezu originál a ručně ořezaná kopie
+dávají u CPP a MFCC totéž, u perturbace do 7 % (poloha okna na hranici).
+F0 ořez nemá, `voiced_fraction` u fonace je proto podíl ticha v souboru.
+Testy `tests/test_trim_voice.py`; verze v `test_revision_*` zvednuty.
+
 ## Pravidla pro přenos starých skriptů
 1. Feature funkce nesmí dělat I/O – dostane `Signal`, vrátí čísla.
 2. Konstanty natvrdo → deklarované parametry.
@@ -189,12 +281,12 @@ Známé meze:
 ```
 uv sync --all-extras
 uv run speechscope models download
-uv run speechscope list --task story
+uv run speechscope list --task spontaneous
 uv run speechscope list --params acoustic.pitch.f0
 uv run speechscope segment data/ --model conformer --work-dir work/
 uv run speechscope transcribe data/ --language cs --work-dir work/
 uv run speechscope extract data/ --task phonation --out out/phon.csv
-uv run speechscope extract data/ --task story --vad --work-dir work/ --progress-json
+uv run speechscope extract data/ --task spontaneous --vad --work-dir work/ --progress-json
 uv run pytest
 uv run ruff check src tests
 ```
@@ -212,6 +304,18 @@ mezivýsledek z pracovní složky.
 Totéž `--progress-json` mají `segment` a `transcribe` (`features` prázdné,
 `providers` jednoprvkové, `saved` = pracovní složka).
 
+**Tabulka se zapisuje průběžně.** `extract` s `--out` po každé nahrávce
+přepíše CSV (`api._write_partial`: zápis do `<out>.part` a `os.replace`),
+takže po zrušení nebo pádu zůstane částečný výsledek. Důsledek: během
+běhu nesmí mít soubor nikdo otevřený (Excel, ani GUI), Windows jinak
+přejmenování odmítnou a běh spadne; GUI proto tabulku běžícího běhu
+nečte. Sloupce `notes` a `error` jsou v průběžné verzi vždy, v konečné
+jen když v nich něco je.
+
+**Jazyky modelů.** `doctor --json` i `models list --json` mají u modelu
+pole `languages` (Stanza: `["cs", "en"]`); GUI z něj skládá výběr jazyka
+nahrávek a posílá ho do `transcript.language` i `nlp.language`.
+
 Seznam feature a jejich parametry si GUI vytáhne přes `list --json`
 a `list --params NAME --json`, nic neduplikuje. `--params` bere i jméno
 provideru (`segments`, `transcript`, …), odpověď má `kind`
@@ -224,15 +328,98 @@ Stdout i stderr jsou vždy UTF-8: vstupní bod `cli.run()` volá
 v pyproject je `speechscope.cli:run`, ne `:app`; `app` zůstává pro testy
 (`CliRunner`).
 
-## Stav práce (10. 9. 2026)
+## Stav práce (11. 9. 2026)
 Na `main` je všechno: jádro, CLI, providery, všech osm přenesených
-legacy modulů, okna conformeru, doctor, ONNX segmentace. Poslední commit
-182a051 (časování ze segmentace), 163 testů. Nic necommitovaného kromě tohoto souboru.
+legacy modulů, okna conformeru, doctor, ONNX segmentace, balík modelů.
+Verze 0.2.0 (b8f42bc): smlouva 2 (`begin`, `stage`), průběžný CSV,
+`languages` u modelů, Whisper bez kontextu s dopočtem na CPU; poslední
+commit 04b8df6 (onnxruntime mimo stdout, doctor a vzdálená plocha).
+GUI 0.2.0 tuhle verzi očekává (`contract.KNOWN_LIBRARY_VERSION`).
+Instalátor 0.2.0 z rána poslední dvě opravy neobsahuje, přebalit.
 
 **Nálezy z GUI (10. 9. 2026), opraveno, necommitováno:** UTF-8 výstup bez
 `PYTHONUTF8`, `list --params <provider>` a `list --providers`; 5 nových
 testů v `test_cli.py`. GUI má dočasně opsané parametry providerů
 v `contract.PROVIDER_PARAMS`, po téhle změně je může smazat.
+
+**Revize feature (12. 9. 2026), necommitováno:** lingvistické feature
+vyhazují `InsufficientData` místo `0.0` (MATTR/PMI s oknem širším než
+přepis, n-gramy pod 30 slov, žádné sloveso, žádná tečka); zlatý test to
+čeká v `notes`, protože legacy odvozoval okno z počtu tokenů s mezerou, ale
+slova počítal bez interpunkce a `X`. `linguistic.lexical.npmi` přejmenováno
+na `pmi` (počítá obyčejné PMI z NLTK). MFCC převzorkovává přes `soxr`
+(v základu) místo librosy, bit po bitu shodné s `librosa.resample`, test
+`test_prevzorkovani_mfcc_sedi_na_librosu`. Referenční složka pro zlaté
+testy jde sestavit z `data/` + `work/` (labels, txt, words.json).
+Pokus LTAS: bez převzorkování dává stejná nahrávka ve 48/44.1/22.05 kHz
+jiná čísla (centroid 498/498/494/480, šikmost 6.9/6.8/6.1/5.4, špičatost
+73/71/54/43 pro 48/44.1/22.05/16 kHz); po převzorkování na 16 kHz jsou
+všechny shodné. **Zavedeno:** feature `ltas` verze 1.1 s parametrem
+`analysis_fs` (16000), převzorkování přes `resample_like_librosa` (soxr);
+funkce `ltas()` sama je beze změny, zlatý test wrapperu dává legacy
+stejně převzorkovaný signál. Změna algoritmu, patří do samostatného commitu.
+
+**Revize akustických feature (12. 9. 2026), necommitováno, 247 testů +
+22 zlatých na referenční složce.** Studie a skripty variant jsou ve
+scratchpadu sezení (`studie_akusticke_feature.md`, `exp_*.py`), do repa
+nepatří. Každá změna algoritmu má parametr pro reprodukci legacy hodnoty a
+zlatý test ho nastavuje (nebo dá legacy ekvivalentní vstup):
+- `Signal.spans` + `regions`: po VAD rozsahy řečových úseků ve zřetězeném
+  poli (`SegmentsResult.concatenate_with_spans`, `api._run_feature`,
+  `scale_spans` při převzorkování). CPP 1.1, LTAS 1.2, MFCC 1.1 rámcují po
+  úsecích; bez VAD bit po bitu jako dřív. Tvrdé zřetězení dávalo CPP
+  o 0.7–2.1 dB níž (19–21 % rámců přes hranici).
+- CPP 1.1: `f0_min` 60, `f0_max` 333, `search_offset` 0, `trend_min_q`
+  0.001, `trend_max_q` 0.05 (regresní přímka přes vlastní oblast jako
+  Praat; 0/0 = přes oblast hledání), `aggregate` median (tým chce medián;
+  mean = Praat); nulové rámce se poznávají před normalizací a vždy vyloučí
+  (`_normalize(frames, signal)`). VAD výchozí u story/monologue/reading
+  (i LTAS a MFCC). Legacy: 55/500/0.001/0/0 a `--no-vad`. Proti Praatovu
+  CPPS je průměr s trendem 1–50 ms blíž na 5 ze 6 nahrávek než trend přes
+  oblast hledání, ale rozdíl zůstává 0.5 až 2.3 dB: jiný per-frame
+  algoritmus (Praat preemfáze 50 Hz, krok 2 ms, vyhlazení 20 ms/0.5 ms,
+  robustní fit). Trend nezvedá CPPS systematicky, na PN512 medián
+  9.15 → 6.95.
+- F0 1.1: `drop_bounds` True (rámce na f_min/f_max ven; legacy False),
+  `outlier_semitones` 12 (legacy 0), výstupy `median_hz`,
+  `mean_hz`, `range` (95.–5. percentil, st), `voiced_fraction`; rámec se
+  silou NaN/inf ze SWIPE je neznělý (libf0 dává na tichu F0 = f_min).
+- Nová `acoustic.quality.perturbation` 1.0 (`perturbation.py`, jen
+  `phonation`): jitter local/rap/ppq5, shimmer local/apq3/apq11 v %, HNR dB,
+  parselmouth s výchozími hodnotami Praatu, `keep_middle` 2/3 (prostřední
+  část nahrávky, `middle_portion`); registrace automaticky přes
+  `walk_packages`.
+- Tempo 1.1: `requires` i `segments`; `syllable_method` nuclei (legacy
+  pyphen), `speech_time` words (výchozí, legacy) | segments_in_words
+  (průnik řeči segmentace s intervaly slov, `speech_time_in_words`) |
+  segments; interpunkce se ze slov
+  vždy odstraní (Pyphen dělil `let,` na dvě slabiky); tempo od prvního
+  slova. Zlatý test dává legacy slova bez interpunkce posunutá na nulu.
+- Pauzy 1.2 (tým, varianta B): `pauses` = všechna neřeč (conformer ps+pb,
+  pyannote non-speech), `silences` = jen ps, `breaths` = jen pb (obě jen
+  čtyřtřídní, jinak InsufficientData), `rhythm` = dřívější `segmentation`
+  bez dpi/dbi (DPI = silences.median, DBI = breaths.median s
+  trim_edges=false; `segmentation_timing()` zůstává celá pro zlatý test
+  notebooku). Všechny tři mají stejné sloupce `count`, `per_minute`,
+  `ratio`, `median`, `mean`, `std`, `long_count`, `long_median` a
+  parametry `merge_adjacent` False, `trim_edges` True, `min_pause` 0,
+  `long_pause` 0.22. `breath_ratio` zrušen (= breaths.ratio). Legacy
+  `trim_edges=false`; běžná definice navíc merge True a min_pause 0.25.
+- Artikulace 2.1: `center_method` median (legacy kmeans), `vowel_portion`
+  middle_third (legacy full, náhrada rámcem nejblíž středu), `time_step`
+  0.01 (legacy 0.02), `vowel_quantity` short (vrcholy a poměry),
+  `area_quantity` both (VSA a VAI; legacy short). Skupiny podle kvantity
+  v `QUANTITY_GROUPS`, phnrec značí délku `a:`. VSA klesne
+  o 46–60 %, dnešní hodnoty se s novými nedají srovnávat. Dlouhé samohlásky
+  (`a:` vs `aː`) vyřešeny parametry kvantity (verze 2.1); se započtením
+  F1 /i/ −13 %, jinak do 9 %.
+- Nezavedeno (tým): reference půltónů (`fmin` zůstává, doporučeno `fixed`
+  100 Hz), sloučení pauz a práh (parametry), CPP těsněji k Praatu.
+- Pozor: `data/` má nové nahrávky (HN06, HN07, PN511, PN512); běh
+  `extract data/ --work-dir work` je přepsal Whisperem a `zkouska.words.json`
+  ve `work/` má teď 243 slov místo 258. Referenční kopie pro zlaté testy je
+  ve scratchpadu (`golden/`), sestavuje se z wav + labels.txt + txt +
+  words.json + phonemes.txt.
 
 **Přenesené moduly (117 testů + 9 zlatých naostro):**
 - provider `nlp` (Stanza) a 13 lingvistických feature v
@@ -303,7 +490,37 @@ bez modelů. Celá dávka (2 nahrávky, všechny feature pro monolog,
 `--progress-json`) dala 112 sloupců bez poznámek za 272 s, z toho většina
 Whisper.
 
-**Dál na řadě:** rozhodnutí týmu o odchylkách výše (MATTR okno, dlouhé
+**Překlady popisů (12. 9. 2026), necommitováno:** `texts.py` + katalog
+`translations/en.yaml` (221 klíčů: feature.<jméno>.description|outputs.<sloupec>|params.<parametr>,
+provider.<jméno>.params.<parametr>). `--lang` na úrovni aplikace nastaví
+`SPEECHSCOPE_LANG`, `list` (tabulka, `--json`, `--params`, `--providers`)
+překládá jen popisy; chybějící klíč = česká předloha. `test_texts.py`
+hlídá úplnost každého katalogu proti registru (`texts.all_texts()`).
+Kostru nového jazyka dá `all_texts()`; skript pro angličtinu byl ve
+scratchpadu (`make_en.py`). Nepřekládají se `notes` ani CLI hlášky. **Log je anglicky natvrdo**
+(všech 80 `logger.*` volání, 12. 9. 2026); texty výjimek, které se do
+logu dostávají přes `%s`, zůstávají česky (jsou to `notes`).
+GUI si názvy skupin (např. „Výška“ pro `pitch`) dělá samo; kdyby to
+mělo jít z knihovny, přidat klíče `group.<doména>.<skupina>` do katalogu
+a do `list --json`.
+
+**Jazyky (12. 9. 2026):** `STANZA_LANGUAGES` = cs, en, de,
+it, es, fr (`models download --only stanza` stáhne všechny; jen procesory
+`STANZA_PROCESSORS` = tokenize, mwt, pos, lemma, depparse, bez `default.zip`,
+změřeno 1.5 GB: cs 238, en 322, de 315, it 323, es 314 MB; celý balík by
+byl 5.3 GB). Pipeline v `nlp.py` bere stejné procesory, načtení de 1.3 s. `transcript.check_language` ověří kód proti
+`faster_whisper.tokenizer._LANGUAGE_CODES` před cache i modelem; zjištěný
+jazyk se ukládá do otisku přepisu (`extra={"language": ...}`) a cache ho
+vrací, když je `transcript.language` prázdné. Slabiky: `SyllableRules` a
+`SYLLABLE_RULES` (cs, de, it, es, fr; fr má `separate` a `silent_final_e`)
+v `timing.py`, `syllables_nuclei(word,
+language)`; jazyk bez pravidel spadne na pyphen (log), bez slovníku
+InsufficientData. Testy `tests/test_languages.py` (slova s ručně danými
+slabikami). Artikulace zůstává jen česká (phnrec).
+
+**Dál na řadě (12. 9. 2026):** pojmenování a popisy jednotlivých feature a jejich výstupů (`description`, `outputs`, jména sloupců, tabulka v README, mapování v `docs/design.md` sekce 10). Revize akustických feature je hotová a pushnutá (commity a84e4b4 až cec5d0b).
+
+**Dál na řadě (starší):** rozhodnutí týmu o odchylkách výše (MATTR okno, dlouhé
 samohlásky); GUI musí volat `segment` před `extract --vad`, nebo posílat
 `--set segments.model=...`, protože `auto` bere jen hotovou cache.
 

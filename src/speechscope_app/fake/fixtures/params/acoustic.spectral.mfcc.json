@@ -1,7 +1,7 @@
 {
   "kind": "feature",
   "name": "acoustic.spectral.mfcc",
-  "version": "1.1",
+  "version": "1.2",
   "tasks": [
     "phonation",
     "reading",
@@ -87,6 +87,22 @@
     "global_delta_c1_16": "Průměr směrodatných odchylek delt c1 až c16"
   },
   "params": {
+    "trim_silence": {
+      "default": "phonation",
+      "type": "str",
+      "description": "Ořez ticha před prvním a za posledním znělým rámcem (SWIPE, nastavení jako F0): phonation (jen u fonace), always, never. S VAD se neuplatní",
+      "choices": [
+        "phonation",
+        "always",
+        "never"
+      ]
+    },
+    "trim_margin": {
+      "default": 0.05,
+      "type": "float",
+      "description": "Rezerva ořezu před hlasem a za ním (s)",
+      "ge": 0
+    },
     "window_length": {
       "default": 25.0,
       "type": "float",

@@ -71,9 +71,10 @@ adresář s modely: C:\...\SpeechScope\models
 │ Whisper large-v3 (CTranslate2) │ je   │ 3000 MB  │ provider transcript  │
 │ WavLM base                     │ je   │  380 MB  │ segmentace conformer │
 │ pyannote/segmentation          │ je   │   17 MB  │ segmentace pyannote  │
-│ Stanza (cs, en)                │ je   │  900 MB  │ provider nlp         │
+│ Stanza (cs, en, de, it, es, fr)│ je   │  1800 MB │ provider nlp         │
 │ phnrec, rozpoznávač fonémů     │ je   │   40 MB  │ provider phonemes    │
 │ segmentace v ONNX              │ je   │  500 MB  │ segmentace bez torche│
+│ detektor slabik DDK v ONNX     │ je   │  630 MB  │ provider ddk_events  │
 └────────────────────────────────┴──────┴──────────┴──────────────────────┘
 ```
 
@@ -103,7 +104,7 @@ jsou, se zabalí do jednoho zipu, a na klinice se nainstalují ze souboru
 (v aplikaci tlačítkem „Modely ze souboru“, nebo příkazem):
 
 ```bash
-uv run speechscope models pack --only whisper,stanza,onnx --out speechscope-modely-v1.zip
+uv run speechscope models pack --only whisper,stanza,onnx,ddk --out speechscope-modely-v1.zip
 uv run speechscope models unpack speechscope-modely-v1.zip
 ```
 
@@ -269,16 +270,22 @@ instalace vyhrává). `pyproject.toml` to řeší přepisem závislosti v sekci
 ## Rychlý start
 
 ```bash
-# co všechno umím spočítat pro vyprávění pohádky
-uv run speechscope list --task story
+# co všechno umím spočítat pro spontánní řeč (pohádka, monolog)
+uv run speechscope list --task spontaneous
 
 # akustické feature z fonace
 uv run speechscope extract data\ --task phonation --out out\phon.csv
 ```
 
 Úloha je vlastnost nahrávky a musíš ji zadat. Možnosti jsou `phonation`,
-`ddk`, `story`, `monologue` a `reading`. Feature, která pro danou úlohu
-nedává smysl, skončí chybou, ne sloupcem plným NaN.
+`ddk`, `spontaneous` (spontánní řeč: vyprávění pohádky i monolog) a
+`reading`. Feature, která pro danou úlohu nedává smysl, skončí chybou,
+ne sloupcem plným NaN.
+
+Do verze 0.3.0 byly pohádka a monolog dvě úlohy, `story` a `monologue`.
+Počítalo se na nich totéž, od 0.4.0 jsou jedna úloha `spontaneous`.
+Stará jména se v `--task`, manifestu i Python API dál přijímají jako
+aliasy (s varováním v logu), ve výstupní tabulce je ale vždy `spontaneous`.
 
 ### Přehled příkazů
 
@@ -314,7 +321,7 @@ Log jde na stderr. Do souboru ho dostaneš přes `--log-file`, úroveň
 řídí `--log-level` (výchozí INFO):
 
 ```bash
-uv run speechscope extract data\ --task story --log-file out\extract.log --log-level DEBUG
+uv run speechscope extract data\ --task spontaneous --log-file out\extract.log --log-level DEBUG
 ```
 
 Modely se hledají v `models/` vedle projektu, nebo v adresáři
@@ -322,7 +329,7 @@ z proměnné `SPEECHSCOPE_MODELS`. Kdo knihovnu spouští z jiné složky,
 typicky GUI, předá `--models-dir` a nezáleží na tom, odkud se spouští:
 
 ```bash
-uv run speechscope --models-dir D:\speechscope\models extract data\ --task story
+uv run speechscope --models-dir D:\speechscope\models extract data\ --task spontaneous
 ```
 
 ### Co už je hotové
@@ -331,19 +338,50 @@ Přenos laboratorních skriptů běží. Hotové jsou tyhle feature:
 
 | jméno | co počítá | sloupce |
 |---|---|---|
-| `acoustic.quality.cpp` | cepstrální vrcholová prominence | `cpp`, `cpps` |
-| `acoustic.pitch.f0` | statistiky základní frekvence v půltónech | `std`, `median`, `mean`, `max`, `min` |
-| `acoustic.spectral.ltas` | tvar dlouhodobého průměrného spektra | `mean`, `std`, `skew`, `kurt` |
-| `acoustic.spectral.mfcc` | statistiky MFCC c1 až c16 a jejich delt | 66 sloupců, `mean_c1` až `global_delta_c1_16` |
-| `acoustic.timing.speech_rate` | tempo řeči ze slabik v přepisu | `speech_rate`, `articulation_rate`, `speech_rate_variability`, `word_count` |
-| `acoustic.intensity.stats` | relativní intenzita v řeči | `median`, `mean`, `std`, `kurt` |
-| `acoustic.timing.pauses` | délky pauz ze segmentace | `median`, `mean`, `std` |
-| `acoustic.timing.segmentation` | časování řeči a dechu ze čtyř tříd conformeru (jen model conformer) | `dpi`, `dbi`, `vsdr`, `ste`, `ssr_change` |
-| `acoustic.articulation.vowels` | samohláskový trojúhelník z formantů | `f1a` až `f2u`, `VSA`, `VAI`, `IU`, `FRI`, `SFRI` |
-| `linguistic.lexical.*` | slovní zásoba, 8 feature | `content_density`, `content_words`, `function_words`, `mattr`, `word_entropy`, `ngrams`, `npmi`, `rrtr` |
+| `acoustic.quality.cpp` | cepstrální vrcholová prominence, rozsah F0 60–333 Hz a trend 1–50 ms jako Praat, medián přes rámce, u souvislé řeči s VAD, u fonace po ořezu na hlas (verze 1.2) | `cpp`, `cpps` |
+| `acoustic.quality.perturbation` | jitter, shimmer a HNR přes Praat z prostředních dvou třetin hlasu (po ořezu ticha podle SWIPE), jen fonace (verze 1.1) | `jitter_local`, `jitter_rap`, `jitter_ppq5`, `shimmer_local`, `shimmer_apq3`, `shimmer_apq11`, `hnr` |
+| `acoustic.pitch.f0` | statistiky základní frekvence v půltónech i Hz, kontura bez rámců na mezi hledání a mimo medián ±12 půltónů (verze 1.1) | `std`, `median`, `mean`, `max`, `min`, `median_hz`, `mean_hz`, `range`, `voiced_fraction` |
+| `acoustic.spectral.ltas` | tvar dlouhodobého průměrného spektra po převzorkování na 16 kHz (`analysis_fs`), u souvislé řeči s VAD | `mean`, `std`, `skew`, `kurt` |
+| `acoustic.spectral.mfcc` | statistiky MFCC c1 až c16 a jejich delt, u souvislé řeči s VAD, u fonace po ořezu na hlas (verze 1.2) | 66 sloupců, `mean_c1` až `global_delta_c1_16` |
+| `acoustic.timing.speech_rate` | tempo řeči ze slabik v přepisu (jádra samohlásek); řečový čas pro artikulační tempo z Whisperu, volitelně upřesněný segmentací (`speech_time`) (verze 1.1) | `speech_rate`, `articulation_rate`, `speech_rate_variability`, `word_count` |
+| `acoustic.intensity.stats` | relativní intenzita jen ve znělých rámcích (SWIPE), Praatova obálka 32 ms, bez segmentace; `frames=all` + `envelope=moving_average` s VAD dává verzi 1.0 (verze 2.0) | `median`, `mean`, `std`, `kurt`, `voiced_fraction` |
+| `acoustic.timing.pauses` | všechna neřeč ze segmentace (conformer ticho i nádech, pyannote non-speech) bez úvodu a konce; dlouhé pauzy od `long_pause` v témže běhu (verze 1.2) | `count`, `per_minute`, `ratio`, `median`, `mean`, `std`, `long_count`, `long_median` |
+| `acoustic.timing.silences` | jen tiché pauzy (`ps`, jen conformer); medián bez ořezu okrajů je DPI | stejné jako `pauses` |
+| `acoustic.timing.breaths` | jen nádechy (`pb`, jen conformer); medián bez ořezu okrajů je DBI | stejné jako `pauses` |
+| `acoustic.timing.rhythm` | rytmus řeči a dechu ze čtyř tříd conformeru (dřív `segmentation`) | `vsdr`, `ste`, `ssr_change` |
+| `acoustic.articulation.vowels` | samohláskový trojúhelník z formantů, vrcholy jako mediány podle fonémů z prostřední třetiny samohlásky, krok 10 ms; VSA a VAI z krátkých i dlouhých samohlásek, ostatní z krátkých (verze 2.1) | `f1a` až `f2u`, `VSA`, `VAI`, `IU`, `FRI`, `SFRI` |
+| `linguistic.lexical.*` | slovní zásoba, 8 feature | `content_density`, `content_words`, `function_words`, `mattr`, `word_entropy`, `ngrams`, `pmi`, `rrtr` |
 | `linguistic.syntactic.*` | stavba výpovědí, 5 feature | `mlu`, `ccsr`, `scsr`, `csr`, `sdl` |
+| `acoustic.ddk.rate` | tempo DDK, slabiky za sekundu mezi prvním a posledním začátkem vokálu | jeden sloupec |
+| `acoustic.ddk.regularity` | nepravidelnost rytmu, odchylka rozestupů slabik od robustního trendu (s) | jeden sloupec |
+| `acoustic.ddk.deceleration` | zpomalování, sklon trendu rozestupů slabik (s na slabiku) | jeden sloupec |
+| `acoustic.ddk.vot` | doba nástupu hlasu, od exploze po začátek vokálu (ms) | `median`, `iqr` |
+| `acoustic.ddk.vowel_length` | relativní délka vokálu ve slabice (0–1) | jeden sloupec |
+| `acoustic.ddk.intensity` | sklon a variabilita obálky intenzity | `slope`, `rirv` |
 
-Tím je přenesených všech osm původních modulů.
+Tím je přenesených všech osm původních modulů a DDK.
+
+Feature `acoustic.ddk.*` jsou jen pro úlohu `ddk` a jen pro /pataka/
+(metoda Melechovsky 2020 a 2026). Obecná akustika (F0, CPP, LTAS, MFCC)
+se na DDK nepočítá. Slabiky najde provider `ddk_events`: konvoluční síť
+v ONNX dá křivky exploze (E), začátku vokálu (V) a konce vokálu (O),
+pravidla z nich složí slabiky v pořadí E → V → O. Feature berou druhou
+až jedenáctou /pataka/ (`skip_syllables`, `max_syllables`) a nahrávku
+s méně než 18 slabikami nehodnotí (`min_syllables`); tyhle parametry
+má provider, aby všechny feature počítaly ze stejných slabik.
+
+```bash
+uv run speechscope models download --only ddk
+uv run speechscope extract data\ddk --task ddk --work-dir work\ --out out\ddk.csv
+```
+
+Síť jede přes DirectML na kartě, když jde (`ddk_events.onnx_device`),
+na CPU je to asi 1.3 s na nahrávku. Pozice se ukládají do pracovní
+složky (`ddk_events/<zaklad>.txt`, vzorky na 16 kHz). Model je převedený
+z Kerasu (`branch54a8.h5`) a ověřený na 461 nahrávkách: pozice shodné
+s autorem na všech. Rozdíl proti originálu je převzorkování na 16 kHz
+přes soxr ze skutečné frekvence nahrávky (originál bral natvrdo 48 kHz
+přes resampy); proti autorovým číslům to posune pozice o pár vzorků.
 
 Whisper běží s `beam_size=5` a `condition_on_previous_text=false`: model
 nedostává předchozí text jako kontext, což u patologické řeči brání
@@ -357,8 +395,43 @@ potřebuje jazykový rozbor Stanzou, tedy `uv sync --all-extras` a
 `speechscope models download --only stanza`. Jazyk se bere z přepisu,
 přepíšeš ho přes `--set nlp.language=en`.
 
-Intenzita a pauzy potřebují segmentaci. Intenzita si VAD zapne vždy,
-protože se počítá jen z řeči, a globální `--no-vad` se na ni nevztahuje.
+### Jazyky
+
+Jazyk nahrávky určuje `transcript.language` (výchozí `cs`, platí pro celou
+dávku; překlep v kódu je chyba hned, ne až po přepisu). Prázdný kód nechá
+Whisper jazyk rozpoznat a zapíše ho k přepisu, takže i smíšená složka
+projde a lingvistika i tempo si jazyk vezmou z přepisu.
+
+| feature | cs | en | de, it, es, fr | jiný jazyk |
+|---|---|---|---|---|
+| F0, CPP, perturbace, LTAS, MFCC, intenzita, pauzy, rytmus | ano | ano | ano | ano, na jazyku nezávisí |
+| přepis (Whisper large-v3) | ano | ano | ano | ano, každý jazyk Whisperu |
+| lingvistika (Stanza) | ano | ano | ano, model v úložišti | ne, model se musí přidat do `STANZA_LANGUAGES` |
+| tempo řeči: slabiky z jader | ano | přes Pyphen | ano, orientační pravidla | Pyphen, když má slovník |
+| artikulace samohlásek (phnrec) | ano | ne | ne | ne |
+
+Pravidla jader pro de, it, es, fr jsou orientační (výjimky jako německé
+*Familie*, italské *paura* nebo francouzské *pays* počítají o slabiku míň,
+němá francouzská koncovka *-ent* o jednu víc); syntaktické feature
+u němčiny neumí sloveso na konci věty. Před prvním použitím jazyka je
+rozumné projít jednu nahrávku ručně.
+
+Intenzita, pauzy a tempo řeči potřebují segmentaci. Intenzita si VAD zapne
+vždy, protože se počítá jen z řeči, a globální `--no-vad` se na ni nevztahuje.
+
+Feature, které změnily algoritmus, mají parametr, kterým dostaneš hodnotu
+starého skriptu: CPP `f0_min=55 f0_max=500 search_offset=0.001
+trend_min_q=0 trend_max_q=0` a `--no-vad`, F0 `drop_bounds=false
+outlier_semitones=0`, tempo `syllable_method=pyphen` (řečový čas z Whisperu
+je výchozí; `speech_time=segments_in_words` ho nechá upřesnit segmentací
+uvnitř slov, `segments` vezme celou řeč ze segmentace), artikulace
+`center_method=kmeans vowel_portion=full time_step=0.02 area_quantity=short`, pauzy
+`trim_edges=false`. CPP, LTAS a MFCC mají u spontaneous a reading VAD
+zapnutý ve výchozím stavu. Pauzy jinak zůstávají nesloučené a bez prahu; běžnější
+definici dají `merge_adjacent=true min_pause=0.25`. CPP bere přes rámce medián, `aggregate=mean` dá hodnoty
+srovnatelné s Praatem. Strop
+formantů `max_formant` je 5250 Hz jako kompromis, GUI má posílat 5000 pro
+muže a 5500 pro ženy.
 
 Artikulace samohlásek potřebuje rozpoznávač fonémů phnrec, který umí jen
 češtinu a jen Windows. Není ke stažení, viz modely níž. Formanty počítá
@@ -374,13 +447,13 @@ Segmentace a přepis hotové jsou, viz níž.
 
 ```bash
 # všechno, co dává smysl pro danou úlohu
-uv run speechscope extract data\ --task story
+uv run speechscope extract data\ --task spontaneous
 
 # jen akustika, Whisper se vůbec nespustí
-uv run speechscope extract data\ --task story --domain acoustic
+uv run speechscope extract data\ --task spontaneous --domain acoustic
 
 # konkrétní jména nebo vzory
-uv run speechscope extract data\ --task story --features "acoustic.quality.*,acoustic.pitch.f0"
+uv run speechscope extract data\ --task spontaneous --features "acoustic.quality.*,acoustic.pitch.f0"
 ```
 
 Vzor, kterému neodpovídá žádná feature, je chyba. Aktuální seznam vždycky
@@ -424,7 +497,7 @@ pracovní složky. Můžeš je spustit dopředu:
 ```bash
 uv run speechscope segment    data\ --model conformer --work-dir work\
 uv run speechscope transcribe data\ --language cs --work-dir work\
-uv run speechscope extract    data\ --task story --vad --work-dir work\ --out out\story.csv
+uv run speechscope extract    data\ --task spontaneous --vad --work-dir work\ --out out\spontaneous.csv
 ```
 
 Nebo rovnou poslední řádek. Výsledek je stejný, segmentace se spočítá
@@ -465,7 +538,7 @@ Změníš to parametrem `segments.speech_labels`, výchozí hodnota je
 
 ```bash
 # jen znělá řeč, neznělé úseky se budou počítat jako pauza
-uv run speechscope extract data\ --task story --vad --set segments.speech_labels=sv
+uv run speechscope extract data\ --task spontaneous --vad --set segments.speech_labels=sv
 ```
 
 Při extrakci model zadávat nemusíš. Bez zadání se vezme, co je v pracovní
@@ -474,12 +547,16 @@ složce, a do logu se napíše, čím to vzniklo.
 ### VAD
 
 Feature dostane signál složený jen z řeči, když je pro ni VAD zapnutý.
-Výchozí stav si každá feature určuje sama podle úlohy, přepíšeš ho takhle:
+Spolu s ním dostane i hranice řečových úseků (`Signal.spans`), takže CPP,
+LTAS a MFCC rámcují uvnitř každého úseku a rámec nikdy nepřekročí skok
+mezi dvěma kusy, které v nahrávce nesousedily. Úsek kratší než okno se
+vynechá. Výchozí stav si každá feature určuje sama podle úlohy, přepíšeš
+ho takhle:
 
 ```bash
-uv run speechscope extract data\ --task story --vad      # zapnout všem
-uv run speechscope extract data\ --task story --no-vad   # vypnout všem
-uv run speechscope extract data\ --task story --set acoustic.pitch.f0.use_vad=false
+uv run speechscope extract data\ --task spontaneous --vad      # zapnout všem
+uv run speechscope extract data\ --task spontaneous --no-vad   # vypnout všem
+uv run speechscope extract data\ --task spontaneous --set acoustic.pitch.f0.use_vad=false
 ```
 
 Některé feature VAD neumí, třeba pauzy, které řečové úseky samy měří.
@@ -495,7 +572,7 @@ Když máš v jedné složce víc úloh, popiš je manifestem místo `--task`:
 ```csv
 path,task,speaker_id,group
 p01_aaa.wav,phonation,PD001,PD
-p01_pohadka.wav,story,PD001,PD
+p01_pohadka.wav,spontaneous,PD001,PD
 p02_aaa.wav,phonation,HC001,HC
 ```
 
@@ -531,7 +608,7 @@ Sloupce `notes` a `error` se ve výstupu objeví jen tehdy, když je opravdu
 co hlásit. Podrobnosti jdou do logu:
 
 ```bash
-uv run speechscope extract data\ --task story --log-file bezeh.log --log-level DEBUG
+uv run speechscope extract data\ --task spontaneous --log-file bezeh.log --log-level DEBUG
 ```
 
 ---
@@ -548,7 +625,7 @@ cfg = config.build(set_items=["acoustic.pitch.f0.semitone_ref_mode=fixed"])
 
 df = speechscope.extract(
     Path("data"),
-    task="story",
+    task="spontaneous",
     features=["acoustic.quality.*", "acoustic.pitch.f0"],
     config=cfg,
     work_dir=Path("work"),
@@ -567,13 +644,13 @@ Jinak řádky projdou, ale dotčené sloupce budou NaN a důvod bude ve sloupci
 ## Rozhraní pro GUI
 
 ```bash
-uv run speechscope extract data\ --task story --progress-json --out out\story.csv
+uv run speechscope extract data\ --task spontaneous --progress-json --out out\spontaneous.csv
 ```
 
 Na stdout jde jeden JSON objekt na řádek, všechno ostatní na stderr:
 
 ```json
-{"event":"start","protocol":2,"total":42,"task":"story","features":["..."],"providers":["segments","transcript"]}
+{"event":"start","protocol":2,"total":42,"task":"spontaneous","features":["..."],"providers":["segments","transcript"]}
 {"event":"begin","index":0,"path":"..."}
 {"event":"stage","index":0,"provider":"segments","status":"running"}
 {"event":"stage","index":0,"provider":"segments","status":"done","seconds":4.1}
@@ -583,7 +660,7 @@ Na stdout jde jeden JSON objekt na řádek, všechno ostatní na stderr:
 {"event":"begin","index":1,"path":"..."}
 {"event":"file","index":1,"path":"...","status":"error","msg":"..."}
 {"event":"done","n_ok":41}
-{"event":"saved","out":"out/story.csv"}
+{"event":"saved","out":"out/spontaneous.csv"}
 ```
 
 S `--out` se tabulka zapisuje průběžně: po každé nahrávce leží na disku
@@ -611,7 +688,7 @@ Seznam feature, providerů i jejich parametry si GUI vytáhne strojově,
 takže nemusí nic duplikovat:
 
 ```bash
-uv run speechscope list --task story --json
+uv run speechscope list --task spontaneous --json
 uv run speechscope list --params acoustic.quality.cpp --json
 uv run speechscope list --providers --json          # včetně parametrů
 uv run speechscope list --params segments --json    # totéž pro jeden provider
@@ -619,6 +696,21 @@ uv run speechscope list --params segments --json    # totéž pro jeden provider
 
 Odpověď na `--params` má klíč `kind` (`feature` nebo `provider`); provider
 nemá `tasks`, `vad` ani `outputs`.
+
+Popisy feature, sloupců a parametrů jsou česky; `--lang en` (volba celé
+aplikace jako `--models-dir`, nebo proměnná `SPEECHSCOPE_LANG`) je dá
+anglicky. Jména feature, sloupců a parametrů se nepřekládají nikdy,
+stejně jako důvody v `notes` a hlášky CLI. Log (stderr, `--log-file`) je
+vždy anglicky. Překlad je katalog
+`src/speechscope/translations/<jazyk>.yaml` klíčovaný identifikátory
+(`feature.acoustic.pitch.f0.outputs.median_hz`,
+`provider.segments.params.model`); chybějící klíč vrátí českou předlohu.
+Další jazyk je další soubor, úplnost hlídá test. Neznámý jazyk je chyba
+s kódem 2.
+
+```bash
+uv run speechscope --lang en list --params acoustic.pitch.f0 --json
+```
 
 Co GUI předává při každém volání:
 
@@ -645,6 +737,15 @@ se, dokud nenastavíš cestu k referenčním nahrávkám:
 ```bash
 set SPEECHSCOPE_GOLDEN_DIR=C:\data\golden
 uv run pytest tests\golden
+```
+
+DDK má vlastní složku s nahrávkami /pataka/ a skripty Melechovského
+v `legacy/ddk/` (`predict_EVO_step2.py`, `featextract_final.py`,
+`matlab_compat.py`):
+
+```bash
+set SPEECHSCOPE_GOLDEN_DDK_DIR=C:\data\ddk
+uv run pytest tests\golden\test_golden_ddk.py
 ```
 
 Návrh architektury a rozhodnutí za ním jsou v [docs/design.md](docs/design.md).

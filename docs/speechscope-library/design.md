@@ -102,7 +102,7 @@ kódu: `legacy/cpp/cpp.py` si uvnitř resampluje na 25 kHz přes `resample_poly`
 a tenhle krok se přenese beze změny.
 
 ```python
-Task = Literal["phonation", "ddk", "story", "monologue", "reading"]
+Task = Literal["phonation", "ddk", "spontaneous", "reading"]
 ```
 
 Stereo se v `load_signal` redukuje na první kanál, stejně jako to dělají
@@ -119,7 +119,7 @@ ze starých modulů, jen typovaná a bez souboru navíc.
 ```python
 @feature(
     "acoustic.quality.cpp",
-    tasks={"phonation", "ddk", "story", "monologue", "reading"},
+    tasks={"phonation", "ddk", "spontaneous", "reading"},
     version="1.0",
     vad=Vad(supported=True, default={"phonation": False, "_": True}),
     params={
@@ -306,8 +306,8 @@ Dávka běží sekvenčně.
 ## 8. CLI
 
 ```
-speechscope list [--task story] [--domain acoustic] [--params NAME] [--json]
-speechscope extract PATH... --task story
+speechscope list [--task spontaneous] [--domain acoustic] [--params NAME] [--json]
+speechscope extract PATH... --task spontaneous
         [--features "acoustic.timing.*,linguistic.lexical.*"]
         [--domain acoustic] [--manifest m.csv] [--config cfg.yaml]
         [--set NAME.PARAM=VALUE]... [--vad/--no-vad]
@@ -342,15 +342,16 @@ Smlouva `--progress-json` beze změny podle CLAUDE.md.
 
 | legacy | nové jméno | úlohy | providery |
 |---|---|---|---|
-| `cpp` | `acoustic.quality.cpp` | všechny | segments (volitelně) |
-| `f0` | `acoustic.pitch.f0` | všechny | segments (volitelně) |
-| `int_pauses` | `acoustic.intensity.stats`, `acoustic.timing.pauses` | story, monologue, reading | segments |
-| `timing` (notebook) | `acoustic.timing.segmentation` (DPI, DBI, VSDR, STE, ΔSSR) | story, monologue, reading | segments, jen čtyři třídy conformeru |
-| `ltas` | `acoustic.spectral.ltas` | všechny | segments (volitelně) |
-| `mfcc` | `acoustic.spectral.mfcc` | všechny | segments (volitelně) |
-| `speech_rate` | `acoustic.timing.speech_rate` | story, monologue, reading | transcript |
+| `cpp` | `acoustic.quality.cpp` | všechny kromě ddk | segments (volitelně) |
+| `f0` | `acoustic.pitch.f0` | všechny kromě ddk | segments (volitelně) |
+| `int_pauses` | `acoustic.intensity.stats` (od 2.0 znělé rámce podle SWIPE, bez segmentace), `acoustic.timing.pauses` | spontaneous, reading | segments jen pro pauzy a volitelný VAD |
+| `timing` (notebook) | `acoustic.timing.silences.median` (DPI), `acoustic.timing.breaths.median` (DBI), `acoustic.timing.rhythm` (VSDR, STE, ΔSSR) | spontaneous, reading | segments, jen čtyři třídy conformeru |
+| `ltas` | `acoustic.spectral.ltas` | všechny kromě ddk | segments (volitelně) |
+| `mfcc` | `acoustic.spectral.mfcc` | všechny kromě ddk | segments (volitelně) |
+| `speech_rate` | `acoustic.timing.speech_rate` | spontaneous, reading | transcript |
 | `vowel_articulation` | `acoustic.articulation.vowels` | jen čeština | vlastní LSTM detektor |
-| `linguistics` | `linguistic.lexical.*`, `linguistic.syntactic.*` | story, monologue, reading | transcript |
+| `linguistics` | `linguistic.lexical.*`, `linguistic.syntactic.*` | spontaneous, reading | transcript |
+| DDK (Melechovsky: `predict_EVO_step1/2`, `featextract_final`) | `acoustic.ddk.rate` (DDKrate), `.regularity` (DDKreg), `.deceleration` (Acce), `.vot.median` (VOT), `.vot.iqr` (iqrVOT), `.vowel_length` (VowLen), `.intensity.slope` (slope), `.intensity.rirv` (RIRV) | ddk, jen /pataka/ | ddk_events (síť v ONNX) |
 
 Jazyk je parametr, ne úloha. `speech_rate` a `linguistics` už dnes berou
 `language` jako vstup, takže vícejazyčnost je v pořádku. Jediná výjimka je
@@ -415,7 +416,7 @@ předplnění cache, po kterém `extract` běží bez modelu:
 ```bash
 speechscope segment data\ --model pyannote --cut-audio --work-dir work\
 speechscope transcribe data\ --language cs --work-dir work\
-speechscope extract data\ --task story --vad --work-dir work\ --out out\story.csv
+speechscope extract data\ --task spontaneous --vad --work-dir work\ --out out\spontaneous.csv
 ```
 
 Kdo napíše rovnou třetí řádek, dostane úplně stejný výsledek. Segmentace

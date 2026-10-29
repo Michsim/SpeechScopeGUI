@@ -1,7 +1,7 @@
 {
   "kind": "feature",
   "name": "acoustic.quality.perturbation",
-  "version": "1.0",
+  "version": "1.1",
   "tasks": [
     "phonation"
   ],
@@ -24,6 +24,22 @@
     "hnr": "Průměrný poměr harmonických k šumu, HNR (dB)"
   },
   "params": {
+    "trim_silence": {
+      "default": "phonation",
+      "type": "str",
+      "description": "Ořez ticha před prvním a za posledním znělým rámcem (SWIPE, nastavení jako F0): phonation (jen u fonace), always, never. S VAD se neuplatní",
+      "choices": [
+        "phonation",
+        "always",
+        "never"
+      ]
+    },
+    "trim_margin": {
+      "default": 0.05,
+      "type": "float",
+      "description": "Rezerva ořezu před hlasem a za ním (s)",
+      "ge": 0
+    },
     "keep_middle": {
       "default": 0.6666666666666666,
       "type": "float",

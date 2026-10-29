@@ -1,7 +1,7 @@
 {
   "kind": "feature",
   "name": "acoustic.intensity.stats",
-  "version": "1.0",
+  "version": "2.0",
   "tasks": [
     "reading",
     "spontaneous"
@@ -9,25 +9,86 @@
   "requires": [],
   "vad": {
     "supported": true,
-    "required": true,
+    "required": false,
     "default": {
-      "reading": true,
-      "spontaneous": true
+      "reading": false,
+      "spontaneous": false
     }
   },
   "description": "",
   "outputs": {
-    "median": "Median of relative intensity in speech (dB)",
-    "mean": "Mean of relative intensity in speech (dB)",
-    "std": "Standard deviation of relative intensity in speech (dB)",
-    "kurt": "Kurtosis of relative intensity in speech (-)"
+    "median": "Median of relative intensity in voiced speech (dB)",
+    "mean": "Mean of relative intensity in voiced speech (dB)",
+    "std": "Standard deviation of relative intensity in voiced speech (dB)",
+    "kurt": "Kurtosis of relative intensity in voiced speech (-)",
+    "voiced_fraction": "Share of voiced frames in the analysed signal (0–1)"
   },
   "params": {
+    "envelope": {
+      "default": "praat",
+      "type": "str",
+      "description": "Intensity envelope: praat (Kaiser window 3.2/min_pitch, step timestep) or moving_average (running mean over window_duration per sample, version 1.0)",
+      "choices": [
+        "praat",
+        "moving_average"
+      ]
+    },
+    "min_pitch": {
+      "default": 100.0,
+      "type": "float",
+      "description": "Lowest F0 for the Praat envelope; the window is 3.2/min_pitch s (Hz)",
+      "gt": 0
+    },
     "window_duration": {
       "default": 0.112,
       "type": "float",
-      "description": "Intensity envelope window length (s)",
+      "description": "Window length of the moving_average envelope (s)",
       "gt": 0
+    },
+    "frames": {
+      "default": "voiced",
+      "type": "str",
+      "description": "Frames the statistics are computed from: voiced (by SWIPE) or all (version 1.0)",
+      "choices": [
+        "voiced",
+        "all"
+      ]
+    },
+    "f_min": {
+      "default": 60.0,
+      "type": "float",
+      "description": "Lowest F0 searched for voicing (Hz)",
+      "gt": 0
+    },
+    "f_max": {
+      "default": 400.0,
+      "type": "float",
+      "description": "Highest F0 searched for voicing (Hz)",
+      "gt": 0
+    },
+    "timestep": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Frame step of the tracker and of the Praat envelope (s)",
+      "gt": 0
+    },
+    "strength_threshold": {
+      "default": 0.3,
+      "type": "float",
+      "description": "Minimum SWIPE pitch strength below which a frame is unvoiced",
+      "ge": 0,
+      "le": 1
+    },
+    "drop_bounds": {
+      "default": true,
+      "type": "bool",
+      "description": "Treat frames where SWIPE hit f_min or f_max as unvoiced"
+    },
+    "min_voiced_seconds": {
+      "default": 2.0,
+      "type": "float",
+      "description": "Minimum total of voiced frames (s); below it nothing is reported and the reason goes to notes",
+      "ge": 0
     }
   }
 }
