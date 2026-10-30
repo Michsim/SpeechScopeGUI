@@ -430,6 +430,13 @@ class AssessmentBuildWidget(QWidget):
             )
             self.prefill_note.show()
 
+    def prefill(self, subject: str, age: float | None, sex: str) -> None:
+        """Další vyšetření téhož pacienta: pacient, věk a pohlaví; datum a složky prázdné."""
+        self.subject.setText(subject)
+        self.age.setText("" if age is None else f"{age:g}")
+        self.sex.setCurrentIndex(max(0, self.sex.findData(sex)))
+        self._update_buttons()
+
     def active_rows(self) -> list[TaskRow]:
         return [
             r for r in self.rows.values() if r.scan.recordings and r.current_protocol() is not None

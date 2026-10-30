@@ -14,6 +14,7 @@ from PySide6.QtCore import QProcess, Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -28,9 +29,15 @@ from PySide6.QtWidgets import (
 from .. import __version__, contract
 from ..backend import history as history_mod
 from ..backend import tasks
-from ..backend.assessment_build import PLAN_SUFFIX, AssessmentPlan, patients_text, pending_plans
+from ..backend.assessment_build import (
+    PLAN_SUFFIX,
+    AssessmentPlan,
+    Patient,
+    patients_text,
+    pending_plans,
+)
 from ..backend.assessment_build import finish_plan as finish_assessment_plan
-from ..backend.assessments import AssessmentStore
+from ..backend.assessments import Assessment, AssessmentStore
 from ..backend.audio import duration_seconds
 from ..backend.catalog import Catalog
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
@@ -259,6 +266,10 @@ class MainWindow(QMainWindow):
         self.home_page.analysis_requested.connect(lambda: self.nav.setCurrentRow(PAGE_BATCH))
         self.home_page.assessment_requested.connect(self.new_assessment_from_home)
         self.home_page.runs_requested.connect(self.new_assessment_from_runs)
+        self.home_page.next_visit_requested.connect(self.next_visit_from_home)
+        self.assessment_page.new_visit_from_recordings_requested.connect(
+            self.new_visit_from_recordings
+        )
         self.home_page.norm_requested.connect(self.new_norm_from_home)
         self.home_page.environment_requested.connect(lambda: self.nav.setCurrentRow(PAGE_ENV))
         self.home_page.norms_requested.connect(lambda: self.nav.setCurrentRow(PAGE_NORMS))
@@ -356,12 +367,16 @@ class MainWindow(QMainWindow):
         ]
         self.home_page.set_norm_warnings(names)
 
-    def new_assessment_from_home(self) -> None:
-        """Karta Hodnocení pacienta: průvodce z nahrávek v kroku 2 na Domů."""
+    def new_assessment_from_home(self, template: Patient | None = None) -> None:
+        """Karta Hodnocení pacienta: průvodce z nahrávek v kroku 2 na Domů.
+
+        `template` = další vyšetření téhož pacienta (pacient, věk, pohlaví předvyplněné)."""
         if self.library is None:
             QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
             return
         builder = self.make_assessment_build_widget()
+        if template is not None:
+            builder.prefill(template.subject, template.age, template.sex)
         builder.accepted.connect(lambda: self._start_home_plan(builder))
         builder.rejected.connect(self.home_page.show_cards)
         self.home_page.show_builder(builder)
@@ -369,7 +384,27 @@ class MainWindow(QMainWindow):
     def _start_home_plan(self, builder: AssessmentBuildWidget) -> None:
         plan = builder.plan()
         self.home_page.show_cards()  # průvodce pryč dřív, než se přepne na Výpočet
+        self._last_patient = plan.patient if not plan.multi else None
+        if self._last_patient is not None:
+            self.home_page.offer_next_visit(plan.patient.subject)
         self.start_plan("assessment", plan)
+
+    def next_visit_from_home(self) -> None:
+        """„Další vyšetření téhož pacienta…“ na Domů: průvodce s pacientem z minulého Spustit."""
+        template = getattr(self, "_last_patient", None)
+        self.nav.setCurrentRow(PAGE_HOME)
+        self.new_assessment_from_home(template)
+
+    def new_visit_from_recordings(self, assessment: Assessment) -> int:
+        """Nové vyšetření… na Pacientech, z nahrávek: dialog průvodce s předvyplněným pacientem."""
+        if self.library is None:
+            QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
+            return 0
+        dialog = self.make_assessment_build_dialog()
+        dialog.prefill(assessment.subject, assessment.age, assessment.sex)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return 0
+        return self.start_plan("assessment", dialog.plan())
 
     def new_assessment_from_runs(self) -> None:
         """Odkaz „…nebo z hotových běhů“ na Domů: dialog nad hotovými běhy, pak Pacienti."""
@@ -533,6 +568,7 @@ class MainWindow(QMainWindow):
                 getattr(self, "_running_label", "") or getattr(self, "_running_name", ""),
                 tr("{progress} nahrávek").format(progress=text) if "/" in text else text,
                 len(self._queue),
+                [j.title() for j in self._queue if hasattr(j, "title")],
             )
         else:
             self.home_page.clear_running()

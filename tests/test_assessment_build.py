@@ -333,6 +333,14 @@ def test_home_runs_wizard_in_place(qtbot: QtBot, settings: AppSettings, tmp_path
     assert builder.step() == 1 and builder.batches.rowCount() == 1
     builder.go_next()  # Spustit
     assert window.nav.currentRow() == PAGE_RUN and home.step() == 0 and home.builder is None
+    # nabídka další návštěvy téhož pacienta: průvodce s předvyplněným pacientem
+    assert not home.next_visit.isHidden() and "P1" in home.next_visit_text.text()
+    home.next_visit_btn.click()
+    assert window.nav.currentRow() == PAGE_HOME and home.step() == 1
+    assert home.builder.subject.text() == "P1" and home.next_visit.isHidden()
+    assert not home.builder.rows["phonation"].folder.text()  # složky a datum znovu
+    home.home_btn.click()
+    assert home.step() == 0
     page = window.assessment_page
     page.refresh()
     assert page.count() == 1 and page.current_plan() is not None

@@ -86,6 +86,7 @@
   "Co se má z nahrávek spočítat.": "What to compute from the recordings.",
   "DDK": "DDK",
   "Další vyšetření téhož pacienta z hotových běhů": "Another visit of the same patient from finished runs",
+  "Další vyšetření téhož pacienta…": "Another visit of the same patient…",
   "Další úloha pod vlastním jménem, počítá se jako jedna z úloh knihovny.": "Another task under your own name, computed as one of the library tasks.",
   "Další ›": "Next ›",
   "Datum vyšetření": "Examination date",
@@ -131,6 +132,7 @@
   "Hodnocení jen z dávek, které doběhly": "Assessment only from the batches that finished",
   "Hodnocení nejde přepočítat: {why}": "The assessment cannot be recomputed: {why}",
   "Hodnocení pacienta": "Patient assessment",
+  "Hodnocení pacienta {subject} se počítá. Máte další návštěvu téhož pacienta? Údaje zůstanou vyplněné, stačí datum a složky.": "The assessment of patient {subject} is being computed. Another visit of the same patient? The details stay filled in; only the date and folders are needed.",
   "Hodnocení pacienta, ke kterému tyto běhy patří.": "The patient assessment these runs belong to.",
   "Hodnocení se nepodařilo založit: {error}": "Could not create the assessment: {error}",
   "Hodnocení se už počítá.": "The assessment is already being computed.",
@@ -208,6 +210,7 @@
   "Log knihovny": "Library log",
   "Manifest neobsahuje žádný řádek s nahrávkou.": "The manifest contains no recording rows.",
   "Manifest uložen: {path}": "Manifest saved: {path}",
+  "Metadata nahrávek": "Recording metadata",
   "Metadata…": "Metadata…",
   "Mezivýsledky": "Intermediate results",
   "Mezivýsledky (segmentace a přepisy) ve složce work si knihovna ukládá, aby je příště nemusela počítat znovu. Smazané se při dalším běhu dopočítají, výsledky ve složkách běhů se nemažou.": "The library stores intermediate results (segmentations and transcripts) in the work folder so it does not have to compute them again. Deleted ones are recomputed on the next run; results in run folders are not deleted.",
@@ -461,6 +464,7 @@
   "Storno": "Cancel",
   "Stáhnout": "Download",
   "Stáhnout modely…": "Download models…",
+  "Tabulka CSV (*.csv);;Všechny soubory (*)": "CSV table (*.csv);;All files (*)",
   "Tabulka kontrol nemá sloupce subject a task.": "The control table has no subject and task columns.",
   "Tabulka nemá sloupec s pacientem (subject, id, pacient…) nebo sloupec task.": "The table has no subject column (subject, id, patient…) or no task column.",
   "Tabulky neobsahují žádné řádky kontrol.": "The tables contain no control rows.",
@@ -774,6 +778,7 @@
   "v normě": "within the norm",
   "v tabulce chybí hodnoty": "values missing in the table",
   "varování: {n}": "warnings: {n}",
+  "ve frontě: {name}": "queued: {name}",
   "ve frontě: {n}": "queued: {n}",
   "vlastní": "custom",
   "vlastní · jako {task}": "custom · as {task}",
@@ -913,7 +918,5 @@
   "■ Stop": "■ Stop",
   "● do 1 SD v normě · ● 1 až 2 SD hraniční · ● nad 2 SD mimo normu · ○ pod −1 SD lepší než kontroly": "● within 1 SD normal · ● 1 to 2 SD borderline · ● above 2 SD outside the norm · ○ below −1 SD better than controls",
   "● změněné parametry": "● modified parameters",
-  "✓ sedí s normou": "✓ matches the norm",
-  "Metadata nahrávek": "Recording metadata",
-  "Tabulka CSV (*.csv);;Všechny soubory (*)": "CSV table (*.csv);;All files (*)"
+  "✓ sedí s normou": "✓ matches the norm"
 }

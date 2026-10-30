@@ -108,6 +108,7 @@ class HomePage(QWidget):
     environment_requested = Signal()  # stránka Prostředí
     norms_requested = Signal()  # stránka Normy (varování o změněné feature)
     run_requested = Signal()  # stránka Výpočet (pruh „právě běží“)
+    next_visit_requested = Signal()  # „Další vyšetření téhož pacienta…“ po Spustit
     models_dir_requested = Signal()  # uživatel chce změnit složku modelů
     work_root_requested = Signal()  # … a složku výsledků
     install_requested = Signal()  # modely ze souboru (balík)
@@ -199,6 +200,26 @@ class HomePage(QWidget):
         run_layout.addWidget(self.run_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.running)
         self.running.hide()
+
+        # po Spustit: další návštěva téhož pacienta bez psaní údajů znovu
+        self.next_visit = QFrame()
+        self.next_visit.setObjectName("card")
+        theme.set_role(self.next_visit, "neutral")
+        next_layout = QHBoxLayout(self.next_visit)
+        next_layout.setContentsMargins(16, 10, 16, 10)
+        next_layout.setSpacing(14)
+        self.next_visit_text = QLabel("")
+        self.next_visit_text.setWordWrap(True)
+        next_layout.addWidget(self.next_visit_text, 1)
+        self.next_visit_btn = QPushButton(tr("Další vyšetření téhož pacienta…"))
+        self.next_visit_btn.clicked.connect(self.next_visit_requested)
+        next_layout.addWidget(self.next_visit_btn)
+        self.next_visit_close = QPushButton(tr("Zavřít"))
+        self.next_visit_close.setFlat(True)
+        self.next_visit_close.clicked.connect(self.next_visit.hide)
+        next_layout.addWidget(self.next_visit_close)
+        layout.addWidget(self.next_visit)
+        self.next_visit.hide()
 
         # --- první nastavení (jen dokud chybí modely) ---------------------------------------
         self.setup = QFrame()
@@ -340,6 +361,7 @@ class HomePage(QWidget):
 
     def show_builder(self, widget: QWidget) -> None:
         """Krok 2 s čerstvým průvodcem; předchozí se zahodí."""
+        self.next_visit.hide()
         self._drop_builder()
         self.builder = widget
         self.builder_slot.addWidget(widget)
@@ -419,14 +441,31 @@ class HomePage(QWidget):
         self._dismissed = True
         self._show_setup(False)
 
-    def set_running(self, title: str, detail: str, queued: int = 0) -> None:
-        """Pruh „právě běží“: název dávky, postup a počet dávek ve frontě."""
+    def set_running(
+        self, title: str, detail: str, queued: int = 0, names: list[str] | None = None
+    ) -> None:
+        """Pruh „právě běží“: název dávky, postup a co čeká ve frontě (první jménem)."""
         self.running_title.setText(title)
         parts = [detail] if detail else []
-        if queued:
+        if names:
+            text = tr("ve frontě: {name}").format(name=names[0])
+            if len(names) > 1:
+                text += f" (+{len(names) - 1})"
+            parts.append(text)
+        elif queued:
             parts.append(tr("ve frontě: {n}").format(n=queued))
         self.running_detail.setText(" · ".join(parts))
         self.running.show()
+
+    def offer_next_visit(self, subject: str) -> None:
+        """Po Spustit hodnocení jednoho pacienta: nabídka další návštěvy téhož pacienta."""
+        self.next_visit_text.setText(
+            tr(
+                "Hodnocení pacienta {subject} se počítá. Máte další návštěvu téhož "
+                "pacienta? Údaje zůstanou vyplněné, stačí datum a složky."
+            ).format(subject=subject)
+        )
+        self.next_visit.show()
 
     def set_progress(self, processed: int, total: int) -> None:
         if total > 0:

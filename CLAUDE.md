@@ -105,7 +105,12 @@ a `AssessmentPage.new_from_runs`, dialog bez volby zdroje); Spustit
 (`_start_home_plan`) zařadí dávky a vrátí karty, Zpět rozdělaný průvodce bez
 ptaní zahodí (`show_cards`). Týž widget je uvnitř tenkého
 `AssessmentFromRecordingsDialog` (Nové hodnocení… na Pacientech; dialog
-deleguje atributy na `widget`). Pod kartami pruh „právě běží“ (`set_running`
+deleguje atributy na `widget`). Po Spustit jednoho pacienta Domů nabídne „Další
+vyšetření téhož pacienta…“ (`offer_next_visit`, `next_visit_requested` →
+`MainWindow.next_visit_from_home` s `_last_patient`: průvodce s předvyplněným
+pacientem, věkem a pohlavím přes `AssessmentBuildWidget.prefill`, datum a složky
+prázdné). Pod kartami pruh „právě běží“ (`set_running`, ve frontě první dávka
+jménem a počet dalších; `set_running`
 z `_show_progress`, `set_progress` z `_file_done`, klik → Výpočet, po konci
 `clear_running`); dole pod čarou tlačítko Nová norma… (→ Normy a průvodce) a
 stav: štítek knihovna/modely jako dřív na uvítání (`set_state`, `set_report`,
@@ -311,9 +316,11 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   normy; úlohy s počtem nahrávek `task_count`) a hledání pacienta, nahoře Nové
   hodnocení…; pod hlavičkou řada vyšetření (`visit_bar`, tlačítka s datem,
   vybrané modré, `_select_visit`, `select_assessment(id)` přepne pacienta i
-  vyšetření, `patient_entries()`) a vpravo Nové vyšetření… (`new_visit`:
-  `AssessmentDialog(template=…)` předvyplní pacienta, věk a pohlaví bez
-  nahrávek a data). Staré tlačítko se při výměně řady napřed skryje
+  vyšetření, `patient_entries()`) a vpravo Nové vyšetření… (`new_visit`: volba
+  z nahrávek / z hotových běhů; z nahrávek
+  `new_visit_from_recordings_requested` → `MainWindow.new_visit_from_recordings`,
+  dialog průvodce s `prefill`; z běhů `AssessmentDialog(template=…)` předvyplní
+  pacienta, věk a pohlaví bez nahrávek a data). Staré tlačítko se při výměně řady napřed skryje
   (`deleteLater` kreslil zbytkový modrý pruh). Vpravo hlavička
   pacienta se štítky dimenzí a Upravit…, Uložit obrázek… (PNG pavouka),
   Smazat…, výběr normy, věkového okna a „jen stejné pohlaví“ (řádek pod tím

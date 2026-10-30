@@ -571,3 +571,34 @@ def test_patient_card_groups_visits_and_new_visit(qtbot: QtBot, settings: AppSet
     assert page.select_assessment(second.id) and page.delete_current(confirm=False)
     assert page.count() == 2 and page.select_assessment(first.id)
     assert len(page.visit_buttons) == 1 and page.patient_entries()[0][0].id == first.id
+
+
+def test_new_visit_offers_recordings_with_prefilled_patient(
+    qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nové vyšetření… na Pacientech: z nahrávek otevře průvodce s pacientem, věkem a pohlavím."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.assessment_page
+    first = page.save_from(page.make_dialog(initial=recording(page, "P-017_fonace.wav")))
+    assert first is not None
+    got: list = []
+    page.new_visit_from_recordings_requested.connect(got.append)
+    opened: list = []
+
+    def fake_exec(self):  # noqa: ANN001, ANN202
+        opened.append((self.subject.text(), self.age.text(), self.sex.currentData()))
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(
+        "speechscope_app.ui.assessment_build_dialog.AssessmentFromRecordingsDialog.exec", fake_exec
+    )
+    monkeypatch.setattr(
+        "speechscope_app.ui.pages.assessment.NewAssessmentChoiceDialog.exec",
+        lambda self: QDialog.DialogCode.Accepted,
+    )  # výchozí volba je „z nahrávek“: hlavní okno otevře průvodce s pacientem
+    assert page.new_visit() is None and [a.id for a in got] == [first.id]
+    assert opened == [("P-017", "64", "m")]
+    assert window.new_visit_from_recordings(first) == 0 and len(opened) == 2

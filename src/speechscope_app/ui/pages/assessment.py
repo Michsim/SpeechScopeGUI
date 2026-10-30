@@ -296,6 +296,8 @@ class AssessmentPage(QWidget):
     resume_requested = Signal(object)  # plán: dopočítat zbývající dávky
     discard_requested = Signal(object)  # plán: zahodit rozpracované hodnocení
     recompute_requested = Signal(str)  # id hodnocení: nahrávky znovu současnou knihovnou
+    # Nové vyšetření… z nahrávek: hlavní okno otevře průvodce s předvyplněným pacientem
+    new_visit_from_recordings_requested = Signal(object)
     open_run_requested = Signal(object)  # složka běhu: Otevřít běh ve Výsledcích
     orientation_changed = Signal(str)  # orientace pavouka (hlavní okno uloží)
 
@@ -1069,9 +1071,16 @@ class AssessmentPage(QWidget):
         )
 
     def new_visit(self) -> Assessment | None:
-        """Další vyšetření téhož pacienta: dialog s předvyplněným pacientem, věkem a pohlavím."""
+        """Další vyšetření téhož pacienta: z nahrávek (průvodce s předvyplněným pacientem,
+        řeší hlavní okno), nebo z hotových běhů (dialog s předvyplněným pacientem)."""
         current = self.current_assessment()
         if current is None:
+            return None
+        choice = NewAssessmentChoiceDialog(self)
+        if choice.exec() != QDialog.DialogCode.Accepted:
+            return None
+        if choice.choice() == "recordings":
+            self.new_visit_from_recordings_requested.emit(current)
             return None
         dialog = self.make_dialog(template=current)
         if dialog.exec() != QDialog.DialogCode.Accepted:
