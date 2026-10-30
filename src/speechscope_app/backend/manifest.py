@@ -44,6 +44,11 @@ def _key(path: Path) -> Path:
         return path
 
 
+def key_for(path: Path) -> Path:
+    """Klíč nahrávky v `Manifest.rows` (absolutní cesta), pro skládání manifestu v GUI."""
+    return _key(path)
+
+
 def find_manifest(folder: Path) -> Path | None:
     """`manifest.csv` nebo `metadata.csv` přímo ve složce s nahrávkami."""
     if not folder.is_dir():

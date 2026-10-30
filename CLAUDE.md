@@ -122,7 +122,18 @@ je používá dál.
 Prostředí (doctor, modely, Diagnostika… = zip pro podporu z
 `backend/diagnostics.py`) · Analýza (dva kroky v `QStackedWidget`:
 1 nahrávky s metadaty z `manifest.csv` (`backend/manifest.py`, tolerantní
-čtení, normalizovaná kopie do složky běhu), výběr více řádků a Odebrat
+čtení, normalizovaná kopie do složky běhu); sloupce metadat jdou od 30. 10. 2026
+upravit dvojklikem a přidat tlačítkem + Sloupec… (nabídka vyhrazených
+`meta.META_COLUMNS` s popisky `meta.label`, nebo vlastní název, kanonizuje se
+`meta.canonical_column`): úpravy drží `BatchPage._meta_edits` a `_extra_columns`
+pro aktuální složku (jiná složka je zahodí), `manifest()` je skládá se souborem
+do jednoho `Manifest` pro běh (`base_manifest()` = jen soubor), hodnoty se
+normalizují jako v manifestu (`_normalize_meta`: věk, pohlaví, datum ISO),
+upravená buňka je podbarvená s původní hodnotou v tooltipu, řádek pod tabulkou
+říká „upraveno: n“ a Zahodit úpravy; do složky s nahrávkami se nic nezapisuje
+(rozhodnuto: běh + pozdější výslovné Uložit manifest…, ne katalog); dvojklik
+na metadata upravuje, na název přehrává (`open_recording` sloupce před
+`_meta_from` ); `set_meta`, `add_meta_column`, `discard_meta_edits` i pro testy. Výběr více řádků a Odebrat
 (tlačítko, Delete, pravé tlačítko: nahrávka zůstane na disku, jen vypadne
 z dávky; `_excluded` přežije přeskenování téže složky, jiná složka ho
 zahodí; Vrátit odebrané (k); počty ukazují „(k odebráno)“) a Pokračovat; 2 úloha a jazyk

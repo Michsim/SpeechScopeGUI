@@ -12,12 +12,31 @@ from __future__ import annotations
 import math
 import unicodedata
 
+from ..i18n import N_, Labels
+
 SUBJECT = "subject"
 VISIT = "visit"
 AGE = "age"
 SEX = "sex"
 GROUP = "group"
 META_COLUMNS: tuple[str, ...] = (SUBJECT, VISIT, AGE, SEX, GROUP)
+
+# Popisky vyhrazených sloupců pro UI (hlavičky, nabídka + Sloupec…); klíče zůstávají anglické.
+LABELS = Labels(
+    {
+        SUBJECT: N_("pacient"),
+        VISIT: N_("datum vyšetření"),
+        AGE: N_("věk"),
+        SEX: N_("pohlaví"),
+        GROUP: N_("skupina"),
+    }
+)
+
+
+def label(column: str) -> str:
+    """Český (přeložený) popisek vyhrazeného sloupce; jiný sloupec vrátí svůj klíč."""
+    return LABELS.get(column, column)
+
 
 # Alias (bez diakritiky, malými písmeny) -> kanonický sloupec.
 COLUMN_ALIASES: dict[str, str] = {

@@ -609,6 +609,67 @@ def test_manifest_metadata_reach_results(
     assert page.files.columnCount() == 2
 
 
+def test_metadata_edits_and_custom_columns_reach_run(
+    qtbot: QtBot, settings: AppSettings, recordings: Path
+) -> None:
+    """Krok 1 Analýzy: sloupce metadat jdou přidat a upravit; do běhu jde upravený manifest."""
+    (recordings / "manifest.csv").write_text(
+        "\ufeffpath;pacient\np01.wav;PD001\n", encoding="utf-8"
+    )
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    assert page.meta_edits() == 0 and page.edits_btn.isHidden()
+    assert page.add_meta_column("vek") == "age" and page.add_meta_column("path") == ""
+    headers = [page.files.horizontalHeaderItem(c).text() for c in range(page.files.columnCount())]
+    assert headers[-2:] == ["subject", "age"]
+    assert page.set_meta(recordings / "p01.wav", "age", "64,5") == "64.5"
+    assert page.set_meta(recordings / "p03_short.wav", "subject", "HC003") == "HC003"
+    assert page.set_meta(recordings / "p03_short.wav", "pohlavi", "žena") == "f"
+    assert page.set_meta(recordings / "p03_short.wav", "datum", "14. 10. 2026") == "2026-10-14"
+    manifest = page.manifest()
+    assert manifest is not None and manifest.columns == ["subject", "age", "sex", "visit"]
+    assert manifest.meta_for(recordings / "p01.wav") == {
+        "subject": "PD001",
+        "age": "64.5",
+        "sex": "",
+        "visit": "",
+    }
+    assert manifest.meta_for(recordings / "p03_short.wav")["sex"] == "f"
+    assert "upraveno: 4" in page.manifest_label.text() and not page.edits_btn.isHidden()
+    # úprava přímo v buňce tabulky (dvojklik): věk p01 na 70, shoda s manifestem úpravu ruší
+    age_col = headers.index("age")
+    page.files.item(0, age_col).setText("70")
+    assert page.manifest().meta_for(recordings / "p01.wav")["age"] == "70"
+    page.files.item(0, headers.index("subject")).setText("PD001")  # stejné jako manifest
+    assert page.meta_edits() == 4 and not page.open_recording(0, age_col)
+
+    assert page.select_protocol("Fonace, základní")
+    with qtbot.waitSignal(window.run_page.finished, timeout=15000):
+        page.run_btn.click()
+    frame = window.results_page._frame
+    assert frame is not None and {"subject", "age", "sex"} <= set(frame.columns)
+    by_file = frame.set_index("file")
+    assert str(by_file.loc["p01.wav", "age"]) in ("70", "70.0")
+    assert (
+        by_file.loc["p03_short.wav", "subject"] == "HC003"
+        and by_file.loc["p03_short.wav", "sex"] == "f"
+    )
+    assert (recordings / "manifest.csv").read_text(
+        encoding="utf-8-sig"
+    ) == "path;pacient\np01.wav;PD001\n"
+
+    page.discard_meta_edits()
+    assert page.meta_edits() == 0 and page.manifest().columns == ["subject"]
+    page.set_meta(recordings / "p01.wav", "skupina", "PD")
+    assert page.manifest().columns == ["subject", "group"]
+    page.clear_manifest()  # bez souboru zůstanou vlastní sloupce a úpravy
+    assert page.manifest().columns == ["group"] and "Vlastní metadata" in page.manifest_label.text()
+    page.set_folder(recordings / "sub")  # jiná složka = úpravy pryč
+    assert page.manifest() is None and page.meta_edits() == 0
+
+
 def test_run_asks_when_provider_not_ready(
     qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

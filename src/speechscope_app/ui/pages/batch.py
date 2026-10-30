@@ -23,8 +23,10 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QProgressDialog,
     QPushButton,
@@ -36,10 +38,12 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
+from ...backend import meta
+from ...backend.assessment_build import normalize_visit
 from ...backend.audio import format_duration
 from ...backend.discover import Recording, find_recordings
 from ...backend.library import Library, LibraryError
-from ...backend.manifest import Manifest, find_manifest, read_manifest
+from ...backend.manifest import Manifest, find_manifest, key_for, read_manifest
 from ...backend.protocol import Protocol, card_infos, summarize
 from ...i18n import tr
 from .. import theme
@@ -67,6 +71,21 @@ def _step(number: int, title: str, hint: str = "") -> tuple[QHBoxLayout, QLabel]
     return row, hint_label
 
 
+def _normalize_meta(column: str, text: str) -> str:
+    """Hodnota metadat jako v manifestu: věk číslo, pohlaví f/m, datum ISO; jinak text."""
+    text = text.strip()
+    if not text:
+        return ""
+    if column == meta.AGE:
+        age = meta.parse_age(text)
+        return f"{age:g}" if age is not None else text
+    if column == meta.SEX:
+        return meta.parse_sex(text) or text
+    if column == meta.VISIT:
+        return normalize_visit(text) or text
+    return text
+
+
 class BatchPage(QWidget):
     run_requested = Signal(object, list)  # Protocol, list[Path]
     notice = Signal(str)  # krátká hláška do stavového řádku hlavního okna
@@ -91,6 +110,14 @@ class BatchPage(QWidget):
         self._doctor_known = False  # True po první zprávě doctor (i neúspěšné)
         self._advanced = False
         self._manifest_auto = True  # manifest nalezený ve složce, ne vybraný ručně
+        # Úpravy metadat v tabulce (nahrávka → sloupec → hodnota) a sloupce přidané
+        # tlačítkem + Sloupec…; platí pro tuto složku a jdou jen do manifestu běhu,
+        # do složky s nahrávkami nic (rozhodnuto 30. 10. 2026; Uložit manifest… později).
+        self._meta_edits: dict[Path, dict[str, str]] = {}
+        self._extra_columns: list[str] = []
+        self._meta_columns: list[str] = []  # sloupce metadat, jak jsou v tabulce
+        self._meta_from = 2  # index prvního sloupce metadat v tabulce
+        self._filling = False  # plnění tabulky nesmí vypadat jako úprava
         self._seconds_per_file: Callable[[str], float | None] = lambda _slug: None
         self._seconds_per_audio_minute: Callable[[str], float | None] = lambda _slug: None
 
@@ -149,7 +176,10 @@ class BatchPage(QWidget):
         # Název vyplní zbylé místo, ostatní sloupce podle obsahu; šířka pak
         # neposkakuje při přeskenování (podsložky, jiná složka, metadata).
         self.files.horizontalHeader().setStretchLastSection(False)
-        self.files.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        # metadata jdou upravit dvojklikem nebo F2, ostatní buňky jsou jen ke čtení (flags)
+        self.files.setEditTriggers(
+            QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.EditKeyPressed
+        )
         self.files.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.files.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.files.verticalHeader().setVisible(False)
@@ -157,6 +187,7 @@ class BatchPage(QWidget):
         self.files.setShowGrid(False)
         self.files.setAlternatingRowColors(True)
         self.files.cellDoubleClicked.connect(self.open_recording)
+        self.files.itemChanged.connect(self._meta_item_changed)
         self.files.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.files.customContextMenuRequested.connect(self._files_menu)
         self.files.itemSelectionChanged.connect(self._selection_changed)
@@ -177,6 +208,28 @@ class BatchPage(QWidget):
         self.restore_btn.hide()
         meta_row.addWidget(self.remove_btn)
         meta_row.addWidget(self.restore_btn)
+        self.column_btn = QPushButton(tr("+ Sloupec…"))
+        self.column_btn.setToolTip(
+            tr(
+                "Přidá sloupec metadat (pacient, věk, pohlaví, skupina, nebo vlastní). "
+                "Hodnoty vyplníte dvojklikem v tabulce; jdou do výsledků tohoto běhu."
+            )
+        )
+        self.column_menu = QMenu(self.column_btn)
+        for column in meta.META_COLUMNS:
+            action = self.column_menu.addAction(f"{meta.label(column)} ({column})")
+            action.triggered.connect(lambda _c=False, col=column: self.add_meta_column(col))
+        self.column_menu.addSeparator()
+        custom = self.column_menu.addAction(tr("Vlastní název…"))
+        custom.triggered.connect(lambda: self._ask_meta_column())
+        self.column_btn.setMenu(self.column_menu)
+        self.edits_btn = QPushButton("")
+        self.edits_btn.setFlat(True)
+        self.edits_btn.setToolTip(tr("Zahodí úpravy metadat i přidané sloupce; manifest zůstane."))
+        self.edits_btn.clicked.connect(lambda: self.discard_meta_edits())
+        self.edits_btn.hide()
+        meta_row.addWidget(self.column_btn)
+        meta_row.addWidget(self.edits_btn)
         self.manifest_label = QLabel("")
         self.manifest_label.setObjectName("muted")
         self.manifest_label.setWordWrap(True)
@@ -546,6 +599,8 @@ class BatchPage(QWidget):
         return rec.path
 
     def open_recording(self, row: int, column: int = 0) -> bool:
+        if self._meta_columns and column >= self._meta_from:
+            return False  # dvojklik na metadata upravuje buňku, nepřehrává
         path = self.file_for_cell(row, column)
         return open_file(path, self.notice.emit) if path is not None else False
 
@@ -737,6 +792,8 @@ class BatchPage(QWidget):
         text = self.folder.text().strip()
         if text != self._scanned_folder:
             self._excluded.clear()
+            self._meta_edits.clear()  # úpravy patří složce; jiná složka = od začátku
+            self._extra_columns.clear()
             self._scanned_folder = text
         self._found = (
             find_recordings(Path(text), recursive=self.recursive.isChecked()) if text else []
@@ -789,9 +846,121 @@ class BatchPage(QWidget):
 
     # --- metadata (manifest) ------------------------------------------------------------
 
-    def manifest(self) -> Manifest | None:
-        """Manifest, který se předá knihovně; `None` = bez metadat."""
+    def base_manifest(self) -> Manifest | None:
+        """Manifest ze souboru bez chyb; `None` = bez souboru nebo rozbitý."""
         return self._manifest if self._manifest and not self._manifest.problems else None
+
+    def manifest(self) -> Manifest | None:
+        """Manifest, který se předá knihovně: soubor plus úpravy a přidané sloupce z tabulky.
+
+        `None` = bez metadat. Složí se při každém volání, takže běh dostane
+        vždy aktuální tabulku; do souboru ve složce se nic nezapisuje."""
+        base = self.base_manifest()
+        if base is None and not self._meta_edits and not self._extra_columns:
+            return None
+        columns = list(base.columns) if base else []
+        for column in self._extra_columns:
+            if column not in columns:
+                columns.append(column)
+        for edits in self._meta_edits.values():
+            for column in edits:
+                if column not in columns:
+                    columns.append(column)
+        folder = self.folder.text().strip()
+        merged = Manifest(
+            path=base.path if base else Path(folder or ".") / "manifest.csv",
+            columns=columns,
+            tasks=dict(base.tasks) if base else {},
+        )
+        for rec in self._recordings:
+            key = key_for(rec.path)
+            row = dict(base.meta_for(rec.path) or {}) if base else {}
+            row.update(self._meta_edits.get(key, {}))
+            if row:
+                merged.rows[key] = {c: row.get(c, "") for c in columns}
+        return merged
+
+    def meta_edits(self) -> int:
+        return sum(len(v) for v in self._meta_edits.values())
+
+    def add_meta_column(self, name: str) -> str:
+        """Přidá sloupec metadat (název se kanonizuje: vek → age); vrátí jeho klíč."""
+        column = meta.canonical_column(name.strip()) if name.strip() else ""
+        if not column or column in ("path", "task"):
+            return ""
+        if column not in self._meta_columns and column not in self._extra_columns:
+            self._extra_columns.append(column)
+            self._fill_files()
+            self._update_run_state()
+        return column
+
+    def _ask_meta_column(self) -> None:
+        name, ok = QInputDialog.getText(
+            self, tr("Nový sloupec"), tr("Název sloupce (třeba skupina, lék, poznámka):")
+        )
+        if ok and name.strip():
+            self.add_meta_column(name)
+
+    def set_meta(self, path: Path, column: str, value: str) -> str:
+        """Hodnota metadat jedné nahrávky (jako dvojklik v tabulce); vrátí uloženou podobu."""
+        column = meta.canonical_column(column.strip())
+        if column not in self._meta_columns and column not in self._extra_columns:
+            self._extra_columns.append(column)
+        stored = self._store_meta(path, column, value)
+        self._fill_files()
+        self._update_run_state()
+        return stored
+
+    def discard_meta_edits(self) -> None:
+        self._meta_edits.clear()
+        self._extra_columns.clear()
+        self._fill_files()
+        self._update_run_state()
+
+    def _store_meta(self, path: Path, column: str, value: str) -> str:
+        """Uloží úpravu; hodnota shodná s manifestem úpravu ruší. Vrátí normalizovanou hodnotu."""
+        normalized = _normalize_meta(column, value)
+        base = self.base_manifest()
+        original = ((base.meta_for(path) if base else None) or {}).get(column, "")
+        key = key_for(path)
+        edits = self._meta_edits.setdefault(key, {})
+        if normalized == original:
+            edits.pop(column, None)
+            if not edits:
+                del self._meta_edits[key]
+        else:
+            edits[column] = normalized
+        return normalized
+
+    def _meta_item_changed(self, item: QTableWidgetItem) -> None:
+        if self._filling or item.column() < self._meta_from:
+            return
+        row, col = item.row(), item.column() - self._meta_from
+        if not (0 <= row < len(self._recordings)) or not (0 <= col < len(self._meta_columns)):
+            return
+        rec, column = self._recordings[row], self._meta_columns[col]
+        stored = self._store_meta(rec.path, column, item.text())
+        self._filling = True
+        try:
+            item.setText(stored)
+            self._mark_meta_item(item, rec.path, column)
+        finally:
+            self._filling = False
+        self._update_meta_label()
+        self._update_run_state()
+
+    def _mark_meta_item(self, item: QTableWidgetItem, path: Path, column: str) -> None:
+        edits = self._meta_edits.get(key_for(path), {})
+        base = self.base_manifest()
+        if column in edits:
+            original = ((base.meta_for(path) if base else None) or {}).get(column, "")
+            item.setBackground(QColor(theme.ACCENT_SOFT))
+            item.setToolTip(
+                tr("Upraveno pro tento běh; v manifestu: {value}").format(value=original or "–")
+            )
+        else:
+            item.setBackground(QColor(Qt.GlobalColor.transparent))
+            item.setToolTip(tr("Dvojklik upraví hodnotu, jen pro tento běh."))
 
     def set_manifest(self, path: Path | None) -> None:
         """Ručně vybraný manifest; relativní cesty se berou od složky s nahrávkami."""
@@ -816,8 +985,18 @@ class BatchPage(QWidget):
             self.set_manifest(Path(chosen))
 
     def _fill_files(self) -> None:
-        manifest = self._manifest
+        self._filling = True
+        try:
+            self._fill_files_now()
+        finally:
+            self._filling = False
+
+    def _fill_files_now(self) -> None:
+        manifest = self.manifest()
+        if manifest is None and self._manifest is not None:
+            manifest = self._manifest  # rozbitý soubor: sloupce ukázat, hodnoty šedě
         columns = list(manifest.columns) if manifest else []
+        self._meta_columns = columns
         # Ruční vstupy (labely, přepis vedle nahrávky) zajímají výzkumníka,
         # klinik je nikdy nemá; v základním režimu se sloupec neukazuje.
         headers = [tr("nahrávka"), tr("délka")]
@@ -825,19 +1004,28 @@ class BatchPage(QWidget):
             headers.append(tr("ruční vstupy"))
         headers.extend(columns)
         meta_from = len(headers) - len(columns)
+        self._meta_from = meta_from
         self.files.setColumnCount(len(headers))
         self.files.setHorizontalHeaderLabels(headers)
+        for c, column in enumerate(columns):
+            head = self.files.horizontalHeaderItem(meta_from + c)
+            if head is not None and column in meta.META_COLUMNS:
+                head.setToolTip(meta.label(column))
         self.files.setRowCount(len(self._recordings))
         for r, rec in enumerate(self._recordings):
-            meta = manifest.meta_for(rec.path) if manifest else None
+            row_meta = manifest.meta_for(rec.path) if manifest else None
             values = [rec.name, format_duration(rec.duration)]
             if self._advanced:
                 manual = [tr("labely")] * rec.has_labels + [tr("přepis")] * rec.has_transcript
                 values.append(", ".join(manual))
-            values.extend((meta or {}).get(c, "") for c in columns)
+            values.extend((row_meta or {}).get(c, "") for c in columns)
             for c, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setToolTip(tr("{path}\nDvojklik přehraje.").format(path=rec.path))
+                if c >= meta_from:
+                    self._mark_meta_item(item, rec.path, columns[c - meta_from])
+                else:
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 if c == 1:
                     item.setTextAlignment(
                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -851,38 +1039,54 @@ class BatchPage(QWidget):
                             "`.labels.txt` nahradí segmentaci, `.txt` přepis Whisperem."
                         )
                     )
-                if c >= meta_from and meta is None:
+                if c >= meta_from and row_meta is None:
                     item.setForeground(QColor(theme.MUTED))
                 self.files.setItem(r, c, item)
         header = self.files.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for c in range(1, len(headers)):
             header.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
-        self.manifest_clear_btn.setVisible(manifest is not None)
-        if manifest is None:
-            self.manifest_label.setText(
-                tr("Bez metadat. Do výsledků jde jen název souboru.") if self._recordings else ""
-            )
+        self._update_meta_label()
+
+    def _update_meta_label(self) -> None:
+        """Řádek pod tabulkou: soubor manifestu, sloupce, shoda, počet úprav."""
+        base = self._manifest
+        edits = self.meta_edits()
+        self.manifest_clear_btn.setVisible(base is not None)
+        self.edits_btn.setVisible(bool(edits or self._extra_columns))
+        self.edits_btn.setText(tr("Zahodit úpravy ({n})").format(n=edits))
+        if base is None:
+            if self._extra_columns or edits:
+                self.manifest_label.setText(
+                    tr("Vlastní metadata: {columns} · upraveno: {n}").format(
+                        columns=", ".join(self._meta_columns), n=edits
+                    )
+                )
+            else:
+                self.manifest_label.setText(
+                    tr("Bez metadat. Do výsledků jde jen název souboru.")
+                    if self._recordings
+                    else ""
+                )
             self.manifest_label.setStyleSheet("")
             return
-        if manifest.problems:
+        if base.problems:
             self.manifest_label.setText(
-                tr("{name}: {problem}").format(
-                    name=manifest.path.name, problem=manifest.problems[0]
-                )
+                tr("{name}: {problem}").format(name=base.path.name, problem=base.problems[0])
             )
             self.manifest_label.setStyleSheet(f"color: {theme.MISSING};")
             return
         paths = [rec.path for rec in self._recordings]
-        matched = manifest.matched(paths)
-        self.manifest_label.setText(
-            tr("{name}: {columns} · {matched} z {total}").format(
-                name=manifest.path.name,
-                columns=", ".join(columns) or tr("bez sloupců"),
-                matched=matched,
-                total=len(paths),
-            )
+        matched = base.matched(paths)
+        text = tr("{name}: {columns} · {matched} z {total}").format(
+            name=base.path.name,
+            columns=", ".join(self._meta_columns) or tr("bez sloupců"),
+            matched=matched,
+            total=len(paths),
         )
+        if edits:
+            text += tr(" · upraveno: {n}").format(n=edits)
+        self.manifest_label.setText(text)
         self.manifest_label.setStyleSheet(
             f"color: {theme.WARN};" if matched < len(paths) else f"color: {theme.OK};"
         )
