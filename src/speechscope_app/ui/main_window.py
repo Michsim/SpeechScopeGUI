@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__, contract
+from ..backend import history as history_mod
 from ..backend import tasks
 from ..backend.assessment_build import PLAN_SUFFIX, AssessmentPlan, patients_text, pending_plans
 from ..backend.assessment_build import finish_plan as finish_assessment_plan
@@ -157,6 +158,7 @@ class MainWindow(QMainWindow):
         self._queue: list[Job] = []
         self._last_progress = ""
         self.catalog = Catalog(settings.catalog_path())  # pacienti, hodnocení, index běhů
+        history_mod.use_catalog(self.catalog)  # RunInfo podle otisku souborů, ne YAML a CSV pokaždé
         self.env_page = EnvironmentPage()
         self.batch_page = BatchPage()
         self.protocols_page = ProtocolsPage()

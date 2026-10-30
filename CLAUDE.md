@@ -221,6 +221,14 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   Hlavní okno katalog otevře v konstruktoru a dá ho stránce Pacienti
   (`set_catalog` před `set_work_root`); bez hlavního okna si stránka udělá
   katalog v paměti (`Catalog(None)`). Jeden proces, hlavní vlákno, WAL.
+  **Historie běhů přes katalog** (tabulka `run_info`, 30. 10. 2026 večer):
+  `history.use_catalog(catalog)` nastaví hlavní okno globálně; `read_run` pak
+  porovná otisk `run.json`, `protocol.yaml`, `features.csv` a logu (čas změny
+  a velikost, `_run_signature`) a při shodě vrátí `RunInfo` z katalogu bez YAML
+  a bez počítání řádků CSV; běžící běh se čte vždy ze souborů a neukládá se.
+  `list_runs` po průchodu zapomene běhy, které pod složkou nejsou
+  (`prune_run_info`). Platí pro Výsledky, Výpočet i index nahrávek. Testy
+  začínají bez katalogu historie (`conftest.no_history_catalog`).
 - **Hodnocení se zakládají ručně** (rozhodnuto 28. 10., mockup
   https://claude.ai/artifact/2UwaQmndVNFBCMSHmehQ8A, `docs/mockups/hodnoceni/`
   mimo git): `backend/assessments.py`, `Assessment` (pacient, věk, pohlaví,

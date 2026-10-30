@@ -82,6 +82,11 @@ CREATE TABLE IF NOT EXISTS recordings (
     PRIMARY KEY (root, run, row)
 );
 CREATE INDEX IF NOT EXISTS recordings_subject ON recordings (root, subject);
+CREATE TABLE IF NOT EXISTS run_info (
+    dir TEXT PRIMARY KEY,
+    signature TEXT NOT NULL,
+    data TEXT NOT NULL
+);
 """
 
 RunSignature = tuple[int, int, int]  # mtime_ns, velikost, verze registru úloh
@@ -345,6 +350,39 @@ class Catalog:
                     "DELETE FROM recordings WHERE root = ? AND run = ?", (str(root), key)
                 )
                 self._db.execute("DELETE FROM runs WHERE root = ? AND key = ?", (str(root), key))
+        return len(gone)
+
+    # --- RunInfo (historie) ---------------------------------------------------------------
+
+    def load_run_info(self, run_dir: Path) -> tuple[str, dict[str, Any]] | None:
+        """(otisk, pole RunInfo) z katalogu; None, když běh v něm není."""
+        row = self._db.execute(
+            "SELECT signature, data FROM run_info WHERE dir = ?", (str(run_dir),)
+        ).fetchone()
+        if row is None:
+            return None
+        return row["signature"], json.loads(row["data"])
+
+    def store_run_info(self, run_dir: Path, signature: str, data: dict[str, Any]) -> None:
+        with self._db:
+            self._db.execute(
+                "INSERT INTO run_info (dir, signature, data) VALUES (?, ?, ?) "
+                "ON CONFLICT(dir) DO UPDATE SET signature = excluded.signature, "
+                "data = excluded.data",
+                (str(run_dir), signature, json.dumps(data, ensure_ascii=False)),
+            )
+
+    def prune_run_info(self, root: Path, keep: set[Path]) -> int:
+        """Zapomene běhy pod složkou, které už neexistují; vrátí jejich počet."""
+        prefix = str(root).rstrip("\\/") + ("\\" if "\\" in str(root) else "/")
+        keep_text = {str(p) for p in keep}
+        gone = [
+            r["dir"]
+            for r in self._db.execute("SELECT dir FROM run_info WHERE dir LIKE ?", (prefix + "%",))
+            if r["dir"] not in keep_text
+        ]
+        with self._db:
+            self._db.executemany("DELETE FROM run_info WHERE dir = ?", [(d,) for d in gone])
         return len(gone)
 
     def indexed_runs(self, root: Path) -> list[str]:

@@ -16,6 +16,14 @@ def clean_task_registry() -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_history_catalog() -> None:
+    """Katalog historie nastavuje hlavní okno globálně; test začíná bez něj."""
+    from speechscope_app.backend import history
+
+    history.use_catalog(None)
+
+
+@pytest.fixture(autouse=True)
 def fast_fake(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SPEECHSCOPE_FAKE_DELAY", "0")
     monkeypatch.delenv("SPEECHSCOPE_FAKE_DOCTOR", raising=False)

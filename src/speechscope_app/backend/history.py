@@ -37,12 +37,26 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..i18n import N_, tr
 from . import tasks
 from .protocol import Protocol, slugify
 from .trash import send_to_trash
+
+if TYPE_CHECKING:
+    from .catalog import Catalog
+
+# Katalog (`catalog.Catalog`) drží RunInfo podle otisku souborů běhu: `run.json`,
+# `protocol.yaml` a `features.csv` se pak čtou jen u nového nebo změněného běhu.
+# Hlavní okno ho nastaví při startu (`use_catalog`); bez něj se čte vždy ze souborů.
+_catalog: Catalog | None = None
+
+
+def use_catalog(catalog: Catalog | None) -> None:
+    global _catalog
+    _catalog = catalog
+
 
 RUN_FILE = "run.json"
 STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})_(.+)$")
@@ -166,8 +180,91 @@ def read_group(group_dir: Path) -> dict[str, Any] | None:
     return data if data.get("group") else None
 
 
+def _run_signature(run_dir: Path) -> str:
+    """Otisk souborů, ze kterých RunInfo vzniká (čas změny a velikost)."""
+    parts: list[str] = []
+    for name in (RUN_FILE, "protocol.yaml", "features.csv", "speechscope.log"):
+        try:
+            stat = (run_dir / name).stat()
+            parts.append(f"{stat.st_mtime_ns}:{stat.st_size}")
+        except OSError:
+            parts.append("-")
+    return "|".join(parts)
+
+
+def _info_to_dict(info: RunInfo) -> dict[str, Any]:
+    return {
+        "started": info.started.isoformat() if info.started else "",
+        "slug": info.slug,
+        "protocol_name": info.protocol_name,
+        "label": info.label,
+        "status": info.status,
+        "processed": info.processed,
+        "total": info.total,
+        "seconds": info.seconds,
+        "rows": info.rows,
+        "work_dir": str(info.work_dir) if info.work_dir else "",
+        "prepare": info.prepare,
+        "norm": info.norm,
+        "assessment": info.assessment,
+        "patient": info.patient,
+        "task": info.task,
+        "library_version": info.library_version,
+        "feature_versions": dict(info.feature_versions),
+    }
+
+
+def _info_from_dict(run_dir: Path, group_dir: Path | None, data: dict[str, Any]) -> RunInfo:
+    started = None
+    if data.get("started"):
+        try:
+            started = datetime.fromisoformat(str(data["started"]))
+        except ValueError:
+            started = None
+    return RunInfo(
+        dir=run_dir,
+        started=started,
+        slug=str(data.get("slug") or run_dir.name),
+        protocol_name=str(data.get("protocol_name") or ""),
+        label=str(data.get("label") or ""),
+        status=str(data.get("status") or "unknown"),
+        processed=data.get("processed"),
+        total=data.get("total"),
+        seconds=data.get("seconds"),
+        rows=data.get("rows"),
+        work_dir=Path(data["work_dir"]) if data.get("work_dir") else None,
+        prepare=str(data.get("prepare") or ""),
+        norm=str(data.get("norm") or ""),
+        assessment=str(data.get("assessment") or ""),
+        patient=str(data.get("patient") or ""),
+        task=str(data.get("task") or ""),
+        group_dir=group_dir,
+        library_version=str(data.get("library_version") or ""),
+        feature_versions=_versions(data.get("feature_versions")),
+    )
+
+
 def read_run(run_dir: Path, *, group_dir: Path | None = None) -> RunInfo | None:
     """Jedna složka běhu; `None`, když to složka běhu není.
+
+    S katalogem se složka čte jen při změně otisku; běžící běh se čte vždy
+    (jeho `run.json` se mění po každé nahrávce a tabulka roste)."""
+    if _catalog is None or not run_dir.is_dir():
+        return _read_run_from_disk(run_dir, group_dir=group_dir)
+    signature = _run_signature(run_dir)
+    cached = _catalog.load_run_info(run_dir)
+    if cached is not None and cached[0] == signature and cached[1].get("status") != "running":
+        if group_dir is None and read_group(run_dir.parent) is not None:
+            group_dir = run_dir.parent
+        return _info_from_dict(run_dir, group_dir, cached[1])
+    info = _read_run_from_disk(run_dir, group_dir=group_dir)
+    if info is not None and info.status != "running":
+        _catalog.store_run_info(run_dir, signature, _info_to_dict(info))
+    return info
+
+
+def _read_run_from_disk(run_dir: Path, *, group_dir: Path | None = None) -> RunInfo | None:
+    """RunInfo ze souborů složky (`run.json`, `protocol.yaml`, počet řádků CSV).
 
     Vnořený běh ve složce vyšetření (`group_dir`) nemá datum v názvu, bere ho
     ze složky vyšetření; bez `group_dir` se vnoření pozná podle rodiče.
@@ -348,6 +445,8 @@ def list_runs(work_root: Path) -> list[RunInfo]:
         elif (info := read_run(d)) is not None:
             runs.append(info)
     runs.sort(key=lambda r: (r.started or datetime.min, r.dir.name), reverse=True)
+    if _catalog is not None:
+        _catalog.prune_run_info(work_root, {r.dir for r in runs})
     return runs
 
 
