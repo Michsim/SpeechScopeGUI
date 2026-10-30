@@ -71,7 +71,7 @@ class ActionCard(QFrame):
     ) -> None:
         super().__init__()
         self.setObjectName("card")
-        self.setProperty("role", "chosen" if primary else "option")
+        self.setProperty("role", "option")  # modré je jen tlačítko doporučené karty
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 18, 22, 18)
