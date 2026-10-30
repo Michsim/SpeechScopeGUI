@@ -320,9 +320,10 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   z nahrávek / z hotových běhů; z nahrávek
   `new_visit_from_recordings_requested` → `MainWindow.new_visit_from_recordings`,
   dialog průvodce s `prefill`; z běhů `AssessmentDialog(template=…)` předvyplní
-  pacienta, věk a pohlaví bez nahrávek a data). Pod řadou vyšetření přepínač
+  pacienta, věk a pohlaví bez nahrávek a data). Nad řadou vyšetření (aby při přepnutí neposkočil, řada se ve Vývoji schovává) přepínač
   Vyšetření · Vývoj v čase (`view_bar`, `set_view`, `view()`; Vývoj aktivní od dvou
-  vyšetření s datem a s normou, `_update_view_bar`): Vývoj schová pavouk, strom i
+  vyšetření s datem, `_update_view_bar`; bez normy jen v měřítku Hodnoty, viz
+  níže): Vývoj schová pavouk, strom i
   nahrávky a ukáže `trend_panel` = mřížka malých grafů po dimenzích
   (`widgets/trend_chart.py`, `TrendGrid`/`TrendChart`: osa y −2 až +3 SD, zelený
   pás ±1, čárkovaně ±2, body barvou pásma, dutý bod = jiná verze feature než
@@ -332,10 +333,48 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   významnosti, vyšetření bez data se vynechá, dvě v jeden den vedle sebe podle
   založení; `format_change` ▲ horší ▼ lepší). „jen dimenze mimo normu“ filtruje
   podle posledního skóre (|z| ≥ 1). Uložit obrázek… ve Vývoji uloží mřížku s
-  tabulkou (`trend_panel.grab`, přípona `-vyvoj`). Překryv v pavouku zatím není
-  (mockup 3b). Staré tlačítko se při výměně řady napřed skryje
+  tabulkou (`trend_panel.grab`, přípona `-vyvoj`). **Měřítko Hodnoty** (30. 10. 2026
+  večer, mockup https://claude.ai/artifact/Nw7jUHXFYWFv7MHQ7eb1Dm,
+  `docs/mockups/vyvoj-hodnoty/` mimo git): ve Vývoji přepínač „Měřítko: SD proti
+  normě · Hodnoty“ (`scale_sd_btn`, `scale_values_btn`, `set_scale`, `trend_scale()`
+  = volba uložená v `ui/trend_scale` přes `scale_changed`, `effective_scale()` = bez
+  normy vždy Hodnoty; SD bez normy neaktivní se štítkem „potřebuje normu“,
+  `_update_trend_controls`). Hodnoty = mřížka **po položkách** dimenzí ve skupinách
+  s nadpisem dimenze a směrem (`TrendGrid.set_groups`, `TrendSeries.scale="values"`:
+  osa v jednotkách feature podle hodnot pacienta přes `nice_axis`/`format_tick`,
+  bez pásem, čára a body černé, v hlavičce poslední hodnota a změna se šipkou
+  ▲ k patologii / ▼ od ní podle směru položky, u `both` jen číslo; dutý bod = jiná
+  verze feature než u posledního vyšetření) a tabulka položka × datum s jednotkou,
+  změnou v jednotkách a v procentech, řádky skupin přes celou šířku
+  (`_fill_values`; `backend/longitudinal.py` `build_value_timeline` → `ValueTimeline`,
+  `ValueRow.side`, `change_percent`; hodnoty = `dimensions.visit_values`, norma se
+  nepoužije). Jednotka z popisu sloupce v katalogu (`_item_label`). Filtr „jen mimo
+  normu“ není. **Podoby Vývoje** (31. 10. 2026, mockup
+  https://claude.ai/artifact/DgxUjxJmh5SAihwZ4SkQog, `docs/mockups/vyvoj-2/` mimo git;
+  přepínač „Podoba: Pavouk · Grafy“ na druhém řádku `trend_bar` pod záložkami, volba
+  v `ui/trend_form` přes `set_form`/`trend_form()`/`form_changed`, `effective_form()`):
+  **Grafy** (výchozí) = nahoře přehled `widgets/trend_map.py` (`TrendMap`/`MapRow`/
+  `Sparkline`: řádek dimenze, buňka vyšetření podbarvená pásmem s SD, poslední tučně,
+  průběh, změna; v Hodnotách řádky = položky ve skupinách s jednotkou, šedé buňky;
+  klik na sloupec `visit_clicked` → `_trend_visit_clicked` otevře to vyšetření) s
+  políčkem „graf“ v prvním sloupci a tlačítky vše · nic; pod ním mřížka grafů jen
+  zaškrtnutých řádků (po dvou, pásma v pozadí, hodnota u bodu, celé datum do čtyř
+  vyšetření `_visit_labels`). Výběr se pamatuje zvlášť pro dimenze (`ui/trend_dims`)
+  a položky (`ui/trend_items`, klíč `úloha:sloupec` `_item_key`) přes
+  `trend_selection_changed`/`set_trend_selection`; bez volby = dimenze hraniční nebo
+  mimo normu naposledy, resp. dvě položky s největší změnou v procentech. Tabulka
+  `trend_table` zůstává jen u Pavouka. **Pavouk** (`can_overlay`: jen SD a 2 až 3
+  vyšetření; `SpiderChart.set_axes(axes, overlays)` s `Overlay`: poslední vyšetření
+  černě, prostřední tmavě modře čárkovaně se čtverečky, nejstarší světle modře
+  tečkovaně s kroužky a slabou výplní, legenda `spider_legend`; u jedné dimenze
+  značky na pruhu) s tabulkou změn pod ním. Samostatná Mapa a „První → poslední“
+  zamítnuty. Norma je v pavouku i v grafech jen tenká čárkovaná čára (silná černá
+  rušila; platí i pro pavouk na záložce Vyšetření a stupnici). PNG má příponu
+  `-vyvoj` nebo `-vyvoj-pavouk` (+ `-hodnoty`). Staré tlačítko se při výměně řady napřed skryje
   (`deleteLater` kreslil zbytkový modrý pruh). Vpravo hlavička
-  pacienta se štítky dimenzí a Upravit…, Uložit obrázek… (PNG pavouka),
+  pacienta (štítky dimenzí odstraněny 31. 10. 2026, totéž říká pavouk) s barevným
+  pruhem podle nejhoršího pásma, podtitul pod jménem i tlačítky na jeden řádek
+  s výpustkou (`StatusHeader(subtitle_below=True)`) a Upravit…, Uložit obrázek… (PNG pavouka),
   Smazat…, výběr normy, věkového okna a „jen stejné pohlaví“ (řádek pod tím
   říká, kolik kontrol se vybralo po úlohách); pod hlavičkou se roluje
   (`self.scroll`): pavouk přes celou šířku s legendou vedle, pod ním strom na
@@ -359,7 +398,26 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   dimenze → položka (úloha, pacient, norma, z, percentil), chybějící dimenze
   s důvodem, tabulka Nahrávky hodnocení (úloha, nahrávka, běh, s normou)
   s poznámkou o průměru, jiném protokolu a chybějících odkazech, O normě.
-  Bez normy ukáže jen nahrávky a kde normu vzít. Dialog
+  Bez normy (31. 10. 2026) ukáže místo pavouka strom jen s hodnotami položek
+  v jednotkách (`_fill_values_tree` přes `build_value_timeline` s jedním vyšetřením,
+  sloupce norma/z/percentil skryté `_set_norm_columns`, `chart_card` skrytá),
+  nahrávky a kde normu vzít. Nabídka Norma má na konci „žádná norma (jen hodnoty)“
+  (`NO_NORM`), volba se pamatuje v `ui/norm` (`settings.norm_choice`: cesta normy,
+  „none“, prázdné = první; `norm_choice_changed`, `set_norm_choice` před
+  `set_norms_dir`); to je **výchozí** norma. Nabídka u vybraného pacienta mění jen
+  jeho normu (odchylka `PatientPrefs.norm` v katalogu, `_store_norm_override`,
+  `_norm_for(subject)`, `current_norm()` = norma vybraného pacienta; štítky karet
+  každý podle své normy `_known_band`; „nastavit jako výchozí pro všechny“ zapíše
+  i normu); bez normy jsou věkové okno a pohlaví neaktivní. **Okno a pohlaví
+  platí per pacient** (31. 10. 2026, rozhodnuto variantou 1): výchozí z nastavení
+  (`settings.eval_window` 0 = bez omezení, `eval_same_sex`; `set_eval_defaults`,
+  `eval_defaults_changed`), odchylka pacienta v katalogu (`patients.window`,
+  `same_sex`, `Catalog.patient_prefs/set_patient_prefs/clear_patient_prefs`,
+  `PatientPrefs`); ovládání ukazuje vybraného pacienta (`_show_prefs`), změna
+  (`_prefs_changed`) uloží odchylku a přepočítá jen jeho, protože okno a pohlaví
+  jsou v otisku vyšetření (`_visit_signature`), ne v globálním klíči cache; štítek
+  „platí jen pro tohoto pacienta · nastavit jako výchozí pro všechny“
+  (`_make_default`: nové výchozí do nastavení, odchylky smazané). Dialog
   (`ui/assessment_dialog.py`, `AssessmentDialog`): pacient, věk, pohlaví,
   datum, pro každou úlohu nahrávky s Přidat… (`PickRecordingDialog`:
   nahoře podle manifestu pacienta, pak podle názvu souboru, ostatní jen bez

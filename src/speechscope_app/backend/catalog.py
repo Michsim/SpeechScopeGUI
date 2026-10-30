@@ -103,6 +103,20 @@ class PatientRow:
 
 
 @dataclass(slots=True)
+class PatientPrefs:
+    """Výběr kontrol pro pacienta (31. 10. 2026): `window` None = výchozí z nastavení,
+    0 = bez věkového omezení, jinak ±n let; `same_sex` None = výchozí."""
+
+    window: int | None = None
+    same_sex: bool | None = None
+    norm: str | None = None  # cesta normy nebo „none“; None = výchozí z nastavení
+
+    @property
+    def empty(self) -> bool:
+        return self.window is None and self.same_sex is None and self.norm is None
+
+
+@dataclass(slots=True)
 class RecordingRow:
     """Řádek indexu: to, z čeho `VisitIndex` složí `Recording` bez čtení CSV."""
 
@@ -137,6 +151,11 @@ class Catalog:
         self._db.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema', ?)", (str(SCHEMA_VERSION),)
         )
+        # sloupce přidané později (starší katalog je nemá): výběr kontrol per pacient
+        columns = {r["name"] for r in self._db.execute("PRAGMA table_info(patients)")}
+        for column, kind in (("window", "INTEGER"), ("same_sex", "INTEGER"), ("norm", "TEXT")):
+            if column not in columns:
+                self._db.execute(f"ALTER TABLE patients ADD COLUMN {column} {kind}")
         self._db.commit()
 
     def close(self) -> None:
@@ -257,6 +276,39 @@ class Catalog:
             )
             for r in rows
         ]
+
+    # --- výběr kontrol per pacient ------------------------------------------------------
+
+    def patient_prefs(self) -> dict[str, PatientPrefs]:
+        """Odchylky od výchozího okna a pohlaví po pacientech (jen kdo nějakou má)."""
+        out: dict[str, PatientPrefs] = {}
+        for r in self._db.execute(
+            "SELECT key, window, same_sex, norm FROM patients "
+            "WHERE window IS NOT NULL OR same_sex IS NOT NULL OR norm IS NOT NULL"
+        ):
+            out[r["key"]] = PatientPrefs(
+                None if r["window"] is None else int(r["window"]),
+                None if r["same_sex"] is None else bool(r["same_sex"]),
+                r["norm"] or None,
+            )
+        return out
+
+    def set_patient_prefs(self, key: str, prefs: PatientPrefs) -> None:
+        """Uloží odchylku pacienta; prázdná odchylka = vrátit na výchozí."""
+        with self._db:
+            self._db.execute(
+                "UPDATE patients SET window = ?, same_sex = ?, norm = ? WHERE key = ?",
+                (
+                    prefs.window,
+                    None if prefs.same_sex is None else int(prefs.same_sex),
+                    prefs.norm,
+                    key,
+                ),
+            )
+
+    def clear_patient_prefs(self) -> None:
+        with self._db:
+            self._db.execute("UPDATE patients SET window = NULL, same_sex = NULL, norm = NULL")
 
     def import_assessments(self, folder: Path) -> int:
         """Starší hodnocení ze souborů `<id>.json`: do katalogu a soubor do `imported/`.

@@ -337,7 +337,8 @@ def test_tree_marks_side_of_both_direction_item(qtbot: QtBot, settings: AppSetti
     assert page.evaluation().results[0].band == "bad"
     # šipka i u osy pavouka a ve štítku hlavičky
     assert page.chart.axes()[0].label == "Tempo ▼"
-    assert page.header._pill_widgets[0].text().startswith("Tempo ▼")
+    assert page.header._pill_widgets == []  # štítky dimenzí v hlavičce nejsou
+    assert page.chart.axes()[0].label.startswith("Tempo ▼")  # šipka zůstává v pavouku
 
 
 def test_click_does_not_reevaluate_other_cards(
@@ -370,9 +371,11 @@ def test_click_does_not_reevaluate_other_cards(
     page.select_row(2)
     assert calls == []  # vše už je v cache z uložení
     page.same_sex.setChecked(False)
-    assert len(calls) == 1 and page.badges_pending() == 2  # jen vybraný hned, ostatní líně
+    assert len(calls) == 1 and page.badges_pending() == 0  # okno a pohlaví platí per pacient
+    page._make_default()  # teprve „výchozí pro všechny“ přepočítá ostatní, a to líně
+    assert len(calls) == 1 and page.badges_pending() == 2
     page.flush_badges()
-    assert len(calls) == 3  # změna výběru kontrol přepočítá každého jednou
+    assert len(calls) == 3  # každého jednou
     calls.clear()
     page.select_row(0)
     assert calls == []
@@ -621,9 +624,13 @@ def test_trend_view_for_patient_with_two_visits(qtbot: QtBot, settings: AppSetti
     dialog._set_date("2025-10-14")
     second = page.save_from(dialog)
     assert second is not None and page.view_trend_btn.isEnabled()
+    # přepínač je nad řadou vyšetření, takže při přepnutí neposkočí
+    column = page.view_bar.parentWidget().layout()
+    order = [column.indexOf(w) for w in (page.view_bar, page.trend_bar, page.visit_bar)]
+    assert order == sorted(order)
     page.set_view("trend")
     assert page.view() == "trend" and not page.trend_panel.isHidden() and page.middle.isHidden()
-    assert page.bottom.isHidden() and not page.only_abnormal.isHidden()
+    assert page.bottom.isHidden() and not page.trend_bar.isHidden()
     timeline = page.timeline()
     assert timeline is not None and [v.date for v in timeline.visits] == [
         "2025-10-14",
@@ -643,13 +650,212 @@ def test_trend_view_for_patient_with_two_visits(qtbot: QtBot, settings: AppSetti
     assert "rozdíl v SD" in page.trend_note.text()
     out = page.save_image(settings.work_root / "vyvoj.png")
     assert out is not None and out.is_file()
-    # jen dimenze mimo normu
-    page.only_abnormal.setChecked(True)
-    assert all(r.abnormal for r in page.timeline().shown_rows(only_abnormal=True))
-    assert len(page.trend_grid.charts) == page.trend_table.rowCount()
-    page.only_abnormal.setChecked(False)
+    # grafy jen pro zaškrtnuté dimenze; výchozí = hraniční nebo mimo normu naposledy
+    assert page.trend_selection() == [r.dimension.key for r in shown if r.abnormal]
+    assert len(page.trend_grid.charts) == len(page.trend_selection())
+    # měřítko Hodnoty: položky v jednotkách feature po skupinách dimenzí, bez pásem
+    assert page.trend_scale() == "sd" and not page.scale_sd_btn.isHidden()
+    assert page.scale_note.isHidden()
+    got: list[str] = []
+    page.scale_changed.connect(got.append)
+    page.set_scale("values")
+    assert got == ["values"] and page.effective_scale() == "values"
+    assert page.timeline() is None
+    values = page.value_timeline()
+    assert values is not None and "voice" in [d.key for d, _r in values.groups()]
+    assert len(page.trend_grid.charts) == len(values.shown_rows()) >= 2
+    assert len(page.trend_grid.headers) == len(values.groups())
+    assert page.trend_grid.charts[0].series.scale == "values"
+    assert page.trend_table.columnCount() == 6
+    assert page.trend_table.item(0, 0).text() == "Kvalita hlasu"
+    assert page.trend_table.columnSpan(0, 0) == 6  # řádek skupiny přes celou šířku
+    assert page.trend_table.horizontalHeaderItem(1).text() == "jednotka"
+    assert page.trend_table.horizontalHeaderItem(5).text() == "změna v %"
+    assert "SD proti normě" in page.trend_note.text()
+    out = page.save_image(settings.work_root / "hodnoty.png")
+    assert out is not None and out.is_file()
+    page.set_scale("sd")
+    assert page.timeline() is not None and page.value_timeline() is None
+    assert got == ["values", "sd"]
+    # podoby Vývoje: výchozí Grafy = přehled s výběrem + grafy; Pavouk jen do tří vyšetření
+    forms: list[str] = []
+    page.form_changed.connect(forms.append)
+    picks: list[tuple[str, object]] = []
+    page.trend_selection_changed.connect(lambda k, v: picks.append((k, v)))
+    assert page.trend_form() == "charts" and page.effective_form() == "charts"
+    assert not page.map_card.isHidden() and not page.grid_card.isHidden()
+    assert page.table_card.isHidden() and page.spider_card.isHidden()
+    assert page.trend_map.rowCount() == 2 and page.trend_map.columnCount() == 6
+    assert page.trend_map.horizontalHeaderItem(0).text() == "graf"
+    assert page.trend_map.horizontalHeaderItem(2).text() == "průběh"
+    # zaškrtnutí všech řádků přidá grafy, výběr se hlásí ven a pamatuje
+    page.trend_map.set_all(True)
+    assert picks and picks[-1][0] == "dims" and len(picks[-1][1]) == 2
+    assert len(page.trend_grid.charts) == 2
+    page.trend_map.set_all(False)
+    assert len(page.trend_grid.charts) == 0 and "Zaškrtněte" in page.trend_grid.empty.text()
+    page.set_trend_selection(["voice"], None)
+    assert page.trend_selection() == ["voice"] and len(page.trend_grid.charts) == 1
+    assert page.form_spider_btn.isEnabled() and not page.trend_bar.isHidden()
+    page.set_form("spider")
+    assert forms == ["spider"] and not page.spider_card.isHidden() and page.map_card.isHidden()
+    assert not page.table_card.isHidden() and len(page.trend_spider.overlays()) == 1
+    assert "2025" in page.spider_legend.text()
+    page.set_form("charts")
+    assert not page.grid_card.isHidden() and page.spider_card.isHidden()
+    out = page.save_image(settings.work_root / "grafy.png")
+    assert out is not None and out.is_file()
+    # přehled přepne kliknutím na sloupec na to vyšetření
+    page.trend_map.visit_clicked.emit(0)
+    assert page.view() == "visit" and page.current_assessment().date == "2025-10-14"
+    page.set_view("trend")
+    # v Hodnotách překryv není; přehled jde po položkách s vlastním výběrem
+    page.set_scale("values")
+    page.set_form("spider")
+    assert page.effective_form() == "charts" and not page.form_spider_btn.isEnabled()
+    assert page.trend_map.horizontalHeaderItem(2).text() == "jedn."
+    assert page.trend_selection() and ":" in page.trend_selection()[0]
+    page.trend_map.set_all(False)
+    assert picks[-1][0] == "items" and page.trend_grid.charts == []
+    page.set_scale("sd")
+    assert page.trend_selection() == ["voice"]  # výběr dimenzí zůstal
+    page.set_form("charts")
+    # výslovná volba „žádná norma“ platí jen pro vybraného pacienta (odchylka v katalogu)
+    page.set_view("visit")
+    norm_path = str(page.current_norm().path)
+    assert page.norm_choice() == norm_path
+    assert settings.norm_choice == page.norm_choice()  # uloží se i výchozí první norma
+    page.flush_badges()
+    page.norm_combo.setCurrentIndex(page.norm_combo.count() - 1)
+    assert page.current_norm() is None and page.norm_choice() == norm_path  # výchozí beze změny
+    assert window.catalog.patient_prefs()["p-017"].norm == "none"
+    assert page.chart_card.isHidden() and not page.prefs_label.isHidden()
+    assert not page.window_combo.isEnabled() and page.tree.isColumnHidden(4)
+    assert [c.pill.text() for c in page._cards] == ["bez normy"]  # jen tento pacient
+    page.set_view("trend")
+    assert page.effective_scale() == "values" and page.scale_note.text() == "vyberte normu"
+    again = MainWindow(settings)
+    qtbot.addWidget(again)
+    again.assessment_page.select_assessment(first.id)
+    assert again.assessment_page.current_norm() is None  # odchylka přežila restart
+    again.assessment_page.select_assessment(second.id)
+    assert again.assessment_page.current_norm() is None  # táž osoba, obě vyšetření
+    # „nastavit jako výchozí pro všechny“ udělá z „žádné“ výchozí normu
+    page.set_view("visit")
+    page._make_default()
+    assert settings.norm_choice == "none" and page.norm_choice() == "none"
+    assert window.catalog.patient_prefs() == {}
+    page.norm_combo.setCurrentIndex(0)  # zpět na normu, teď zase jen pro P-017
+    assert page.current_norm() is not None and page.window_combo.isEnabled()
+    assert window.catalog.patient_prefs()["p-017"].norm == norm_path
+    page._make_default()
+    assert settings.norm_choice == norm_path and window.catalog.patient_prefs() == {}
     # přepnutí pacienta bez druhého vyšetření vrátí Vyšetření
     page.save_from(page.make_dialog(initial=recording(page, "P-018_fonace.wav")))
     assert page.current_assessment().subject == "P-018"
     assert page.view() == "visit" and not page.view_trend_btn.isEnabled()
     assert page.trend_panel.isHidden() and not page.middle.isHidden()
+
+
+def test_trend_values_without_norm(qtbot: QtBot, settings: AppSettings) -> None:
+    """Bez normy jde Vývoj jen v měřítku Hodnoty: SD neaktivní s vysvětlením, PNG jde."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.assessment_page
+    first = page.save_from(page.make_dialog(initial=recording(page, "P-017_fonace.wav")))
+    assert first is not None
+    dialog = page.make_dialog(template=first)
+    qtbot.addWidget(dialog)
+    dialog.add_recording(recording(page, "P-017_cteni.wav"))
+    dialog._set_date("2025-10-14")
+    assert page.save_from(dialog) is not None
+    assert page.current_norm() is None and page.view_trend_btn.isEnabled()
+    # záložka Vyšetření bez normy: strom jen s hodnotami, pavouk a sloupce normy schované
+    assert not page.middle.isHidden() and page.chart_card.isHidden()
+    assert page.tree.isColumnHidden(3) and page.tree.isColumnHidden(6)
+    assert not page.tree.isColumnHidden(2) and "Normy" in page.tree_hint.text()
+    tops = [page.tree.topLevelItem(i) for i in range(page.tree.topLevelItemCount())]
+    # vybrané vyšetření má jen čtení: Kvalita hlasu bez dat, položka ze čtení s hodnotou
+    assert tops[0].text(0) == "Kvalita hlasu" and tops[0].text(2).startswith("bez dat")
+    filled = [t for t in tops if t.childCount()]
+    assert filled and filled[0].child(0).text(2) != "–" and filled[0].child(0).text(4) == ""
+    page.set_view("trend")
+    assert page.view() == "trend" and page.effective_scale() == "values"
+    assert page.trend_scale() == "sd"
+    assert not page.scale_sd_btn.isEnabled() and not page.scale_note.isHidden()
+    assert page.scale_values_btn.isChecked()
+    values = page.value_timeline()
+    assert values is not None and values.enough and page.timeline() is None
+    assert len(page.trend_grid.charts) == len(values.shown_rows()) >= 1
+    assert page.effective_form() == "charts" and not page.form_spider_btn.isEnabled()
+    assert page.trend_map.rowCount() >= 2  # skupina dimenze + položka
+    assert "Normy" in page.trend_note.text() and page.image_btn.isEnabled()
+    out = page.save_image(settings.work_root / "bez-normy.png")
+    assert out is not None and out.is_file()
+    page.set_view("visit")
+    assert not page.image_btn.isEnabled()  # bez normy není pavouk
+    assert not page.middle.isHidden() and page.chart_card.isHidden()
+
+
+def test_nice_axis_and_ticks() -> None:
+    from speechscope_app.ui.widgets.trend_chart import format_tick, nice_axis
+
+    ymin, ymax, ticks = nice_axis([360.0, 395.0, 412.0])
+    assert ymin <= 360 and ymax >= 412 and 2 <= len(ticks) <= 5
+    assert ticks[0] == ymin and ticks[-1] == ymax
+    assert format_tick(400.0, ticks) == "400"
+    assert format_tick(0.5, [0.0, 0.5, 1.0]) == "0,5" and format_tick(-2.0, [-2.0, 0.0]) == "−2"
+    ymin, ymax, ticks = nice_axis([5.0])  # jedna hodnota: okolí místo nulového rozsahu
+    assert ymin < 5.0 < ymax and len(ticks) >= 2
+
+
+def test_window_and_sex_are_per_patient(qtbot: QtBot, settings: AppSettings) -> None:
+    """Okno a pohlaví platí pro vybraného pacienta: ostatní se nepřepočítají, volba se
+    pamatuje v katalogu a jde z ní udělat výchozí pro všechny."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    save_norm(settings.norms_dir())
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.assessment_page
+    a = page.save_from(page.make_dialog(initial=recording(page, "P-017_fonace.wav")))
+    b = page.save_from(page.make_dialog(initial=recording(page, "P-018_fonace.wav")))
+    assert a is not None and b is not None
+    page.flush_badges()
+    page.select_assessment(a.id)
+    before_b = page._eval_cache[b.id][1]
+    default_index = page.window_combo.currentIndex()
+    assert page.prefs_label.isHidden() and page.eval_defaults() == (5, True)
+    page.window_combo.setCurrentIndex(3)  # bez omezení, jen pro P-017
+    page.same_sex.setChecked(False)
+    assert page.has_override("P-017") and not page.has_override("P-018")
+    assert not page.prefs_label.isHidden()
+    assert page._eval_cache[b.id][1] is before_b  # P-018 beze změny, nic se nepočítalo
+    assert page._lookup(a, page.current_visit(), page.current_norm()) is not None
+    prefs = window.catalog.patient_prefs()
+    assert prefs["p-017"].window == 0 and prefs["p-017"].same_sex is False
+    # jiný pacient ukáže výchozí, návrat ukáže odchylku
+    page.select_assessment(b.id)
+    assert page.window_combo.currentIndex() == default_index and page.same_sex.isChecked()
+    assert page.prefs_label.isHidden()
+    page.select_assessment(a.id)
+    assert page.window_combo.currentIndex() == 3 and not page.same_sex.isChecked()
+    # po restartu zůstává
+    again = MainWindow(settings)
+    qtbot.addWidget(again)
+    again.assessment_page.select_assessment(a.id)
+    assert again.assessment_page.window_combo.currentIndex() == 3
+    # nastavit jako výchozí pro všechny: odchylky pryč, nastavení uložené, P-018 nově bez okna
+    page._make_default()
+    assert settings.eval_window == 0 and settings.eval_same_sex is False
+    assert window.catalog.patient_prefs() == {} and page.prefs_label.isHidden()
+    page.select_assessment(b.id)
+    assert page.window_combo.currentIndex() == 3 and not page.same_sex.isChecked()
+    assert page._eval_cache[b.id][1] is not before_b  # P-018 se přepočítal podle nového výchozího
+    # návrat na výchozí hodnotu odchylku zruší
+    page.window_combo.setCurrentIndex(1)
+    assert page.has_override("P-018")
+    page.window_combo.setCurrentIndex(3)
+    assert not page.has_override("P-018")

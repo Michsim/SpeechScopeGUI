@@ -205,6 +205,84 @@ class AppSettings:
     def spider_orientation(self, value: str) -> None:
         self._q.setValue("ui/spider_orientation", value)
 
+    @property
+    def trend_scale(self) -> str:
+        """Měřítko Vývoje v čase na Pacientech: sd (proti normě, výchozí) nebo values."""
+        raw = str(self._q.value("ui/trend_scale", "sd") or "sd")
+        return raw if raw in ("sd", "values") else "sd"
+
+    @trend_scale.setter
+    def trend_scale(self, value: str) -> None:
+        self._q.setValue("ui/trend_scale", value)
+
+    @property
+    def trend_form(self) -> str:
+        """Podoba Vývoje v čase: charts (výchozí, přehled + grafy) nebo spider (překryv)."""
+        raw = str(self._q.value("ui/trend_form", "charts") or "charts")
+        return raw if raw in ("spider", "charts") else "charts"
+
+    @trend_form.setter
+    def trend_form(self, value: str) -> None:
+        self._q.setValue("ui/trend_form", value)
+
+    def _json_list(self, key: str) -> list[str] | None:
+        raw = self._q.value(key, "")
+        if not raw:
+            return None
+        try:
+            data = json.loads(str(raw))
+        except ValueError:
+            return None
+        return [str(x) for x in data] if isinstance(data, list) else None
+
+    @property
+    def trend_dims(self) -> list[str] | None:
+        """Dimenze s grafem ve Vývoji (SD); None = výchozí (hraniční a mimo normu)."""
+        return self._json_list("ui/trend_dims")
+
+    @trend_dims.setter
+    def trend_dims(self, value: list[str] | None) -> None:
+        self._q.setValue("ui/trend_dims", json.dumps(value) if value is not None else "")
+
+    @property
+    def trend_items(self) -> list[str] | None:
+        """Položky s grafem ve Vývoji (Hodnoty); None = výchozí (největší změna)."""
+        return self._json_list("ui/trend_items")
+
+    @trend_items.setter
+    def trend_items(self, value: list[str] | None) -> None:
+        self._q.setValue("ui/trend_items", json.dumps(value) if value is not None else "")
+
+    @property
+    def norm_choice(self) -> str:
+        """Norma na Pacientech: cesta ke složce normy, „none“ = žádná, prázdné = první."""
+        return str(self._q.value("ui/norm", "") or "")
+
+    @norm_choice.setter
+    def norm_choice(self, value: str) -> None:
+        self._q.setValue("ui/norm", value)
+
+    @property
+    def eval_window(self) -> int:
+        """Výchozí věkové okno kontrol na Pacientech: ±n let, 0 = bez omezení."""
+        try:
+            return int(self._q.value("ui/eval_window", 5))
+        except (TypeError, ValueError):
+            return 5
+
+    @eval_window.setter
+    def eval_window(self, value: int) -> None:
+        self._q.setValue("ui/eval_window", int(value))
+
+    @property
+    def eval_same_sex(self) -> bool:
+        raw = self._q.value("ui/eval_same_sex", True)
+        return str(raw).lower() in ("true", "1")
+
+    @eval_same_sex.setter
+    def eval_same_sex(self, value: bool) -> None:
+        self._q.setValue("ui/eval_same_sex", bool(value))
+
     def protocols_dir(self) -> Path:
         return app_data_dir() / "protocols"
 

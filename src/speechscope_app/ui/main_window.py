@@ -291,6 +291,16 @@ class MainWindow(QMainWindow):
         self.assessment_page.open_run_requested.connect(self.open_run)
         self.assessment_page.set_orientation(self.settings.spider_orientation)
         self.assessment_page.orientation_changed.connect(self._spider_orientation_changed)
+        self.assessment_page.set_scale(self.settings.trend_scale, emit=False)
+        self.assessment_page.set_form(self.settings.trend_form, emit=False)
+        self.assessment_page.set_trend_selection(
+            self.settings.trend_dims, self.settings.trend_items
+        )
+        self.assessment_page.scale_changed.connect(self._trend_scale_changed)
+        self.assessment_page.form_changed.connect(self._trend_form_changed)
+        self.assessment_page.trend_selection_changed.connect(self._trend_selection_changed)
+        self.assessment_page.norm_choice_changed.connect(self._norm_choice_changed)
+        self.assessment_page.eval_defaults_changed.connect(self._eval_defaults_changed)
         self.protocols_page.protocols_changed.connect(self.reload_protocols)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.prepare_requested.connect(self._start_prepare)
@@ -445,6 +455,25 @@ class MainWindow(QMainWindow):
     def _spider_orientation_changed(self, orientation: str) -> None:
         self.settings.spider_orientation = orientation
 
+    def _trend_scale_changed(self, scale: str) -> None:
+        self.settings.trend_scale = scale
+
+    def _trend_form_changed(self, form: str) -> None:
+        self.settings.trend_form = form
+
+    def _trend_selection_changed(self, kind: str, keys: object) -> None:
+        if kind == "dims":
+            self.settings.trend_dims = list(keys)  # type: ignore[arg-type]
+        else:
+            self.settings.trend_items = list(keys)  # type: ignore[arg-type]
+
+    def _norm_choice_changed(self, choice: str) -> None:
+        self.settings.norm_choice = choice
+
+    def _eval_defaults_changed(self, window: int, same_sex: bool) -> None:
+        self.settings.eval_window = window
+        self.settings.eval_same_sex = same_sex
+
     def open_assessment(self, assessment_id: str) -> None:
         """Z Výsledků (Otevřít v Hodnocení): stránka Hodnocení s tím hodnocením."""
         self.nav.setCurrentRow(PAGE_ASSESSMENT)
@@ -522,6 +551,10 @@ class MainWindow(QMainWindow):
         self.assessment_page.set_catalog(self.catalog)
         self.assessment_page.set_work_root(work_root)
         self.assessment_page.set_assessments_dir(self.settings.assessments_dir())
+        self.assessment_page.set_eval_defaults(
+            self.settings.eval_window, self.settings.eval_same_sex
+        )
+        self.assessment_page.set_norm_choice(self.settings.norm_choice)
         self.assessment_page.set_norms_dir(self.settings.norms_dir())
         self.norms_page.set_norms_dir(self.settings.norms_dir())
         self.run_page.set_work_root(work_root)

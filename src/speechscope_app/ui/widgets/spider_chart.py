@@ -67,17 +67,35 @@ class Axis:
     band: str  # ok | warn | bad
 
 
+@dataclass(slots=True)
+class Overlay:
+    """Starší vyšetření v překryvu (Vývoj v čase, 31. 10. 2026): čára modře čárkovaně,
+    dutý bod; `scores` po osách v pořadí `axes`, None = dimenze v tom vyšetření chybí."""
+
+    label: str
+    scores: list[float | None]
+    color: str = "#1d4ed8"
+    dash: tuple[float, ...] = (8.0, 4.0)
+    marker: str = "square"  # square | circle
+    fill_alpha: float = 0.0
+
+
 class SpiderChart(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._axes: list[Axis] = []
+        self._overlays: list[Overlay] = []
         self._orientation = OUTWARD
         self.setMinimumSize(300, 300)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-    def set_axes(self, axes: list[Axis]) -> None:
+    def set_axes(self, axes: list[Axis], overlays: list[Overlay] | None = None) -> None:
         self._axes = list(axes)
+        self._overlays = list(overlays or [])
         self.update()
+
+    def overlays(self) -> list[Overlay]:
+        return list(self._overlays)
 
     def axes(self) -> list[Axis]:
         return list(self._axes)
@@ -159,11 +177,12 @@ class SpiderChart(QWidget):
         painter.setBrush(QColor(theme.CARD))
         painter.drawEllipse(center, inner, inner)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        # kružnice: norma plná tmavá, ±1 SD zelené hrany prstence, +2 SD čárkovaná, okraj jemný
+        # kružnice: ±1 SD zelené hrany prstence, norma i +2 SD jen tenké čárkované (silná
+        # černá norma rušila, 31. 10. 2026), okraj jemný
         for limit, color, width_px, dashed in (
             (2.0, theme.NEUTRAL, 1.0, True),
             (1.0, theme.OK, 1.4, False),
-            (0.0, theme.TEXT, 1.6, False),
+            (0.0, theme.MUTED, 1.2, True),
             (-1.0, theme.OK, 1.4, False),
             (MIN_SD if inward else MAX_SD, theme.BORDER, 1.0, False),
         ):
@@ -198,6 +217,36 @@ class SpiderChart(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(wedge)
             painter.drawPath(path)
+        # překryv starších vyšetření: modře čárkovaně s dutými body, pod poslední čarou
+        for overlay in self._overlays:
+            pts = [
+                (i, point(i, s))
+                for i, s in enumerate(overlay.scores[: len(self._axes)])
+                if s is not None
+            ]
+            if len(pts) < 2:
+                continue
+            color = QColor(overlay.color)
+            pen = QPen(color, 2.0, Qt.PenStyle.CustomDashLine)
+            pen.setDashPattern(list(overlay.dash))
+            painter.setPen(pen)
+            if overlay.fill_alpha > 0 and len(pts) == len(self._axes):
+                fill = QColor(color)
+                fill.setAlphaF(overlay.fill_alpha)
+                painter.setBrush(fill)
+            else:
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+            if len(pts) == len(self._axes):
+                painter.drawPolygon(QPolygonF([p for _i, p in pts]))
+            else:
+                painter.drawPolyline(QPolygonF([p for _i, p in pts]))
+            painter.setPen(QPen(color, 2.0))
+            painter.setBrush(QColor(theme.CARD))
+            for _i, p in pts:
+                if overlay.marker == "square":
+                    painter.drawRect(QRectF(p.x() - 4, p.y() - 4, 8, 8))
+                else:
+                    painter.drawEllipse(p, 4, 4)
         polygon = QPolygonF([point(i, a.score) for i, a in enumerate(self._axes)])
         fill = QColor(theme.TEXT)
         fill.setAlphaF(0.08)
@@ -306,6 +355,18 @@ class SpiderChart(QWidget):
         painter.setBrush(QColor(BAND_COLORS.get(axis.band, theme.NEUTRAL)))
         x0, x1 = sorted((x_of(0.0), x_of(value)))
         painter.drawRect(QRectF(x0, y + 6, max(2.0, x1 - x0), h - 12))
+        # překryv starších vyšetření: dutá značka na pruhu
+        for overlay in self._overlays:
+            score = overlay.scores[0] if overlay.scores else None
+            if score is None:
+                continue
+            painter.setPen(QPen(QColor(overlay.color), 2.0))
+            painter.setBrush(QColor(theme.CARD))
+            px = x_of(clamp_sd(score))
+            if overlay.marker == "square":
+                painter.drawRect(QRectF(px - 4, y + h / 2 - 4, 8, 8))
+            else:
+                painter.drawEllipse(QPointF(px, y + h / 2), 4, 4)
         font = QFont(self.font())
         font.setBold(True)
         painter.setFont(font)
@@ -357,7 +418,7 @@ class ScaleLegend(QWidget):
         labels = (
             (2.0, "+2 SD", theme.NEUTRAL, False),
             (1.0, "+1 SD", theme.OK, True),
-            (0.0, tr("norma"), theme.TEXT, True),
+            (0.0, tr("norma"), theme.MUTED, False),
             (-1.0, "−1 SD", theme.OK, True),
         )
         for value, text, color, solid in labels:

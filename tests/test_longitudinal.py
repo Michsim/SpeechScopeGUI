@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 from test_dimensions import DIMS
 from test_norms import HNR, JIT, RATE, controls_frame
 
 from speechscope_app.backend.assessments import Assessment
-from speechscope_app.backend.dimensions import evaluate
-from speechscope_app.backend.longitudinal import build_timeline, format_change
-from speechscope_app.backend.norms import Norm, NormInfo
+from speechscope_app.backend.dimensions import Item, evaluate
+from speechscope_app.backend.longitudinal import (
+    ValueRow,
+    build_timeline,
+    build_value_timeline,
+    format_change,
+)
+from speechscope_app.backend.norms import BOTH, Norm, NormInfo
 
 
 def _evaluation(norm: Norm, jit: float, hnr: float, rate: float | None = None):  # noqa: ANN202
@@ -65,3 +71,47 @@ def test_build_timeline_orders_visits_and_computes_changes() -> None:
     assert not single.enough and len(single.visits) == 1
     assert format_change(None) == "–" and format_change(0.04) == "0,0 SD"
     assert format_change(0.5) == "▲ +0,5 SD" and format_change(-1.25) == "▼ -1,2 SD"
+
+
+def test_build_value_timeline_items_changes_and_versions() -> None:
+    """Měřítko Hodnoty: položky v jednotkách bez normy, směr změny, jiná verze feature."""
+    pert = "acoustic.quality.perturbation"
+    later = Assessment("b", "P1", 65, "m", "2026-10-14", created="2026-10-14T10:00:00")
+    earlier = Assessment("a", "P1", 64, "m", "14. 10. 2025", created="2025-10-14T10:00:00")
+    undated = Assessment("c", "P1", 64, "m", "", created="2025-01-01T10:00:00")
+    rows_later = {
+        "phonation": pd.DataFrame({"path": ["p.wav", "q.wav"], JIT: [3.0, 1.0], HNR: [12.0, 14.0]}),
+        "reading": pd.DataFrame({"path": ["r.wav"], RATE: [2.5]}),
+    }
+    rows_earlier = {"phonation": pd.DataFrame({"path": ["p.wav"], JIT: [1.5], HNR: [16.0]})}
+    timeline = build_value_timeline(
+        DIMS,
+        [
+            (later, rows_later, {"phonation": {pert: "1.1"}}),
+            (undated, rows_earlier, {}),
+            (earlier, rows_earlier, {"phonation": {pert: "1.0"}}),
+        ],
+    )
+    assert [v.date for v in timeline.visits] == ["2025-10-14", "2026-10-14"]
+    assert timeline.skipped == 1 and timeline.enough
+    groups = timeline.groups()
+    assert [(d.key, [r.item.column for r in rows]) for d, rows in groups] == [
+        ("voice", [JIT, HNR]),
+        ("pauses", [RATE]),
+    ]
+    jit, hnr = groups[0][1]
+    assert jit.values == [1.5, 2.0]  # dvě nahrávky fonace = průměr
+    assert jit.change_last == 0.5 and jit.side(jit.change_last) == 1  # vyšší = horší
+    assert hnr.values == [16.0, 13.0] and hnr.side(hnr.change_total) == 1  # nižší = horší
+    assert hnr.change_percent == pytest.approx(-18.75)
+    # 2025 má perturbace 1.0, poslední vyšetření 1.1: starší bod dutý, vyšetření označené
+    assert jit.outdated == [True, False] and [v.outdated for v in timeline.visits] == [True, False]
+    rate = groups[1][1][0]
+    assert rate.values == [None, 2.5] and rate.change_last is None
+    assert rate.change_percent is None and rate.side(None) == 0 and rate.outdated == [False, False]
+    both = ValueRow(DIMS[0], Item(RATE, ("reading",), BOTH), "reading", [1.0, 2.0])
+    assert both.side(both.change_total) == 0 and both.change_percent == 100.0
+    # jedno vyšetření s datem nestačí, bez položek prázdné skupiny
+    single = build_value_timeline(DIMS, [(later, rows_later, {})])
+    assert not single.enough and len(single.groups()) == 2
+    assert build_value_timeline(DIMS, [(later, {}, {}), (earlier, {}, {})]).groups() == []

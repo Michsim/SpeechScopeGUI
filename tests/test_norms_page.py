@@ -67,13 +67,13 @@ def test_norms_page_lists_exports_imports_and_deletes(
     imported = page.import_from(target)
     assert imported is not None and imported.path == settings.norms_dir() / "zdrave-kontroly"
     assert page.count() == 3 and page.current().path == imported.path
-    assert window.assessment_page.norm_combo.count() == 3
+    assert window.assessment_page.norm_combo.count() == 3 + 1  # + „žádná norma“
 
     # smazání do Koše (v testu natrvalo)
     monkeypatch.setattr(norms_mod, "send_to_trash", shutil.rmtree)
     assert page.delete_current(confirm=False)
     assert page.count() == 2 and not imported.path.exists()
-    assert window.assessment_page.norm_combo.count() == 2
+    assert window.assessment_page.norm_combo.count() == 2 + 1
 
 
 def test_new_norm_wizard_runs_batches_and_builds_norm(
@@ -134,7 +134,7 @@ def test_new_norm_wizard_runs_batches_and_builds_norm(
     assert norm.info.protocols == {"phonation": "Fonace, základní", "ddk": "DDK, základní"}
     people = norm.controls.drop_duplicates("subject").set_index("subject")
     assert people.loc["HC02", "age"] == 70 and people.loc["HC02", "sex"] == "f"
-    assert window.assessment_page.norm_combo.count() == 1
+    assert window.assessment_page.norm_combo.count() == 1 + 1
     runs = [r for r in window.results_page.history.all_runs() if r.norm]
     assert len(runs) == 2 and all(r.norm == str(plan.folder) for r in runs)
     history = window.results_page.history
@@ -283,7 +283,7 @@ def test_recompute_norm_reruns_batches_and_overwrites(
     assert page.current_plan() is not None and "přepočítává se" in page.card(0).pill.text()
     assert "Přepočet normy" in page.plan_header.subtitle.text()
     assert page.discard_btn.text() == "Zrušit přepočet…"
-    assert window.assessment_page.norm_combo.count() == 1  # stará norma dál použitelná
+    assert window.assessment_page.norm_combo.count() == 1 + 1  # stará norma dál použitelná
     qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=30000)
     from speechscope_app.backend.norm_build import load_plan
 

@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from .. import theme
+from .elided_label import ElidedLabel
 from .flow_layout import FlowLayout, flow_policy
 
 
@@ -33,7 +34,11 @@ class Pill(QLabel):
 
 
 class StatusHeader(QFrame):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    """`subtitle_below=True` (Pacienti, 31. 10. 2026): podtitul na vlastním řádku pod
+    nadpisem i tlačítky, přes celou šířku a na jeden řádek s výpustkou; vedle tlačítek
+    se v úzkém okně lámal do tří řádků a hlavička rostla."""
+
+    def __init__(self, parent: QWidget | None = None, *, subtitle_below: bool = False) -> None:
         super().__init__(parent)
         self.setObjectName("card")
         theme.set_role(self, "neutral")
@@ -47,17 +52,26 @@ class StatusHeader(QFrame):
         self.title = QLabel("")
         self.title.setObjectName("headline")
         self.title.setWordWrap(True)
-        self.subtitle = QLabel("")
+        if subtitle_below:
+            self.subtitle: QLabel = ElidedLabel("")
+        else:
+            self.subtitle = QLabel("")
+            self.subtitle.setWordWrap(True)
         self.subtitle.setObjectName("muted")
-        self.subtitle.setWordWrap(True)
         text.addWidget(self.title)
-        text.addWidget(self.subtitle)
+        if not subtitle_below:
+            text.addWidget(self.subtitle)
         top.addLayout(text, 1)
         self.buttons = QHBoxLayout()
         self.buttons.setSpacing(8)
         top.addLayout(self.buttons, 0)
-        top.setAlignment(self.buttons, Qt.AlignmentFlag.AlignTop)
+        top.setAlignment(
+            self.buttons,
+            Qt.AlignmentFlag.AlignVCenter if subtitle_below else Qt.AlignmentFlag.AlignTop,
+        )
         outer.addLayout(top)
+        if subtitle_below:
+            outer.addWidget(self.subtitle)
         # štítky pod titulkem přes celou šířku karty a zalamované: sedm dimenzí
         # v jedné řadě vedle tlačítek tlačilo minimální šířku okna přes obrazovku
         self.pills = FlowLayout(spacing=6)
