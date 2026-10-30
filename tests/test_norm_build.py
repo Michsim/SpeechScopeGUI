@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 
 import pandas as pd
@@ -10,6 +11,7 @@ import pytest
 from speechscope_app.backend import meta
 from speechscope_app.backend.history import write_run_file
 from speechscope_app.backend.norm_build import (
+    CANCELLED,
     ERROR,
     OK,
     PENDING,
@@ -19,6 +21,7 @@ from speechscope_app.backend.norm_build import (
     default_protocol,
     finish_plan,
     guess_controls,
+    load_plan,
     pending_plans,
     read_controls_csv,
     scan_folder,
@@ -178,3 +181,47 @@ def test_finish_plan_records_feature_versions_from_runs(tmp_path: Path) -> None:
     assert norm.info.library_version == "0.4.0"
     saved = user_norms(tmp_path / "norms")[0]
     assert saved.info.feature_versions == norm.info.feature_versions
+
+
+def test_recompute_resets_plan_and_keeps_old_norm_until_finished(tmp_path: Path) -> None:
+    plan = make_plan(tmp_path)
+    run = tmp_path / "run1"
+    run.mkdir()
+    pd.DataFrame(
+        [{"file": "HC01_a.wav", "path": "x", "task": "phonation", "subject": "HC01", "age": 64}]
+    ).to_csv(run / "features.csv", index=False)
+    plan.tasks[0].status, plan.tasks[0].run_dir = OK, run
+    plan.tasks[1].status = ERROR
+    plan.save()
+    finish_plan(plan)
+    norms_dir = tmp_path / "norms"
+    assert load_plan(plan.folder) is not None and pending_plans(norms_dir) == []
+    assert load_plan(tmp_path) is None  # složka bez plánu
+
+    plan.reset_for_recompute()
+    loaded = load_plan(plan.folder)
+    assert loaded is not None and loaded.recomputing
+    assert all(t.status == PENDING and t.run_dir is None for t in loaded.tasks)
+    assert loaded.missing_inputs() == []
+    # norma se počítá znovu: zase rozpracovaná, stará norma ale pořád existuje
+    assert [p.folder for p in pending_plans(norms_dir)] == [plan.folder]
+    assert user_norms(norms_dir)[0].info.name == "Kontroly"
+
+    # zrušení přepočtu: dávky zrušené, norma zůstává, už není rozpracovaná
+    loaded.tasks[0].status = OK
+    loaded.cancel_recompute()
+    again = load_plan(plan.folder)
+    assert not again.recomputing and [t.status for t in again.tasks] == [OK, CANCELLED]
+    assert pending_plans(norms_dir) == []
+
+    # přepočet dokončený: finish_plan vlajku zruší, datum je dnešní
+    again.reset_for_recompute()
+    again.tasks[0].status, again.tasks[0].run_dir = OK, run
+    again.tasks[1].status = OK
+    norm = finish_plan(again)
+    assert norm.info.created == dt.date.today().isoformat()
+    assert not load_plan(plan.folder).recomputing and pending_plans(norms_dir) == []
+
+    # chybějící nahrávka
+    (tmp_path / "fonace" / "HC01_a.wav").unlink()
+    assert load_plan(plan.folder).missing_inputs() == [tmp_path / "fonace" / "HC01_a.wav"]

@@ -38,7 +38,16 @@ from PySide6.QtWidgets import (
 from ... import contract
 from ...backend import tasks
 from ...backend.library import Library, LibraryError
-from ...backend.norm_build import CANCELLED, ERROR, OK, PENDING, RUNNING, NormPlan, pending_plans
+from ...backend.norm_build import (
+    CANCELLED,
+    ERROR,
+    OK,
+    PENDING,
+    RUNNING,
+    NormPlan,
+    load_plan,
+    pending_plans,
+)
 from ...backend.norms import (
     NORM_SUFFIX,
     Norm,
@@ -77,9 +86,13 @@ def plan_pill(plan: NormPlan) -> tuple[str, str]:
     """Štítek rozpracované normy: počítá se, čeká na sestavení, nebo čeká."""
     n, k = len(plan.tasks), plan.done
     if any(t.status == RUNNING for t in plan.tasks):
+        if plan.recomputing:
+            return tr("přepočítává se {k} z {n}").format(k=k, n=n), "accent"
         return tr("počítá se {k} z {n}").format(k=k, n=n), "accent"
     if plan.all_finished:
         return tr("čeká na sestavení"), "warn"
+    if plan.recomputing:
+        return tr("přepočet {k} z {n}").format(k=k, n=n), "neutral"
     return tr("dávky {k} z {n}").format(k=k, n=n), "neutral"
 
 
@@ -262,6 +275,7 @@ class NormsPage(QWidget):
     build_requested = Signal(object)  # složka plánu: sestavit z hotových dávek
     resume_requested = Signal(object)  # složka plánu: dopočítat zbývající dávky
     discard_requested = Signal(object)  # složka plánu: zahodit rozpracovanou normu
+    recompute_requested = Signal(object)  # složka normy: spočítat znovu současnou knihovnou
     notice = Signal(str)  # krátká hláška do stavového řádku hlavního okna
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -342,10 +356,13 @@ class NormsPage(QWidget):
         self.export_btn = QPushButton(tr("Export…"))
         self.export_btn.setToolTip(tr("Norma jako jeden soubor pro kolegu nebo jiné pracoviště"))
         self.export_btn.clicked.connect(self.export_current)
+        self.recompute_btn = QPushButton(tr("Přepočítat…"))
+        self.recompute_btn.clicked.connect(lambda: self._recompute_current())
         self.delete_btn = QPushButton(tr("Smazat…"))
         theme.set_role(self.delete_btn, "danger")
         self.delete_btn.clicked.connect(self.delete_current)
         self.header.add_button(self.export_btn)
+        self.header.add_button(self.recompute_btn)
         self.header.add_button(self.delete_btn)
         right_layout.addWidget(self.header)
 
@@ -463,18 +480,48 @@ class NormsPage(QWidget):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         card_layout.addWidget(self.plan_table)
         layout.addWidget(card)
-        self.plan_note = QLabel(
-            tr(
-                "Dávky se počítají na stránce Výpočet. Po poslední se norma sestaví sama. "
-                "Když některá spadla nebo se zrušila, dopočítejte ji, nebo normu sestavte "
-                "z hotových."
-            )
-        )
+        self.plan_note = QLabel("")
         self.plan_note.setObjectName("muted")
         self.plan_note.setWordWrap(True)
         layout.addWidget(self.plan_note)
         layout.addStretch(1)
         return box
+
+    def _update_recompute(self, norm: Norm | None) -> None:
+        """Přepočítat… jen pro normu s uloženým plánem, jehož nahrávky ještě existují."""
+        plan = load_plan(norm.path) if norm is not None and norm.path and not norm.builtin else None
+        if plan is None:
+            self.recompute_btn.setEnabled(False)
+            self.recompute_btn.setToolTip(
+                tr(
+                    "Norma nemá uložené zdroje (je importovaná, přibalená nebo ze starší "
+                    "verze aplikace), přepočítat ji nejde."
+                )
+                if norm is not None
+                else ""
+            )
+            return
+        missing = plan.missing_inputs()
+        if missing:
+            self.recompute_btn.setEnabled(False)
+            self.recompute_btn.setToolTip(
+                tr("Chybí {n} nahrávek, přepočítat nejde: {first}").format(
+                    n=len(missing), first=missing[0]
+                )
+            )
+            return
+        self.recompute_btn.setEnabled(True)
+        self.recompute_btn.setToolTip(
+            tr(
+                "Všechny dávky normy znovu současnou knihovnou (po změně feature); "
+                "norma se po skončení přepíše."
+            )
+        )
+
+    def _recompute_current(self) -> None:
+        norm = self.current()
+        if norm is not None and norm.path is not None:
+            self.recompute_requested.emit(norm.path)
 
     def _plan_action(self, signal) -> None:  # noqa: ANN001
         plan = self.current_plan()
@@ -484,7 +531,25 @@ class NormsPage(QWidget):
     def _show_plan(self, plan: NormPlan) -> None:
         self.plan_header.title.setText(plan.info.display_name)
         self.plan_header.subtitle.setText(
-            tr("Rozpracovaná norma · {n} kontrol").format(n=len(plan.controls))
+            (
+                tr("Přepočet normy · {n} kontrol")
+                if plan.recomputing
+                else tr("Rozpracovaná norma · {n} kontrol")
+            ).format(n=len(plan.controls))
+        )
+        self.discard_btn.setText(tr("Zrušit přepočet…") if plan.recomputing else tr("Zahodit…"))
+        self.plan_note.setText(
+            tr(
+                "Dávky se počítají na stránce Výpočet. Dosavadní norma zůstává použitelná, "
+                "dokud přepočet neskončí; po poslední dávce se přepíše. Zrušit přepočet "
+                "ji nechá beze změny."
+            )
+            if plan.recomputing
+            else tr(
+                "Dávky se počítají na stránce Výpočet. Po poslední se norma sestaví sama. "
+                "Když některá spadla nebo se zrušila, dopočítejte ji, nebo normu sestavte "
+                "z hotových."
+            )
         )
         self.plan_header.subtitle.setToolTip(str(plan.folder))
         text, role = plan_pill(plan)
@@ -538,6 +603,9 @@ class NormsPage(QWidget):
         keep = select or self._current_path()
         self._plans = pending_plans(self._folder) if self._folder is not None else []
         self._norms = all_norms(self._folder) if self._folder is not None else []
+        # norma, která se počítá znovu, je v seznamu jen jako rozpracovaná karta
+        recomputing = {plan.folder for plan in self._plans if plan.recomputing}
+        self._norms = [n for n in self._norms if n.path not in recomputing]
         self._norms.sort(key=lambda n: (n.builtin, n.info.display_name.lower()))
         self.list.blockSignals(True)
         self.list.clear()
@@ -628,6 +696,7 @@ class NormsPage(QWidget):
         self.detail.setVisible(norm is not None)
         self.export_btn.setEnabled(norm is not None)
         self.delete_btn.setEnabled(norm is not None and not norm.builtin)
+        self._update_recompute(norm)
         if norm is None:
             return
         info = norm.info

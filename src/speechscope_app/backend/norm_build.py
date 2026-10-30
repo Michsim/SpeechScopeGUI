@@ -11,11 +11,19 @@ a zapíše k ní protokoly a verzi knihovny.
 
 Do složek s nahrávkami se nic nezapisuje; manifest existuje jen v paměti
 a jako normalizovaná kopie ve složce běhu.
+
+Plán zůstává ve složce normy i po sestavení (do exportu nejde), takže normu
+jde po změně knihovny spočítat znovu: `reset_for_recompute` vrátí dávky do
+stavu „čeká“ a nastaví `recomputing`; dokud platí, je norma na stránce Normy
+zase rozpracovaná (`pending_plans`), stará `norm.yaml` ale zůstává použitelná
+a `finish_plan` ji po poslední dávce přepíše. `cancel_recompute` přepočet
+zruší a starou normu nechá.
 """
 
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import json
 import re
 from dataclasses import dataclass, field
@@ -168,10 +176,30 @@ class NormPlan(PlanState):
     tasks: list[TaskPlan]
     files: dict[Path, str] = field(default_factory=dict)  # nahrávka -> kontrola
     controls: dict[str, Control] = field(default_factory=dict)
+    recomputing: bool = False  # norma už existuje a počítá se znovu (norm.yaml se přepíše)
 
     @property
     def key(self) -> Path:
         return self.folder
+
+    def missing_inputs(self) -> list[Path]:
+        """Nahrávky plánu, které už na disku nejsou (bez nich přepočet nejde)."""
+        return [p for t in self.tasks for p in t.inputs if not p.is_file()]
+
+    def reset_for_recompute(self) -> None:
+        """Všechny dávky znovu od začátku; staré běhy se do normy už nepočítají."""
+        for task in self.tasks:
+            task.status, task.run_dir = PENDING, None
+        self.recomputing = True
+        self.save()
+
+    def cancel_recompute(self) -> None:
+        """Přepočet zrušit: nespuštěné dávky jako zrušené, stará norma zůstává."""
+        for task in self.tasks:
+            if task.status in (PENDING, RUNNING):
+                task.status = CANCELLED
+        self.recomputing = False
+        self.save()
 
     @property
     def language(self) -> str:
@@ -216,6 +244,7 @@ class NormPlan(PlanState):
             "controls": [
                 {"subject": c.subject, "age": c.age, "sex": c.sex} for c in self.controls.values()
             ],
+            "recomputing": self.recomputing,
         }
 
     def save(self) -> Path:
@@ -248,7 +277,14 @@ class NormPlan(PlanState):
             for c in data.get("controls", [])
         }
         files = {Path(p): str(s) for p, s in data.get("files", {}).items()}
-        return cls(NormInfo.from_dict(data["info"]), folder, tasks, files, controls)
+        return cls(
+            NormInfo.from_dict(data["info"]),
+            folder,
+            tasks,
+            files,
+            controls,
+            recomputing=bool(data.get("recomputing")),
+        )
 
 
 def _key(path: Path) -> Path:
@@ -258,17 +294,27 @@ def _key(path: Path) -> Path:
         return path
 
 
+def load_plan(folder: Path) -> NormPlan | None:
+    """Plán ve složce normy; None, když tam není nebo je rozbitý."""
+    if not (folder / PLAN_FILE).is_file():
+        return None
+    try:
+        return NormPlan.load(folder)
+    except (ValueError, KeyError, TypeError, OSError, json.JSONDecodeError):
+        return None  # rozbitý plán nesmí shodit stránku
+
+
 def pending_plans(folder: Path) -> list[NormPlan]:
-    """Rozpracované normy: složky s plánem, ale ještě bez norm.yaml."""
+    """Rozpracované normy: plán bez norm.yaml, nebo norma, která se počítá znovu."""
     if not folder.is_dir():
         return []
     out: list[NormPlan] = []
     for path in sorted(folder.iterdir()):
-        if path.is_dir() and (path / PLAN_FILE).is_file() and not (path / NORM_FILE).is_file():
-            try:
-                out.append(NormPlan.load(path))
-            except (ValueError, KeyError, OSError, json.JSONDecodeError):
-                continue  # rozbitý plán nesmí shodit stránku
+        if not path.is_dir():
+            continue
+        plan = load_plan(path)
+        if plan is not None and (plan.recomputing or not (path / NORM_FILE).is_file()):
+            out.append(plan)
     return out
 
 
@@ -294,10 +340,14 @@ def finish_plan(plan: NormPlan, library_version: str = "") -> Norm:
         raise ValueError(tr("Žádná dávka normy nemá tabulku výsledků."))
     plan.info.protocols = protocols
     plan.info.feature_versions = versions
+    plan.info.created = dt.date.today().isoformat()  # kdy se kontroly (na)počítaly
     if library_version:
         plan.info.library_version = library_version
     norm = build_norm(frames, plan.info)
     norm.save(plan.folder)
+    if plan.recomputing:
+        plan.recomputing = False  # nová norma je zapsaná, přepočet skončil
+        plan.save()
     return norm
 
 

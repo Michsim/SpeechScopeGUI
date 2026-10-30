@@ -253,3 +253,64 @@ def test_norms_page_warns_about_changed_feature_versions(
     assert not page.problems.isHidden()
     assert "acoustic.quality.cpp 1.2 \u2192 1.3 (Fonace, Čtení)" in text
     assert "f0" not in text and "spočítat znovu" in text
+
+
+def test_recompute_norm_reruns_batches_and_overwrites(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    from test_norm_build import make_plan
+
+    plan = make_plan(tmp_path)
+    plan.folder = settings.norms_dir() / "kontroly"
+    plan.tasks = plan.tasks[:1]  # jen fonace, DDK v plánu nemá nahrávky
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.nav.setCurrentRow(PAGE_NORMS)
+    page = window.norms_page
+    assert window.start_norm(plan) == 1
+    qtbot.waitUntil(lambda: (plan.folder / "norm.yaml").is_file(), timeout=30000)
+    qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=10000)
+    page.reload()
+    first = page.current()
+    assert first is not None and first.info.feature_versions["phonation"]
+    assert page.recompute_btn.isEnabled() and "přepíše" in page.recompute_btn.toolTip()
+    history = window.results_page.history
+    history.refresh()
+    assert len([r for r in history.all_runs() if r.norm]) == 1
+
+    # přepočet: norma je zase rozpracovaná, stará zůstává, pak se přepíše
+    assert window.recompute_norm(plan.folder, confirm=False) == 1
+    assert page.current_plan() is not None and "přepočítává se" in page.card(0).pill.text()
+    assert "Přepočet normy" in page.plan_header.subtitle.text()
+    assert page.discard_btn.text() == "Zrušit přepočet…"
+    assert window.assessment_page.norm_combo.count() == 1  # stará norma dál použitelná
+    qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=30000)
+    from speechscope_app.backend.norm_build import load_plan
+
+    qtbot.waitUntil(lambda: not load_plan(plan.folder).recomputing, timeout=5000)
+    page.reload()
+    assert page.count() == 1 and page.current_plan() is None and page.current() is not None
+    history.refresh()
+    assert len([r for r in history.all_runs() if r.norm]) == 2
+    assert not page.recompute_btn.toolTip().startswith("Chybí")
+
+    # zrušení přepočtu bez běžící dávky: norma zůstane
+    plan_now = norms_mod.Norm.load(plan.folder)
+    load_plan(plan.folder).reset_for_recompute()
+    page.reload()
+    assert page.current_plan() is not None
+    assert window.discard_norm(plan.folder, confirm=False)
+    assert page.current_plan() is None and page.current().info.name == plan_now.info.name
+    assert not load_plan(plan.folder).recomputing
+
+    # chybějící nahrávka: tlačítko neaktivní s důvodem, přepočet odmítne
+    (tmp_path / "fonace" / "HC01_a.wav").unlink()
+    page.reload()
+    assert not page.recompute_btn.isEnabled() and "Chybí 1" in page.recompute_btn.toolTip()
+    assert window.recompute_norm(plan.folder, confirm=False) == 0
+
+    # norma bez plánu (import): přepočítat nejde
+    Norm(NormInfo(name="Importovaná"), controls_frame()).save(settings.norms_dir() / "import")
+    page.reload()
+    assert page.select(settings.norms_dir() / "import")
+    assert not page.recompute_btn.isEnabled() and "uložené zdroje" in page.recompute_btn.toolTip()

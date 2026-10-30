@@ -50,7 +50,15 @@ from ..backend.history import (
 )
 from ..backend.library import LibraryError
 from ..backend.manifest import Manifest, read_manifest, write_normalized
-from ..backend.norm_build import CANCELLED, ERROR, OK, RUNNING, NormPlan, finish_plan
+from ..backend.norm_build import (
+    CANCELLED,
+    ERROR,
+    OK,
+    RUNNING,
+    NormPlan,
+    finish_plan,
+    load_plan,
+)
 from ..backend.norms import register_custom_tasks
 from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.results import merge_results
@@ -269,6 +277,7 @@ class MainWindow(QMainWindow):
         self.norms_page.build_requested.connect(self.build_norm)
         self.norms_page.resume_requested.connect(self.resume_norm)
         self.norms_page.discard_requested.connect(self.discard_norm)
+        self.norms_page.recompute_requested.connect(self.recompute_norm)
         self.assessment_page.new_from_recordings_requested.connect(
             self.new_assessment_from_recordings
         )
@@ -1009,11 +1018,70 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(tr("Zbývající dávky už běží nebo čekají ve frontě."), 6000)
         return queued
 
+    def recompute_norm(self, folder: Path, *, confirm: bool = True) -> int:
+        """Hotovou normu spočítat znovu současnou knihovnou; vrátí počet zařazených dávek.
+
+        Dávky jdou stejnou cestou jako u nové normy (tytéž protokoly i tabulka
+        kontrol), stará norma zůstává použitelná, dokud ji `finish_plan` nepřepíše.
+        """
+        if self._plan_busy("norm", folder):
+            self.statusBar().showMessage(tr("Dávka normy ještě běží."), 6000)
+            return 0
+        plan = load_plan(folder)
+        if plan is None:
+            self.statusBar().showMessage(tr("Norma nemá uložené zdroje, přepočítat nejde."), 8000)
+            return 0
+        missing = plan.missing_inputs()
+        if missing:
+            self.statusBar().showMessage(
+                tr("Chybí {n} nahrávek normy, přepočítat nejde: {first}").format(
+                    n=len(missing), first=missing[0]
+                ),
+                10000,
+            )
+            return 0
+        if confirm:
+            answer = QMessageBox.question(
+                self,
+                tr("Přepočítat normu"),
+                tr(
+                    "Všechny dávky normy {name} se spočítají znovu současnou knihovnou "
+                    "({n} dávek). Nynější norma zůstane použitelná, dokud přepočet "
+                    "neskončí, pak se přepíše."
+                ).format(name=plan.info.display_name, n=len(plan.tasks)),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return 0
+        self._drop_queued("norm", folder)
+        plan.reset_for_recompute()
+        return self.start_plan("norm", plan)
+
     def discard_norm(self, folder: Path, *, confirm: bool = True) -> bool:
-        """Rozpracovanou normu do Koše; spočítané běhy zůstávají ve Výsledcích."""
+        """Rozpracovanou normu do Koše; spočítané běhy zůstávají ve Výsledcích.
+
+        U normy, která se počítá znovu, jen zruší přepočet a starou normu nechá."""
         if self._plan_busy("norm", folder):
             self.statusBar().showMessage(tr("Dávka normy ještě běží, nejdřív ji zrušte."), 6000)
             return False
+        plan = load_plan(folder)
+        if plan is not None and plan.recomputing:
+            if confirm:
+                answer = QMessageBox.question(
+                    self,
+                    tr("Zrušit přepočet"),
+                    tr(
+                        "Zrušit přepočet normy {name}? Dosavadní norma zůstane, dávky "
+                        "ve frontě se zruší, spočítané běhy zůstanou ve Výsledcích."
+                    ).format(name=plan.info.display_name),
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return False
+            self._drop_queued("norm", folder)
+            plan.cancel_recompute()
+            self.norms_page.reload(select=folder)
+            return True
         if confirm:
             answer = QMessageBox.question(
                 self,
