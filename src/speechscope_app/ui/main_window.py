@@ -7,6 +7,7 @@ import sys
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
+from typing import Any
 
 from pandas import errors as pd_errors
 from PySide6.QtCore import QProcess, Qt, QTimer
@@ -47,6 +48,7 @@ from ..backend.history import (
     unique_run_dir,
     write_run_file,
 )
+from ..backend.library import LibraryError
 from ..backend.manifest import Manifest, read_manifest, write_normalized
 from ..backend.norm_build import CANCELLED, ERROR, OK, RUNNING, NormPlan, finish_plan
 from ..backend.norms import register_custom_tasks
@@ -364,12 +366,14 @@ class MainWindow(QMainWindow):
 
     def _apply_settings(self) -> None:
         self.library = self.settings.make_library()
+        self._library_version: str | None = None
         self.env_page.set_library(self.library)
         self.batch_page.set_library(self.library)
         self.batch_page.set_advanced(self.settings.advanced)
         self.protocols_page.set_library(self.library)
         self.results_page.set_library(self.library)
         self.assessment_page.set_library(self.library)
+        self.norms_page.set_library(self.library)
         self._apply_folders()
         self.protocols_page.set_advanced(self.settings.advanced)
         self.reload_protocols(self.settings.last_protocol)
@@ -775,8 +779,9 @@ class MainWindow(QMainWindow):
         running = getattr(self, "_running_plan", None)
         return str(running[1]) if running and running[0] == "norm" else ""
 
-    def _plan_run_fields(self) -> dict[str, str]:
-        """Do run.json: `norm` u dávky normy, `assessment` a `patient` u dávky hodnocení."""
+    def _plan_run_fields(self) -> dict[str, Any]:
+        """Do run.json: `norm` u dávky normy, `assessment` a `patient` u dávky hodnocení,
+        verze knihovny a feature, kterými se počítalo."""
         running = getattr(self, "_running_plan", None)
         assessment = ""
         if running and running[0] == "assessment":
@@ -788,6 +793,36 @@ class MainWindow(QMainWindow):
             "patient": getattr(self, "_running_subject", "") if assessment else "",
             # dávka vlastní úlohy: knihovna zná jen základní úlohu, historie a index vlastní
             "task": task if tasks.is_custom(task) else "",
+            "library_version": self._library_version_text(),
+            "feature_versions": dict(getattr(self, "_running_versions", {}) or {}),
+        }
+
+    def _library_version_text(self) -> str:
+        """Verze knihovny jednou za nastavení (podproces), do run.json a normy."""
+        if self._library_version is None:
+            version = ""
+            if self.library is not None:
+                try:
+                    version = self.library.version()
+                except LibraryError:
+                    version = ""
+            self._library_version = version
+        return self._library_version
+
+    def _feature_versions(self, proto: Protocol) -> dict[str, str]:
+        """Verze feature, které dávka počítá, z katalogu knihovny (do run.json).
+
+        Prázdný výběr v protokolu = všechny feature úlohy. Norma si je pak
+        opíše a Hodnocení pozná, že se feature od spočítání kontrol změnila."""
+        if self.library is None:
+            return {}
+        try:
+            catalog = self.library.features(proto.task)
+        except LibraryError:
+            return {}
+        wanted = set(proto.features)
+        return {
+            f.name: f.version for f in catalog if f.version and (not wanted or f.name in wanted)
         }
 
     def _plan_status(self, status: str, run_dir: Path | None):  # noqa: ANN202
@@ -817,14 +852,8 @@ class MainWindow(QMainWindow):
         return False
 
     def _finish_norm(self, plan: NormPlan) -> bool:
-        version = ""
-        if self.library is not None:
-            try:
-                version = self.library.version()
-            except Exception:  # noqa: BLE001  verze je jen popisek normy
-                version = ""
         try:
-            norm = finish_plan(plan, version)
+            norm = finish_plan(plan, self._library_version_text())
         except (ValueError, OSError) as exc:
             self.statusBar().showMessage(
                 tr("Normu se nepodařilo sestavit: {error}").format(error=exc), 10000
@@ -1281,6 +1310,7 @@ class MainWindow(QMainWindow):
             argv = self.library.argv(extract_args(req, models_dir=self.settings.models_dir))
             self._running_slug = slug
             self._running_out = req.out
+            self._running_versions = self._feature_versions(proto)
             title = proto.display_name
             expected = self.settings.seconds_per_file(slug)
             expected_total = self._expected_total(slug, job.durations, expected)
@@ -1306,6 +1336,7 @@ class MainWindow(QMainWindow):
             argv = self.library.argv(args)
             self._running_slug = None
             self._running_out = None
+            self._running_versions = {}
             title = tr("Jen {what} · {name}").format(what=label, name=proto.display_name)
             expected = None
             expected_total = None

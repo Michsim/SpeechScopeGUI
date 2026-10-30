@@ -24,10 +24,12 @@ from speechscope_app.backend.norms import (
     export_norm,
     import_norm,
     norm_problems,
+    outdated_features,
     read_norm_file,
     task_summaries,
     trash_norm,
     user_norms,
+    version_changes,
 )
 
 JIT = "acoustic.quality.perturbation.jitter_local"
@@ -225,3 +227,20 @@ def test_export_import_and_trash(tmp_path: Path, norm: Norm, monkeypatch) -> Non
     first.builtin = True
     with pytest.raises(ValueError):
         trash_norm(first)
+
+
+def test_feature_versions_roundtrip_outdated_and_changes() -> None:
+    info = NormInfo(name="N", feature_versions={"phonation": {"acoustic.quality.cpp": "1.2"}})
+    assert NormInfo.from_dict(info.to_dict()) == info
+    assert "feature_versions" not in NormInfo(name="N").to_dict()
+    assert (
+        NormInfo.from_dict({"name": "N", "feature_versions": {"phonation": "x"}}).feature_versions
+        == {}
+    )
+    n = Norm(info, controls_frame())
+    assert outdated_features(n, {"acoustic.quality.cpp": "1.3", "jina": "9"}) == [
+        ("phonation", "acoustic.quality.cpp", "1.2", "1.3")
+    ]
+    assert outdated_features(n, {"acoustic.quality.cpp": "1.2"}) == []
+    assert outdated_features(n, {}) == []  # bez katalogu se nic nehlásí
+    assert version_changes({"a": "1.3", "b": "1"}, {"a": "1.2", "c": "2"}) == {"a": ("1.3", "1.2")}

@@ -66,7 +66,7 @@ from ...backend.dimensions import (
 from ...backend.history import run_key
 from ...backend.library import FeatureInfo, Library, LibraryError
 from ...backend.norm_build import RUNNING
-from ...backend.norms import BOTH, DEFAULT_WINDOW, Norm, Selection, all_norms
+from ...backend.norms import BOTH, DEFAULT_WINDOW, Norm, Selection, all_norms, version_changes
 from ...backend.visits import Recording, Visit, VisitIndex
 from ...i18n import tr
 from .. import theme
@@ -1019,6 +1019,7 @@ class AssessmentPage(QWidget):
             sex=visit.sex,
             window=self.window_combo.currentData(),
             same_sex=self.same_sex.isChecked(),
+            versions=visit.versions_by_task(),
         )
 
     def _cached_evaluation(self, assessment: Assessment, visit: Visit, norm: Norm) -> Evaluation:
@@ -1218,6 +1219,8 @@ class AssessmentPage(QWidget):
                             z_text += " \u25b2" if item.score.signed_z >= 0 else " \u25bc"
                     else:
                         norm_text, z_text, pct = item.reason, "", ""
+                    if item.versions is not None:
+                        label += " \u26a0"  # feature se od spočítání normy změnila
                     child = QTreeWidgetItem(
                         [
                             label,
@@ -1230,7 +1233,7 @@ class AssessmentPage(QWidget):
                         ]
                     )
                     child.setData(0, Qt.ItemDataRole.UserRole, item)
-                    child.setToolTip(0, item.item.column)
+                    child.setToolTip(0, item.item.column + _versions_tooltip(item))
                     child.setToolTip(4, _item_z_tooltip(item))
                     if item.score is not None:
                         _colorize(child, item.band)
@@ -1276,7 +1279,11 @@ class AssessmentPage(QWidget):
             last_task = rec.task
             started = f"{rec.run.started:%d. %m. %H:%M}" if rec.run.started else ""
             match = norm_match(rec, protocols)
-            cells = [task, rec.file, started or rec.run.display_name, match_text(match)]
+            outdated = _changed_versions([rec], norm)
+            with_norm = match_text(match)
+            if match is not False and outdated:
+                with_norm = tr("jiná verze feature")
+            cells = [task, rec.file, started or rec.run.display_name, with_norm]
             for col, text in enumerate(cells):
                 item = QTableWidgetItem(text)
                 if col == 1:
@@ -1284,8 +1291,9 @@ class AssessmentPage(QWidget):
                     item.setToolTip(str(rec.path) if rec.path else "")
                 if col == 2:
                     item.setToolTip(rec.run.display_name)
-                if col == 3 and match is False:
+                if col == 3 and (match is False or outdated):
                     item.setForeground(QColor(theme.WARN))
+                    item.setToolTip("\n".join(outdated))
                 self.recordings.setItem(row, col, item)
         notes = []
         if any(visit.count(t) > 1 for t in visit.tasks):
@@ -1296,6 +1304,14 @@ class AssessmentPage(QWidget):
                     "Jiný protokol než norma: nahrávka se počítala jinak než kontroly, "
                     "srovnání je jen orientační."
                 )
+            )
+        changed = _changed_versions(recs, norm)
+        if changed:
+            notes.append(
+                tr(
+                    "Jiná verze feature než u kontrol normy: {items}. Normu nebo hodnocení "
+                    "je třeba spočítat znovu, srovnání je jen orientační."
+                ).format(items=", ".join(changed))
             )
         if self._missing:
             notes.append(
@@ -1389,6 +1405,33 @@ def _side_by_side(left: QPixmap, right: QPixmap, gap: int = 12) -> QPixmap:
     painter.drawPixmap(QPointF(0, (height - lh) / 2), left)
     painter.drawPixmap(QPointF(lw + gap, (height - rh) / 2), right)
     painter.end()
+    return out
+
+
+def _versions_tooltip(item: ItemResult) -> str:
+    if item.versions is None:
+        return ""
+    patient, control = item.versions
+    return "\n" + tr("Verze feature {patient} u pacienta, {norm} u kontrol normy.").format(
+        patient=patient, norm=control
+    )
+
+
+def _changed_versions(recs: list[Recording], norm: Norm | None) -> list[str]:
+    """Popisy feature, které se u nahrávek počítaly jinou verzí než u kontrol normy."""
+    if norm is None:
+        return []
+    out: list[str] = []
+    for rec in recs:
+        changes = version_changes(
+            rec.run.feature_versions, norm.info.feature_versions.get(rec.task, {})
+        )
+        for feature, (patient, control) in sorted(changes.items()):
+            text = tr("{feature} {patient} (norma {norm})").format(
+                feature=feature, patient=patient, norm=control
+            )
+            if text not in out:
+                out.append(text)
     return out
 
 

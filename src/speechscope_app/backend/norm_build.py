@@ -26,6 +26,7 @@ import pandas as pd
 from ..i18n import N_, Labels, tr
 from . import meta, tasks
 from .discover import find_recordings
+from .history import read_run
 from .manifest import Manifest, find_manifest, read_manifest
 from .norms import NORM_FILE, Norm, NormInfo, build_norm
 from .protocol import Protocol
@@ -275,6 +276,7 @@ def finish_plan(plan: NormPlan, library_version: str = "") -> Norm:
     """Norma z tabulek hotových dávek plánu; uloží se do složky plánu."""
     frames = []
     protocols: dict[str, str] = {}
+    versions: dict[str, dict[str, str]] = {}
     for task in plan.tasks:
         table = task.table
         if table is None:
@@ -284,9 +286,14 @@ def finish_plan(plan: NormPlan, library_version: str = "") -> Norm:
             frame["task"] = task.task  # knihovna zapsala základní úlohu, norma zná vlastní
         frames.append(frame)
         protocols[task.task] = task.proto().name
+        run = read_run(task.run_dir) if task.run_dir is not None else None
+        if run is not None and run.feature_versions:
+            versions[task.task] = dict(run.feature_versions)  # čím přesně se kontroly počítaly
+            library_version = library_version or run.library_version
     if not frames:
         raise ValueError(tr("Žádná dávka normy nemá tabulku výsledků."))
     plan.info.protocols = protocols
+    plan.info.feature_versions = versions
     if library_version:
         plan.info.library_version = library_version
     norm = build_norm(frames, plan.info)

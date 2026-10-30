@@ -230,3 +230,26 @@ def test_new_norm_wizard_with_custom_task(
     # běh dávky je v historii pod vlastním jménem
     runs = window.results_page.history
     assert any("Popis obrázku" in runs.card(i).title.text() for i in range(runs.count()))
+
+
+def test_norms_page_warns_about_changed_feature_versions(
+    qtbot: QtBot, settings: AppSettings
+) -> None:
+    Norm(
+        NormInfo(
+            name="Stará",
+            feature_versions={
+                "phonation": {"acoustic.quality.cpp": "1.2"},
+                "reading": {"acoustic.quality.cpp": "1.2", "acoustic.pitch.f0": "1.1"},
+            },
+        ),
+        controls_frame(),
+    ).save(settings.norms_dir() / "stara")
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.norms_page
+    assert page.current().info.name == "Stará"
+    text = page.problems.text()  # faleška má CPP 1.3 a F0 1.1
+    assert not page.problems.isHidden()
+    assert "acoustic.quality.cpp 1.2 \u2192 1.3 (Fonace, Čtení)" in text
+    assert "f0" not in text and "spočítat znovu" in text

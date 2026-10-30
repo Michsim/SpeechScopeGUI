@@ -187,3 +187,23 @@ def test_evaluate_both_direction_item() -> None:
     mixed = Dimension("m", "M", [Item(RATE, ("reading",), BOTH), Item(HNR, ("phonation",), LOWER)])
     rows = {"reading": pd.DataFrame({RATE: [3.0]}), "phonation": pd.DataFrame({HNR: [12.0]})}
     assert evaluate([mixed], rows, norm).results[0].side == 0
+
+
+def test_evaluate_marks_items_with_changed_feature_version() -> None:
+    pert = "acoustic.quality.perturbation"
+    norm = Norm(
+        NormInfo(name="Test", feature_versions={"phonation": {pert: "1.0"}}), controls_frame()
+    )
+    phon = pd.DataFrame({"path": ["p.wav"], JIT: [3.0], HNR: [12.0]})
+    ev = evaluate(DIMS, {"phonation": phon}, norm, age=64, versions={"phonation": {pert: "1.1"}})
+    voice = ev.results[0]
+    assert voice.shown and all(i.versions == ("1.1", "1.0") for i in voice.items)  # skóre zůstává
+    assert ev.version_changes == {("phonation", pert): ("1.1", "1.0")}
+    same = evaluate(DIMS, {"phonation": phon}, norm, age=64, versions={"phonation": {pert: "1.0"}})
+    assert all(i.versions is None for i in same.results[0].items) and not same.version_changes
+    # bez záznamu na jedné straně (starší běh nebo norma) se nic nehlásí
+    assert not evaluate(DIMS, {"phonation": phon}, norm, age=64).version_changes
+    plain = Norm(NormInfo(name="Bez verzí"), controls_frame())
+    assert not evaluate(
+        DIMS, {"phonation": phon}, plain, age=64, versions={"phonation": {pert: "1.1"}}
+    ).version_changes

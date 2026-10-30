@@ -231,6 +231,19 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   YAML se projeví hned při příštím zobrazení (norma má jen surové hodnoty
   kontrol, z-skóre, log i směr se počítají až při prohlížení), aplikaci stačí
   restartovat; nová feature v dimenzi musí být i v tabulce normy.
+- **Verze feature** (30. 10. 2026): verze knihovny se mění málo, feature často
+  (intenzita 2.0, CPP 1.3 při téže 0.4.0). Hlavní okno proto při spuštění dávky
+  zapíše do `run.json` `library_version` a `feature_versions` (feature → verze
+  z katalogu `list --json` pro feature protokolu, `_feature_versions`;
+  `RunInfo.feature_versions`). `norm_build.finish_plan` je opíše z `run.json`
+  dávek do `norm.yaml` (`NormInfo.feature_versions`, úloha → feature → verze,
+  jde i do exportu). `dimensions.evaluate(versions=Visit.versions_by_task())`
+  dá položce s jinou verzí než u kontrol `ItemResult.versions` (pacient, norma),
+  skóre počítá dál; strom na Hodnocení přidá ⚠ a tooltip, tabulka nahrávek
+  „jiná verze feature“ s poznámkou (`norms.version_changes`). Stránka Normy
+  porovná normu s katalogem nainstalované knihovny (`norms.outdated_features`,
+  `outdated_text`) a ve varováních řekne, co se změnilo. Bez záznamu na jedné
+  straně (starší běh, import) se nic nehlásí.
 - **Stránka Hodnocení** (`ui/pages/assessment.py`, `AssessmentPage`): vlevo
   uložená hodnocení (`VisitCard` se štítkem nejhoršího pásma `worst_band`:
   v normě, hraniční, mimo normu, bez normy; úlohy s počtem nahrávek

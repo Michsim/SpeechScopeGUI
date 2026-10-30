@@ -69,6 +69,9 @@ class NormInfo:
     library_version: str = ""
     created: str = ""  # ISO datum
     protocols: dict[str, str] = field(default_factory=dict)  # úloha -> jméno protokolu kontrol
+    # úloha -> feature -> verze z katalogu knihovny, kterou se kontroly počítaly
+    # (z run.json dávek); Hodnocení a stránka Normy podle nich hlásí změnu feature
+    feature_versions: dict[str, dict[str, str]] = field(default_factory=dict)
     # vlastní úlohy normy (klíč ve sloupci task): po načtení se zaregistrují
     custom_tasks: list[tasks.CustomTask] = field(default_factory=list)
     names: dict[str, str] = field(default_factory=dict)
@@ -98,6 +101,8 @@ class NormInfo:
         )
         if self.protocols:
             data["protocols"] = dict(self.protocols)
+        if self.feature_versions:
+            data["feature_versions"] = {t: dict(v) for t, v in self.feature_versions.items()}
         if self.custom_tasks:
             data["custom_tasks"] = [t.to_dict() for t in self.custom_tasks]
         return data
@@ -123,6 +128,11 @@ class NormInfo:
             library_version=str(data.get("library_version", "")),
             created=str(data.get("created", "")),
             protocols={str(k): str(v) for k, v in (data.get("protocols") or {}).items()},
+            feature_versions={
+                str(t): {str(f): str(v) for f, v in versions.items() if v}
+                for t, versions in (data.get("feature_versions") or {}).items()
+                if isinstance(versions, dict)
+            },
             custom_tasks=custom,
             names={
                 k[len("name_") :]: str(v)
@@ -462,6 +472,31 @@ def norm_problems(norm: Norm) -> list[str]:
     if meta.SEX not in norm.controls or (norm.controls[meta.SEX] == "").all():
         problems.append(tr("Kontroly nemají pohlaví, výběr podle pohlaví nepůjde použít."))
     return problems
+
+
+def outdated_features(norm: Norm, current: dict[str, str]) -> list[tuple[str, str, str, str]]:
+    """Feature, které se od spočítání normy v knihovně změnily.
+
+    `current` je feature -> verze z katalogu nainstalované knihovny. Vrací
+    (úloha, feature, verze normy, nynější verze); norma bez záznamu verzí
+    (starší aplikace, import) nehlásí nic.
+    """
+    out: list[tuple[str, str, str, str]] = []
+    for task, versions in norm.info.feature_versions.items():
+        for feature, version in versions.items():
+            now = current.get(feature)
+            if now and now != version:
+                out.append((task, feature, version, now))
+    return out
+
+
+def version_changes(patient: dict[str, str], norm: dict[str, str]) -> dict[str, tuple[str, str]]:
+    """Feature s jinou verzí u pacienta než u kontrol normy: feature -> (pacient, norma)."""
+    return {
+        feature: (version, norm[feature])
+        for feature, version in patient.items()
+        if norm.get(feature) and norm[feature] != version
+    }
 
 
 # --- seznam norem ---------------------------------------------------------------

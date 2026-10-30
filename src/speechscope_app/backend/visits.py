@@ -97,6 +97,16 @@ class Visit:
             groups.setdefault(rec.task, []).append(rec.data)
         return {task: pd.DataFrame(rows) for task, rows in groups.items()}
 
+    def versions_by_task(self) -> dict[str, dict[str, str]]:
+        """Verze feature z `run.json` běhů po úlohách (vstup `dimensions.evaluate`)."""
+        out: dict[str, dict[str, str]] = {}
+        for rec in self.recordings:
+            if rec.run.feature_versions:
+                out.setdefault(contract.canonical_task(rec.task), {}).update(
+                    rec.run.feature_versions
+                )
+        return out
+
     def count(self, task: str) -> int:
         return sum(1 for r in self.recordings if r.task == task)
 

@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from speechscope_app.backend import meta
+from speechscope_app.backend.history import write_run_file
 from speechscope_app.backend.norm_build import (
     ERROR,
     OK,
@@ -141,3 +142,39 @@ def test_finish_plan_builds_norm_from_finished_runs(tmp_path: Path) -> None:
     plan.tasks[0].status = PENDING
     with pytest.raises(ValueError):
         finish_plan(plan)
+
+
+def test_finish_plan_records_feature_versions_from_runs(tmp_path: Path) -> None:
+    plan = make_plan(tmp_path)
+    run = tmp_path / "2026-10-30_10-00-00_norma-kontroly-fonace"
+    run.mkdir()
+    (run / "speechscope.log").write_text("", encoding="utf-8")
+    write_run_file(
+        run,
+        status="ok",
+        kind="extract",
+        protocol="P",
+        total=1,
+        library_version="0.4.0",
+        feature_versions={"acoustic.quality.perturbation": "1.1"},
+    )
+    pd.DataFrame(
+        [
+            {
+                "file": "HC01_a.wav",
+                "path": "x",
+                "task": "phonation",
+                "subject": "HC01",
+                "age": 64,
+                "sex": "m",
+                "acoustic.quality.perturbation.hnr": 20.0,
+            }
+        ]
+    ).to_csv(run / "features.csv", index=False)
+    plan.tasks[0].status, plan.tasks[0].run_dir = OK, run
+    plan.tasks[1].status = ERROR
+    norm = finish_plan(plan)  # bez verze od GUI: vezme se z run.json
+    assert norm.info.feature_versions == {"phonation": {"acoustic.quality.perturbation": "1.1"}}
+    assert norm.info.library_version == "0.4.0"
+    saved = user_norms(tmp_path / "norms")[0]
+    assert saved.info.feature_versions == norm.info.feature_versions

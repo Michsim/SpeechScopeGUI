@@ -150,6 +150,8 @@ class ItemResult:
     value: float | None
     score: Score | None
     reason: str = ""  # proč bez skóre; prázdné = v pořádku
+    # (verze feature u pacienta, u kontrol normy), když se liší; jinak None
+    versions: tuple[str, str] | None = None
 
     @property
     def band(self) -> str:
@@ -206,6 +208,16 @@ class Evaluation:
     def missing(self) -> list[DimensionResult]:
         return [r for r in self.results if not r.shown]
 
+    @property
+    def version_changes(self) -> dict[tuple[str, str], tuple[str, str]]:
+        """(úloha, feature) -> (verze u pacienta, v normě) u položek s jinou verzí."""
+        return {
+            (i.task, i.item.feature): i.versions
+            for r in self.results
+            for i in r.items
+            if i.versions is not None
+        }
+
 
 def _task_label(task: str) -> str:
     return tasks.label(task)
@@ -240,6 +252,19 @@ def _reference(items: list[ItemResult], selections: dict[str, Selection]) -> pd.
     return table.dropna(how="all").mean(axis=1)
 
 
+def _changed(
+    item: Item, task: str, versions: dict[str, dict[str, str]] | None, norm: Norm
+) -> tuple[str, str] | None:
+    """(verze u pacienta, v normě), když se feature položky počítala jinou verzí."""
+    if not versions:
+        return None
+    patient = versions.get(task, {}).get(item.feature)
+    control = norm.info.feature_versions.get(task, {}).get(item.feature)
+    if patient and control and patient != control:
+        return patient, control
+    return None
+
+
 def _dimension_result(
     dim: Dimension, items: list[ItemResult], reference: pd.Series
 ) -> DimensionResult:
@@ -267,11 +292,15 @@ def evaluate(
     sex: str = "",
     window: int | None = DEFAULT_WINDOW,
     same_sex: bool = False,
+    versions: dict[str, dict[str, str]] | None = None,
 ) -> Evaluation:
     """Skóre dimenzí jednoho vyšetření proti normě.
 
     `window` None = bez věkového omezení. Položka úlohy, kterou vyšetření
     nemá, se vynechá bez výčitek; položka, kterou nemá norma, dostane důvod.
+    `versions` jsou verze feature běhů pacienta po úlohách (`Visit.versions_by_task`);
+    položka s jinou verzí než u kontrol normy dostane `ItemResult.versions`,
+    skóre se počítá dál.
     """
     values = visit_values(rows_by_task)
     sex = meta.parse_sex(sex) if sex else ""
@@ -305,7 +334,11 @@ def evaluate(
                     item.column, value, direction=item.direction, log=item.log
                 )
                 reason = "" if score else tr("norma nemá pro tento sloupec dost kontrol")
-                items.append(ItemResult(item, task, value, score, reason))
+                items.append(
+                    ItemResult(
+                        item, task, value, score, reason, _changed(item, task, versions, norm)
+                    )
+                )
         if any(i.score is not None for i in items):
             results.append(_dimension_result(dim, items, _reference(items, selections)))
             continue

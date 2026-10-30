@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 
 from ... import contract
 from ...backend import tasks
+from ...backend.library import Library, LibraryError
 from ...backend.norm_build import CANCELLED, ERROR, OK, PENDING, RUNNING, NormPlan, pending_plans
 from ...backend.norms import (
     NORM_SUFFIX,
@@ -48,6 +49,7 @@ from ...backend.norms import (
     import_norm,
     norm_problems,
     norm_slug,
+    outdated_features,
     task_summaries,
     trash_norm,
 )
@@ -94,6 +96,25 @@ def format_date(text: str) -> str:
     except ValueError:
         return text
     return f"{day.day}. {day.month}. {day.year}"
+
+
+def outdated_text(norm: Norm, current: dict[str, str]) -> list[str]:
+    """Varování, že se feature od spočítání normy v knihovně změnily (po feature, s úlohami)."""
+    changed: dict[tuple[str, str, str], list[str]] = {}
+    for task, feature, old, new in outdated_features(norm, current):
+        changed.setdefault((feature, old, new), []).append(tasks.label(task))
+    if not changed:
+        return []
+    items = ", ".join(
+        f"{feature} {old} \u2192 {new} ({', '.join(labels)})"
+        for (feature, old, new), labels in changed.items()
+    )
+    return [
+        tr(
+            "Od spočítání normy se v knihovně změnilo: {items}. Hodnoty kontrol "
+            "už neodpovídají dnešnímu výpočtu, normu je třeba spočítat znovu."
+        ).format(items=items)
+    ]
 
 
 def norm_overview(norm: Norm) -> str:
@@ -248,6 +269,8 @@ class NormsPage(QWidget):
         self._folder: Path | None = None
         self._norms: list[Norm] = []
         self._plans: list[NormPlan] = []
+        self._library: Library | None = None
+        self._versions: dict[str, str] | None = None  # feature -> verze z katalogu knihovny
         self._cards: list[NormCard | PlanCard] = []
 
         layout = QVBoxLayout(self)
@@ -491,6 +514,22 @@ class NormsPage(QWidget):
         self._folder = folder
         self.reload()
 
+    def set_library(self, library: Library | None) -> None:
+        self._library = library
+        self._versions = None
+
+    def current_versions(self) -> dict[str, str]:
+        """Verze feature v nainstalované knihovně (jednou z katalogu)."""
+        if self._versions is None:
+            versions: dict[str, str] = {}
+            if self._library is not None:
+                try:
+                    versions = {f.name: f.version for f in self._library.features() if f.version}
+                except LibraryError:
+                    versions = {}
+            self._versions = versions
+        return self._versions
+
     def reload(self, select: Path | None = None) -> None:
         """Znovu načte normy; výběr zůstane na téže složce (nebo na `select`).
 
@@ -612,7 +651,7 @@ class NormsPage(QWidget):
         for summary in task_summaries(norm):
             pills.append((self._task_label(summary), "neutral", "", None))
         self.header.set_pills(pills)
-        problems = norm_problems(norm)
+        problems = norm_problems(norm) + outdated_text(norm, self.current_versions())
         self.problems.setVisible(bool(problems))
         self.problems.setText("\n".join(problems))
         self.header.set_role("warn" if problems else "neutral")

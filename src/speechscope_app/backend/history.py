@@ -84,6 +84,10 @@ class RunInfo:
     patient: str = ""  # pacient dávky hodnocení (subject)
     task: str = ""  # úloha z protocol.yaml; u dávky vlastní úlohy její klíč z run.json
     group_dir: Path | None = None  # složka vyšetření, když je běh v ní vnořený
+    library_version: str = ""  # verze knihovny, která běh počítala (z run.json)
+    # verze feature z katalogu knihovny při spuštění (feature -> verze); starší
+    # běhy je nemají. Hodnocení podle nich pozná, že se feature od normy liší.
+    feature_versions: dict[str, str] = field(default_factory=dict)
 
     @property
     def key(self) -> str:
@@ -215,7 +219,15 @@ def read_run(run_dir: Path, *, group_dir: Path | None = None) -> RunInfo | None:
         patient=str(data.get("patient") or ""),
         task=str(data.get("task") or "") or task,
         group_dir=group_dir,
+        library_version=str(data.get("library_version") or ""),
+        feature_versions=_versions(data.get("feature_versions")),
     )
+
+
+def _versions(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(k): str(v) for k, v in value.items() if v}
 
 
 def unique_run_dir(work_root: Path, name: str) -> Path:

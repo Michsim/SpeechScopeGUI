@@ -225,3 +225,29 @@ def test_group_with_pending_plan_is_still_computing(tmp_path: Path) -> None:
     finished = group_runs(list_runs(tmp_path))[0]  # plán zmizel: hodnocení založené
     assert finished.status == "ok" and finished.status_label == "hotovo"
     assert finished.task_count == 1 and not finished.waiting_tasks()
+
+
+def test_run_file_keeps_library_and_feature_versions(tmp_path: Path) -> None:
+    d = _run_dir(
+        tmp_path,
+        "2026-10-30_10-00-00_fonace",
+        csv_rows=1,
+        run={
+            "status": "ok",
+            "library_version": "0.4.0",
+            "feature_versions": {"acoustic.quality.cpp": "1.3", "acoustic.pitch.f0": ""},
+        },
+    )
+    info = read_run(d)
+    assert info is not None and info.library_version == "0.4.0"
+    assert info.feature_versions == {"acoustic.quality.cpp": "1.3"}  # prázdná verze se vynechá
+    # starší běh bez záznamu nebo s rozbitým záznamem
+    old = _run_dir(tmp_path, "2026-10-29_10-00-00_fonace", csv_rows=1, run={"status": "ok"})
+    broken = _run_dir(
+        tmp_path,
+        "2026-10-28_10-00-00_fonace",
+        csv_rows=1,
+        run={"status": "ok", "feature_versions": "1.3"},
+    )
+    assert read_run(old).feature_versions == {} and read_run(old).library_version == ""
+    assert read_run(broken).feature_versions == {}

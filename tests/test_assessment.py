@@ -473,3 +473,35 @@ def test_custom_task_from_norm_in_dialog_and_tree(qtbot: QtBot, settings: AppSet
     assert "Popis obrázku: " in page.selection_label.text()
     cells = [page.recordings.item(r, 0).text() for r in range(page.recordings.rowCount())]
     assert "Popis obrázku" in cells and page.card(0).detail.text().endswith("Popis obrázku")
+
+
+def test_changed_feature_version_is_shown(qtbot: QtBot, settings: AppSettings) -> None:
+    """Běh pacienta s jinou verzí feature než kontroly normy: ⚠ ve stromu, tabulka, poznámka."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    pert = "acoustic.quality.perturbation"
+    write_run_file(
+        settings.work_root / "2026-10-14_10-12-00_fonace",
+        status="ok",
+        kind="extract",
+        protocol="P",
+        total=2,
+        feature_versions={pert: "1.1", "acoustic.quality.cpp": "1.3"},
+    )
+    norm = save_norm(settings.norms_dir())
+    norm.info.feature_versions = {"phonation": {pert: "1.0", "acoustic.quality.cpp": "1.3"}}
+    norm.save(norm.path)
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.assessment_page
+    dialog = page.make_dialog(initial=recording(page, "P-017_fonace.wav"))
+    qtbot.addWidget(dialog)
+    page.save_from(dialog)
+    assert page.recordings.item(0, 3).text() == "jiná verze feature"
+    assert page.recordings.item(0, 3).toolTip() == f"{pert} 1.1 (norma 1.0)"
+    note = page.recordings_note.text()
+    assert f"{pert} 1.1 (norma 1.0)" in note and "spočítat znovu" in note
+    voice = page.tree.topLevelItem(0)
+    hnr = voice.child(0)
+    assert hnr.text(0).endswith("\u26a0") and "1.1 u pacienta, 1.0 u kontrol" in hnr.toolTip(0)
+    assert hnr.text(4)  # z-skóre se přesto počítá
