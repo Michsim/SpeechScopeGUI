@@ -324,8 +324,14 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   (`ResultsPage.assess_requested` → `MainWindow.show_assessment` →
   `show_row`) otevře dialog s tou nahrávkou; po uložení přepne na Hodnocení.
   Stránka se obnoví při zobrazení a po skončeném běhu. Vyhodnocení pacientů
-  se drží v `_eval_cache` podle id hodnocení, dokud se nezmění norma, okno nebo
-  pohlaví (`_cached_evaluation`, `_eval_key`); `refresh` cache maže. Kliknutí
+  se drží v `_eval_cache` podle id hodnocení s otiskem vyšetření (údaje pacienta,
+  odkazy a čas změny tabulek běhů z `VisitIndex.signature`), dokud se nezmění
+  norma, okno nebo pohlaví (`_cached_evaluation`, `_lookup`, `_eval_key`);
+  `refresh` cache nemaže, přepočítá se jen pacient se změněnou tabulkou
+  (30. 10. 2026). Štítky karet se počítají **líně**: seznam se ukáže hned,
+  karta bez vyhodnocení má „…“ (`PENDING_BAND`), `_schedule_badges` je dopočítá
+  po `BADGE_CHUNK` kartách přes `QTimer.singleShot(0)` (generace zahodí tik po
+  novém seznamu; `flush_badges` pro testy, `badges_pending`). Kliknutí
   na kartu tak nepřepočítává ostatní (60 pacientů dřív ~3,5 s, teď ~50 ms);
   `Selection` si cachuje hodnoty sloupců a průměry po osobách
   (`subject_means`, jeden groupby pro všechny feature).

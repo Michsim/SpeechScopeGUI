@@ -364,17 +364,29 @@ def test_click_does_not_reevaluate_other_cards(
         dialog.subject.setText(subject)
         assert page.save_from(dialog) is not None
     assert page.count() == 3
+    page.flush_badges()
     calls.clear()
     page.select_row(1)
     page.select_row(2)
     assert calls == []  # vše už je v cache z uložení
     page.same_sex.setChecked(False)
+    assert len(calls) == 1 and page.badges_pending() == 2  # jen vybraný hned, ostatní líně
+    page.flush_badges()
     assert len(calls) == 3  # změna výběru kontrol přepočítá každého jednou
     calls.clear()
     page.select_row(0)
     assert calls == []
     page.refresh()
-    assert len(calls) == 3  # po obnovení seznamu se počítá znovu (tabulky mohly přibýt)
+    page.flush_badges()
+    assert calls == []  # tabulky se nezměnily: otisk sedí, nic se nepřepočítává
+    # změněná tabulka běhu přepočítá jen pacienty, kteří na ni ukazují
+    run = settings.work_root / "2026-10-14_10-12-00_fonace"
+    frame = pd.read_csv(run / "features.csv")
+    frame.loc[0, HNR] = 25.0
+    frame.to_csv(run / "features.csv", index=False)
+    page.refresh()
+    page.flush_badges()
+    assert len(calls) == 3  # všichni tři ukazují na touž tabulku
 
 
 def test_spider_chart_and_formatting(qtbot: QtBot) -> None:
@@ -544,6 +556,7 @@ def test_patient_card_groups_visits_and_new_visit(qtbot: QtBot, settings: AppSet
     assert page.select_assessment(second.id) and page.current_assessment().id == second.id
     assert page.current_visit().count("reading") == 1
     # štítek karty patří poslednímu vyšetření, i když je vybrané starší
+    page.flush_badges()
     assert page.card(0).pill.text() == "mimo normu"
     page.refresh()
     assert page.current_assessment().id == second.id  # obnova drží vybrané vyšetření

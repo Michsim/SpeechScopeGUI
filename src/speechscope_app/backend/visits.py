@@ -192,6 +192,12 @@ class VisitIndex:
     def all_recordings(self) -> list[Recording]:
         return [r for _key, recs in self._cache.values() for r in recs]
 
+    def signature(self, run: RunInfo) -> tuple:
+        """Otisk tabulky běhu (cesta, čas změny, velikost), jak ho zná poslední `refresh`."""
+        csv_path = run.csv_path
+        cached = self._cache.get(csv_path) if csv_path is not None else None
+        return cached[0] if cached is not None else ()
+
     def set_work_root(self, root: Path) -> None:
         if root != self.work_root:
             self.work_root = root

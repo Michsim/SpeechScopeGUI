@@ -19,7 +19,7 @@ import datetime as dt
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QUrl, Signal
+from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -96,6 +96,8 @@ BAND_LABELS: dict[str, str] = {
     "bad": tr("mimo normu"),
 }
 BAND_ROLES: dict[str, str] = {"ok": "ok", "warn": "warn", "bad": "missing"}
+PENDING_BAND = "pending"  # štítek karty se teprve spočítá (líně, po zobrazení seznamu)
+BADGE_CHUNK = 4  # kolik karet se vyhodnotí v jednom tiku časovače
 WINDOWS: tuple[tuple[str, int | None], ...] = (  # výchozí ±5 (30. 10. 2026)
     ("± 3 let", 3),
     ("± 5 let", 5),
@@ -205,17 +207,37 @@ class PatientCard(QFrame):
         self.title = ElidedLabel(name)
         self.title.setObjectName("card_title")
         head.addWidget(self.title, 1)
-        self.pill = QLabel(BAND_LABELS.get(band, tr("bez normy")))
+        self.pill = QLabel("")
         self.pill.setObjectName("pill")
-        theme.set_role(self.pill, BAND_ROLES.get(band, "neutral"))
         head.addWidget(self.pill, 0, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(head)
         self.detail = QLabel(patient_subtitle(entries))
         self.detail.setObjectName("muted")
         self.detail.setWordWrap(True)
         layout.addWidget(self.detail)
+        self.band = ""
+        self._current = False
+        self.set_band(band)
+
+    @property
+    def pending(self) -> bool:
+        return self.band == PENDING_BAND
+
+    def set_band(self, band: str) -> None:
+        """Štítek pásma; `PENDING_BAND` = „…“, dokud se pacient nevyhodnotí."""
+        self.band = band
+        if band == PENDING_BAND:
+            self.pill.setText("…")
+            role = "neutral"
+        else:
+            self.pill.setText(BAND_LABELS.get(band, tr("bez normy")))
+            role = BAND_ROLES.get(band, "neutral")
+        theme.set_role(self.pill, role)
+        self._role = role
+        theme.set_role(self, "selected" if self._current else self._role)
 
     def set_current(self, current: bool) -> None:
+        self._current = current
         theme.set_role(self, "selected" if current else self._role)
 
 
@@ -295,8 +317,11 @@ class AssessmentPage(QWidget):
         self._dimensions: list[Dimension] = load_dimensions()
         self._cards: list[PatientCard | PendingCard] = []
         self.visit_buttons: list[QPushButton] = []
-        self._eval_cache: dict[str, Evaluation] = {}  # id hodnocení → vyhodnocení
+        # id hodnocení → (otisk vyšetření, vyhodnocení); otisk = odkazy a čas změny tabulek,
+        # takže obnova seznamu nepřepočítává pacienty, kterým se nic nezměnilo
+        self._eval_cache: dict[str, tuple[tuple, Evaluation]] = {}
         self._eval_key: tuple = ()  # (norma, okno, pohlaví), pro které cache platí
+        self._badge_generation = 0  # líné štítky: starší tik po novém seznamu nic nedělá
         self._current: Visit | None = None
         self._evaluation: Evaluation | None = None
 
@@ -859,7 +884,9 @@ class AssessmentPage(QWidget):
             recordings = self._index.all_recordings()
         stored = self._store.all() if self._store is not None else []
         self._entries = [(a, *resolve(a, recordings)) for a in stored]
-        self._eval_cache.clear()  # vyšetření se složila znovu, tabulky mohly přibýt
+        known = {a.id for a in stored}
+        for gone in [k for k in self._eval_cache if k not in known]:
+            del self._eval_cache[gone]  # změněné tabulky pozná otisk, smazaná hodnocení tady
         self._plans = pending_plans(self._store.folder) if self._store is not None else []
         self._fill_list(keep=keep)
 
@@ -916,7 +943,7 @@ class AssessmentPage(QWidget):
         for entries in groups.values():
             chosen = next((e for e in entries if e[0].id == keep), entries[0])
             item = QListWidgetItem()
-            card = PatientCard(entries, self._visit_band(entries[0][0], entries[0][1]))
+            card = PatientCard(entries, self._known_band(entries[0][0], entries[0][1]))
             item.setSizeHint(card.sizeHint())
             self.visits.addItem(item)
             self.visits.setItemWidget(item, card)
@@ -939,6 +966,48 @@ class AssessmentPage(QWidget):
             self._current = None
             self._missing = []
             self._show_empty_state()
+        self._schedule_badges()
+
+    # --- líné štítky karet ------------------------------------------------------------------
+
+    def _known_band(self, assessment: Assessment, visit: Visit) -> str:
+        """Pásmo z cache; bez normy prázdné, jinak `PENDING_BAND` (dopočítá se po zobrazení)."""
+        norm = self.current_norm()
+        if norm is None:
+            return ""
+        cached = self._lookup(assessment, visit, norm)
+        return worst_band(cached) if cached is not None else PENDING_BAND
+
+    def _schedule_badges(self) -> None:
+        """Štítky, které chybí, spočítá časovač po kouskách; seznam je vidět hned."""
+        self._badge_generation += 1
+        if any(isinstance(c, PatientCard) and c.pending for c in self._cards):
+            generation = self._badge_generation
+            QTimer.singleShot(0, lambda: self._badge_tick(generation))
+
+    def _badge_tick(self, generation: int) -> None:
+        if generation != self._badge_generation:
+            return  # seznam se mezitím postavil znovu
+        done = 0
+        for card in self._cards:
+            if not isinstance(card, PatientCard) or not card.pending:
+                continue
+            card.set_band(self._visit_band(card.assessment, card.visit))
+            done += 1
+            if done >= BADGE_CHUNK:
+                break
+        if any(isinstance(c, PatientCard) and c.pending for c in self._cards):
+            QTimer.singleShot(0, lambda: self._badge_tick(generation))
+
+    def flush_badges(self) -> None:
+        """Dopočítá všechny chybějící štítky hned (testy, export)."""
+        self._badge_generation += 1
+        for card in self._cards:
+            if isinstance(card, PatientCard) and card.pending:
+                card.set_band(self._visit_band(card.assessment, card.visit))
+
+    def badges_pending(self) -> int:
+        return sum(1 for c in self._cards if isinstance(c, PatientCard) and c.pending)
 
     def count(self) -> int:
         return self.visits.count()
@@ -1183,19 +1252,41 @@ class AssessmentPage(QWidget):
             versions=visit.versions_by_task(),
         )
 
-    def _cached_evaluation(self, assessment: Assessment, visit: Visit, norm: Norm) -> Evaluation:
-        """Vyhodnocení hodnocení; platí, dokud se nezmění norma, okno nebo pohlaví.
+    def _visit_signature(self, assessment: Assessment, visit: Visit) -> tuple:
+        """Co může změnit vyhodnocení: údaje pacienta a odkazy s otiskem tabulek běhů."""
+        index = self._index
+        return (
+            assessment.date,
+            assessment.age,
+            assessment.sex,
+            tuple(
+                (rec.run.key, rec.row, index.signature(rec.run) if index is not None else ())
+                for rec in visit.recordings
+            ),
+        )
 
-        Štítky karet v seznamu na vybraném pacientovi nezávisí, takže kliknutí
-        na kartu nesmí přepočítávat všechny ostatní (60 ms na pacienta).
-        """
+    def _lookup(self, assessment: Assessment, visit: Visit, norm: Norm) -> Evaluation | None:
+        """Vyhodnocení z cache, když sedí norma, okno, pohlaví i otisk vyšetření."""
         key = (id(norm), self.window_combo.currentData(), self.same_sex.isChecked())
         if key != self._eval_key:
             self._eval_cache.clear()
             self._eval_key = key
         cached = self._eval_cache.get(assessment.id)
+        if cached is None or cached[0] != self._visit_signature(assessment, visit):
+            return None
+        return cached[1]
+
+    def _cached_evaluation(self, assessment: Assessment, visit: Visit, norm: Norm) -> Evaluation:
+        """Vyhodnocení hodnocení; platí, dokud se nezmění norma, okno, pohlaví ani běhy.
+
+        Štítky karet v seznamu na vybraném pacientovi nezávisí, takže kliknutí
+        na kartu nesmí přepočítávat všechny ostatní (60 ms na pacienta), a
+        obnova seznamu přepočítá jen pacienty se změněnou tabulkou.
+        """
+        cached = self._lookup(assessment, visit, norm)
         if cached is None:
-            cached = self._eval_cache[assessment.id] = self._evaluate(visit, norm)
+            cached = self._evaluate(visit, norm)
+            self._eval_cache[assessment.id] = (self._visit_signature(assessment, visit), cached)
         return cached
 
     def _recompute(self) -> None:
@@ -1248,16 +1339,16 @@ class AssessmentPage(QWidget):
         for row, card in enumerate(self._cards):
             if not isinstance(card, PatientCard):
                 continue  # rozpracované hodnocení má štítek z plánu, na normě nezávisí
-            # štítek karty = poslední vyšetření pacienta, i když je vybrané starší
-            band = (
-                worst_band(self._cached_evaluation(card.assessment, card.visit, norm))
-                if card.visit is not visit
-                else worst_band(self._evaluation)
-            )
-            card.pill.setText(BAND_LABELS.get(band, tr("bez normy")))
-            theme.set_role(card.pill, BAND_ROLES.get(band, "neutral"))
-            card._role = BAND_ROLES.get(band, "neutral")
+            # štítek karty = poslední vyšetření pacienta, i když je vybrané starší;
+            # co není v cache, dopočítá časovač, ne tohle kliknutí
+            if card.visit is visit:
+                band = worst_band(self._evaluation)
+            else:
+                cached = self._lookup(card.assessment, card.visit, norm)
+                band = worst_band(cached) if cached is not None else PENDING_BAND
+            card.set_band(band)
             card.set_current(row == current_row)
+        self._schedule_badges()
 
     def _show_empty_state(self) -> None:
         self._evaluation = None
