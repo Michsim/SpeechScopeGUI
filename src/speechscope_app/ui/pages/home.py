@@ -62,7 +62,7 @@ class FolderRow:
 
 
 class ActionCard(QFrame):
-    """Velká karta výstupu: název, popis, nápověda a tlačítko; klik kamkoli do karty = tlačítko."""
+    """Velká karta výstupu: název, popis, nápověda a modré tlačítko; dál vede jen tlačítko."""
 
     activated = Signal()
 
@@ -71,8 +71,7 @@ class ActionCard(QFrame):
     ) -> None:
         super().__init__()
         self.setObjectName("card")
-        self.setProperty("role", "option")  # modré je jen tlačítko doporučené karty
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setProperty("role", "option")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 18, 22, 18)
         layout.setSpacing(8)
@@ -87,16 +86,12 @@ class ActionCard(QFrame):
         self.hint.setWordWrap(True)
         layout.addWidget(self.hint)
         self.button = QPushButton(button)
-        theme.set_role(self.button, "primary" if primary else "")
+        theme.set_role(self.button, "primary")
         self.button.clicked.connect(self.activated)
         row = QHBoxLayout()
         row.addWidget(self.button)
         row.addStretch(1)
         layout.addLayout(row)
-
-    def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802
-        self.activated.emit()
-        super().mousePressEvent(event)
 
 
 class HomePage(QWidget):
