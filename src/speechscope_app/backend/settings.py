@@ -213,8 +213,12 @@ class AppSettings:
         return app_data_dir() / "norms"
 
     def assessments_dir(self) -> Path:
-        """Uložená hodnocení pacientů (stránka Hodnocení), jeden JSON na hodnocení."""
+        """Plány rozpracovaných hodnocení a starší JSONy hodnocení (před katalogem)."""
         return app_data_dir() / "assessments"
+
+    def catalog_path(self) -> Path:
+        """Katalog SQLite: pacienti, hodnocení a index běhů (`backend/catalog.py`)."""
+        return app_data_dir() / "catalog.sqlite"
 
     def tasks_file(self) -> Path:
         """Vlastní úlohy uživatele (`backend/tasks.py`), vedle protokolů a norem."""

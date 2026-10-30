@@ -20,6 +20,7 @@ from speechscope_app.backend.assessment_build import (
     split_by_task,
 )
 from speechscope_app.backend.assessments import AssessmentStore
+from speechscope_app.backend.catalog import Catalog
 from speechscope_app.backend.history import RunGroup, read_run
 from speechscope_app.backend.norm_build import ERROR, OK, TaskPlan, default_protocol
 from speechscope_app.backend.protocol import builtin_protocols
@@ -105,7 +106,7 @@ def test_plan_roundtrip_manifest_and_finish(tmp_path: Path) -> None:
     loaded.set_status("phonation", OK, run)
     loaded.set_status("ddk", ERROR)
     assert loaded.all_finished and not loaded.all_ok and loaded.buildable
-    store = AssessmentStore(tmp_path / "assessments")
+    store = AssessmentStore(tmp_path / "assessments", Catalog(None))
     assessment = finish_plan(loaded, store)
     assert assessment.id == plan.id and assessment.subject == "P1" and assessment.age == 64
     assert [r.file for r in assessment.recordings] == ["P1_a.wav"]  # chybná nahrávka ne

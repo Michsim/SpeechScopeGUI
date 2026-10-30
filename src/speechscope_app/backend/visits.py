@@ -10,7 +10,8 @@ Běhy z průvodce Nová norma (`RunInfo.norm`) se přeskočí, jsou to kontroly.
 Běžící běh se neotvírá: Windows by knihovně zablokovaly přejmenování
 `.part` (viz CLAUDE.md). Tabulky se drží v paměti podle cesty, času změny
 a velikosti souboru; `refresh` po každém skončeném, smazaném nebo
-přejmenovaném běhu je tak levné.
+přejmenovaném běhu je tak levné. S katalogem (`catalog.Catalog`) se řádky
+drží i na disku: po restartu se CSV, které se nezměnilo, nečte znovu.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -27,6 +28,9 @@ from .. import contract
 from . import meta, tasks
 from .history import RunInfo, list_runs
 from .norms import is_feature_column
+
+if TYPE_CHECKING:
+    from .catalog import Catalog
 
 _CacheKey = tuple[str, int, int, int]  # cesta, mtime_ns, velikost, verze registru úloh
 ASSIGNMENTS_FILE = "visits.json"  # ruční přiřazení nahrávek k vyšetření (AppData)
@@ -136,8 +140,11 @@ def _recordings(run: RunInfo, frame: pd.DataFrame) -> list[Recording]:
 class VisitIndex:
     """Vyšetření ze všech skončených běhů pod pracovní složkou."""
 
-    def __init__(self, work_root: Path, assignments: Path | None = None) -> None:
+    def __init__(
+        self, work_root: Path, assignments: Path | None = None, catalog: Catalog | None = None
+    ) -> None:
         self.work_root = work_root
+        self.catalog = catalog
         self._cache: dict[Path, tuple[_CacheKey, list[Recording]]] = {}
         self.visits: list[Visit] = []
         self._assignments_path = assignments
@@ -195,11 +202,13 @@ class VisitIndex:
         """Znovu projde běhy; tabulky, které se nezměnily, se nečtou znovu."""
         recordings: list[Recording] = []
         seen: set[Path] = set()
+        seen_keys: set[str] = set()
         for run in list_runs(self.work_root):
             csv_path = run.csv_path
             if csv_path is None or run.status == "running" or run.norm:
                 continue  # běh normy jsou zdravé kontroly, ne pacienti
             seen.add(csv_path)
+            seen_keys.add(run.key)
             try:
                 stat = csv_path.stat()
             except OSError:
@@ -214,17 +223,45 @@ class VisitIndex:
             if cached is not None and cached[0] == key:
                 recordings.extend(cached[1])
                 continue
-            try:
-                frame = pd.read_csv(csv_path)
-            except (OSError, ValueError):
-                continue
-            recs = _recordings(run, frame)
+            recs = self._from_catalog(run, key)
+            if recs is None:
+                try:
+                    frame = pd.read_csv(csv_path)
+                except (OSError, ValueError):
+                    continue
+                recs = _recordings(run, frame)
+                self._to_catalog(run, key, recs)
             self._cache[csv_path] = (key, recs)
             recordings.extend(recs)
         for stale in set(self._cache) - seen:
             del self._cache[stale]
+        if self.catalog is not None:
+            self.catalog.drop_runs(self.work_root, seen_keys)
         self.visits = group_visits(recordings, self.assignments)
         return self.visits
+
+    def _from_catalog(self, run: RunInfo, key: _CacheKey) -> list[Recording] | None:
+        """Řádky běhu z katalogu, když tam jsou pro touž podobu CSV; jinak None."""
+        if self.catalog is None:
+            return None
+        if self.catalog.run_signature(self.work_root, run.key) != key[1:]:
+            return None
+        return [
+            Recording(run, r.row, r.task, r.file, Path(r.path) if r.path else None, r.data)
+            for r in self.catalog.load_run(self.work_root, run.key)
+        ]
+
+    def _to_catalog(self, run: RunInfo, key: _CacheKey, recs: list[Recording]) -> None:
+        if self.catalog is None:
+            return
+        from .catalog import RecordingRow
+
+        self.catalog.store_run(
+            self.work_root,
+            run.key,
+            key[1:],
+            [RecordingRow(r.row, r.task, r.file, str(r.path or ""), r.data) for r in recs],
+        )
 
     def find(self, subject: str, visit: str) -> Visit | None:
         return next((v for v in self.visits if v.key == (subject, visit)), None)

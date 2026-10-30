@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pandas as pd
@@ -252,8 +251,8 @@ def test_manual_assessment_create_score_edit_and_delete(
     old.rename(new)
     page.relocate(old, new)
     assert page.select_assessment(saved.id) and page.current_visit().count("reading") == 1
-    stored = json.loads((settings.assessments_dir() / f"{saved.id}.json").read_text("utf-8"))
-    assert {r["run"] for r in stored["recordings"]} >= {new.name}
+    stored = next(a for a in page.assessments() if a.id == saved.id)
+    assert {r.run for r in stored.recordings} >= {new.name}
 
     # smazání
     assert page.delete_current(confirm=False)

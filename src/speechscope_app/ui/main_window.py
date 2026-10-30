@@ -31,6 +31,7 @@ from ..backend.assessment_build import PLAN_SUFFIX, AssessmentPlan, pending_plan
 from ..backend.assessment_build import finish_plan as finish_assessment_plan
 from ..backend.assessments import AssessmentStore
 from ..backend.audio import duration_seconds
+from ..backend.catalog import Catalog
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
 from ..backend.diagnostics import build_bundle, default_name
 from ..backend.history import (
@@ -152,6 +153,7 @@ class MainWindow(QMainWindow):
 
         self._queue: list[Job] = []
         self._last_progress = ""
+        self.catalog = Catalog(settings.catalog_path())  # pacienti, hodnocení, index běhů
         self.env_page = EnvironmentPage()
         self.batch_page = BatchPage()
         self.protocols_page = ProtocolsPage()
@@ -477,6 +479,7 @@ class MainWindow(QMainWindow):
         """Složky z nastavení do všech stránek, které je ukazují nebo používají."""
         models_dir, work_root = self.settings.models_dir, self.settings.work_root
         self.results_page.set_work_root(work_root)
+        self.assessment_page.set_catalog(self.catalog)
         self.assessment_page.set_work_root(work_root)
         self.assessment_page.set_assessments_dir(self.settings.assessments_dir())
         self.assessment_page.set_norms_dir(self.settings.norms_dir())
@@ -1011,7 +1014,7 @@ class MainWindow(QMainWindow):
     def _finish_assessment(self, plan: AssessmentPlan) -> bool:
         try:
             assessment = finish_assessment_plan(
-                plan, AssessmentStore(self.settings.assessments_dir())
+                plan, AssessmentStore(self.settings.assessments_dir(), self.catalog)
             )
         except (ValueError, OSError) as exc:
             self.statusBar().showMessage(

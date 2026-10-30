@@ -1,10 +1,12 @@
 """Uložená hodnocení: pacient, věk, pohlaví, datum a vybrané nahrávky po úlohách.
 
-Hodnocení zakládá klinik ručně (stránka Hodnocení, Nové hodnocení…), nic
+Hodnocení zakládá klinik ručně (stránka Pacienti, Nové hodnocení…), nic
 se neskládá samo ze všech běhů. Nahrávka je odkaz na řádek `features.csv`
 hotového běhu (název složky běhu, řádek, soubor a úloha); hodnoty se při
-zobrazení čtou z indexu běhů (`visits.VisitIndex`), takže hodnocení je malý
-JSON v AppData (`settings.assessments_dir`). Norma se volí až při prohlížení.
+zobrazení čtou z indexu běhů (`visits.VisitIndex`). Hodnocení i pacienti
+jsou od 30. 10. 2026 v katalogu SQLite (`catalog.Catalog`); starší JSONy
+ve složce `assessments` se při otevření úložiště naimportují. Norma se volí
+až při prohlížení.
 
 Z hodnocení se pro výpočet složí `visits.Visit`, se kterým pracuje
 `dimensions.evaluate` a celá pravá část stránky. Víc nahrávek jedné úlohy
@@ -14,16 +16,24 @@ se zprůměruje po feature (`dimensions.visit_values`).
 from __future__ import annotations
 
 import datetime as dt
-import json
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import meta, tasks
 from .protocol import Protocol
 from .visits import Recording, Visit
 
+if TYPE_CHECKING:
+    from .catalog import Catalog
+
 FORMAT_VERSION = 1
+
+
+def patient_key(subject: str) -> str:
+    """Pacient = stejné označení bez ohledu na mezery a velikost písmen (zatím jen řetězec)."""
+    return " ".join(subject.split()).casefold()
 
 
 @dataclass(slots=True)
@@ -95,57 +105,34 @@ def new_id() -> str:
 
 
 class AssessmentStore:
-    """Hodnocení jako JSON soubory ve složce (jeden soubor na hodnocení)."""
+    """Hodnocení v katalogu; `folder` zůstává pro plány rozpracovaných hodnocení.
 
-    def __init__(self, folder: Path) -> None:
+    Při otevření naimportuje starší JSONy ze složky (jednou, soubory se
+    přesunou do `imported/`)."""
+
+    def __init__(self, folder: Path, catalog: Catalog) -> None:
         self.folder = folder
-
-    def path(self, assessment: Assessment) -> Path:
-        return self.folder / f"{assessment.id}.json"
+        self.catalog = catalog
+        catalog.import_assessments(folder)
 
     def all(self) -> list[Assessment]:
-        """Od nejnovějšího vyšetření; rozbitý soubor se přeskočí."""
-        if not self.folder.is_dir():
-            return []
-        out: list[Assessment] = []
-        for path in sorted(self.folder.glob("*.json")):
-            if path.name.endswith(".plan.json"):
-                continue  # rozpracované hodnocení (assessment_build), ne hotové
-            try:
-                out.append(Assessment.from_dict(json.loads(path.read_text(encoding="utf-8"))))
-            except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
-                continue
-        out.sort(key=lambda a: (a.date, a.created, a.subject), reverse=True)
-        return out
+        """Od nejnovějšího vyšetření."""
+        return self.catalog.assessments()
 
-    def save(self, assessment: Assessment) -> Path:
+    def save(self, assessment: Assessment) -> Assessment:
         if not assessment.id:
             assessment.id = new_id()
         if not assessment.created:
             assessment.created = dt.datetime.now().isoformat(timespec="seconds")
-        self.folder.mkdir(parents=True, exist_ok=True)
-        path = self.path(assessment)
-        path.write_text(
-            json.dumps(assessment.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        return path
+        self.catalog.save_assessment(assessment)
+        return assessment
 
     def delete(self, assessment: Assessment) -> None:
-        self.path(assessment).unlink(missing_ok=True)
+        self.catalog.delete_assessment(assessment.id)
 
     def relocate(self, old_run: str, new_run: str) -> int:
         """Po přejmenování složky běhu přepíše odkazy; vrátí počet změněných hodnocení."""
-        changed = 0
-        for assessment in self.all():
-            hit = False
-            for ref in assessment.recordings:
-                if ref.run == old_run:
-                    ref.run = new_run
-                    hit = True
-            if hit:
-                self.save(assessment)
-                changed += 1
-        return changed
+        return self.catalog.relocate(old_run, new_run)
 
 
 def resolve(

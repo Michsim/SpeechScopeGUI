@@ -205,11 +205,27 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `features.csv`. Automatické skládání do vyšetření (`group_visits`,
   `visits.json`) stránka už nepoužívá; `Visit` zůstává jako vstup výpočtu
   (`rows_by_task()` → `dimensions.evaluate`).
+- **Katalog SQLite** (`backend/catalog.py`, `Catalog`, soubor
+  `settings.catalog_path()` = `catalog.sqlite` v datech aplikace; 30. 10. 2026,
+  rozhodnuto: katalog, ne náhrada složek): pacienti (`patients`: klíč
+  `assessments.patient_key`, označení, pohlaví, `birth_year` zatím nevyužitý)
+  a hodnocení (`assessments`, `assessment_recordings`) jsou v něm **pravda**;
+  starší JSONy ze složky `assessments` naimportuje `import_assessments` při
+  otevření `AssessmentStore` a přesune je do `assessments/imported/`, plány
+  `*.plan.json` zůstávají soubory. Běhy a jejich řádky (`runs`, `recordings`
+  s JSON `data`, klíč složka výsledků + `RunInfo.key`) jsou jen **index**:
+  `VisitIndex(root, catalog=…)` čte CSV, jen když se změnil (mtime, velikost,
+  verze registru úloh), jinak bere řádky z katalogu i po restartu
+  (`_from_catalog`, `_to_catalog`, `drop_runs` pro zmizelé běhy). Smazání
+  katalogu nic neztratí kromě hodnocení, proto JSONy zůstávají v `imported/`.
+  Hlavní okno katalog otevře v konstruktoru a dá ho stránce Pacienti
+  (`set_catalog` před `set_work_root`); bez hlavního okna si stránka udělá
+  katalog v paměti (`Catalog(None)`). Jeden proces, hlavní vlákno, WAL.
 - **Hodnocení se zakládají ručně** (rozhodnuto 28. 10., mockup
   https://claude.ai/artifact/2UwaQmndVNFBCMSHmehQ8A, `docs/mockups/hodnoceni/`
   mimo git): `backend/assessments.py`, `Assessment` (pacient, věk, pohlaví,
-  datum, `RecordingRef` = složka běhu, řádek, soubor, úloha) jako JSON
-  v `settings.assessments_dir()`; `resolve` z něj složí `Visit` (řádek
+  datum, `RecordingRef` = složka běhu, řádek, soubor, úloha) v katalogu
+  (`AssessmentStore(folder, catalog)`, dřív JSON); `resolve` z něj složí `Visit` (řádek
   záložně podle souboru a úlohy, když se tabulka přepočítala; chybějící
   odkazy vrátí zvlášť). Přejmenovaný běh přepíše odkazy
   (`AssessmentStore.relocate` z `MainWindow._run_moved`). Norma se volí až

@@ -53,8 +53,10 @@ from ...backend.assessments import (
     AssessmentStore,
     RecordingRef,
     norm_match,
+    patient_key,
     resolve,
 )
+from ...backend.catalog import Catalog
 from ...backend.dimensions import (
     Dimension,
     DimensionResult,
@@ -157,11 +159,6 @@ def task_count(visit: Visit, task: str) -> str:
 
 
 Entry = tuple[Assessment, Visit, list[RecordingRef]]  # hodnocení, vyšetření, chybějící odkazy
-
-
-def patient_key(subject: str) -> str:
-    """Pacient = stejné označení bez ohledu na mezery a velikost písmen (zatím jen řetězec)."""
-    return " ".join(subject.split()).casefold()
 
 
 def patient_subtitle(entries: list[Entry]) -> str:
@@ -284,6 +281,7 @@ class AssessmentPage(QWidget):
         super().__init__(parent)
         self._index: VisitIndex | None = None
         self._store: AssessmentStore | None = None
+        self._catalog: Catalog | None = None
         self._entries: list[Entry] = []  # všechna hodnocení, nejnovější první
         self._groups: list[list[Entry]] = []  # karta pacienta → jeho vyšetření (nejnovější první)
         self._shown: list[Entry] = []  # karta pacienta → právě vybrané vyšetření
@@ -761,14 +759,20 @@ class AssessmentPage(QWidget):
             )
         )
 
+    def set_catalog(self, catalog: Catalog) -> None:
+        """Katalog dřív než složky: index běhů i úložiště hodnocení ho potřebují."""
+        self._catalog = catalog
+
     def set_work_root(self, root: Path) -> None:
         if self._index is None:
-            self._index = VisitIndex(root)
+            self._index = VisitIndex(root, catalog=self._catalog)
         else:
             self._index.set_work_root(root)
 
     def set_assessments_dir(self, folder: Path) -> None:
-        self._store = AssessmentStore(folder)
+        if self._catalog is None:
+            self._catalog = Catalog(None)  # bez hlavního okna (testy): katalog v paměti
+        self._store = AssessmentStore(folder, self._catalog)
         self.refresh()
 
     def set_norms_dir(self, folder: Path) -> None:
