@@ -229,10 +229,12 @@ class BatchPage(QWidget):
         self.manifest_clear_btn.setToolTip(tr("Nepoužívat metadata"))
         self.manifest_clear_btn.clicked.connect(self.clear_manifest)
         self.manifest_clear_btn.hide()
-        meta_row.addWidget(self.manifest_label, 1)
+        meta_row.addStretch(1)
         meta_row.addWidget(self.manifest_btn)
         meta_row.addWidget(self.manifest_clear_btn)
         left_layout.addLayout(meta_row)
+        # stav manifestu pod tlačítky přes celou šířku; vedle nich se lámal po slovech
+        left_layout.addWidget(self.manifest_label)
 
         bottom1 = QHBoxLayout()
         self.status1 = QLabel("")
