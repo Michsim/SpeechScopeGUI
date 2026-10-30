@@ -602,3 +602,54 @@ def test_new_visit_offers_recordings_with_prefilled_patient(
     assert page.new_visit() is None and [a.id for a in got] == [first.id]
     assert opened == [("P-017", "64", "m")]
     assert window.new_visit_from_recordings(first) == 0 and len(opened) == 2
+
+
+def test_trend_view_for_patient_with_two_visits(qtbot: QtBot, settings: AppSettings) -> None:
+    """Vývoj v čase: od dvou vyšetření s datem a normou mřížka grafů a tabulka, export PNG."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    save_norm(settings.norms_dir())
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.assessment_page
+    first = page.save_from(page.make_dialog(initial=recording(page, "P-017_fonace.wav")))
+    assert first is not None and not page.view_bar.isHidden()
+    assert not page.view_trend_btn.isEnabled() and page.view() == "visit"  # jedno vyšetření
+    dialog = page.make_dialog(template=first)
+    qtbot.addWidget(dialog)
+    dialog.add_recording(recording(page, "P-017_cteni.wav"))
+    dialog._set_date("2025-10-14")
+    second = page.save_from(dialog)
+    assert second is not None and page.view_trend_btn.isEnabled()
+    page.set_view("trend")
+    assert page.view() == "trend" and not page.trend_panel.isHidden() and page.middle.isHidden()
+    assert page.bottom.isHidden() and not page.only_abnormal.isHidden()
+    timeline = page.timeline()
+    assert timeline is not None and [v.date for v in timeline.visits] == [
+        "2025-10-14",
+        "2026-10-14",
+    ]
+    shown = timeline.shown_rows()
+    assert [r.dimension.key for r in shown] == ["voice", "pauses"]
+    assert len(page.trend_grid.charts) == 2
+    assert page.trend_table.rowCount() == 2 and page.trend_table.columnCount() == 4
+    headers = [page.trend_table.horizontalHeaderItem(c).text() for c in range(4)]
+    assert headers == ["dimenze", "14. 10. 2025", "14. 10. 2026", "změna za období"]
+    assert page.trend_table.item(0, 0).text() == "Kvalita hlasu"
+    # 2025 má jen čtení, 2026 jen fonaci: v tabulce mezery místo nul
+    assert page.trend_table.item(0, 1).text() == "–"
+    assert page.trend_table.item(1, 2).text() == "–"
+    assert page.trend_table.item(0, 2).text() and page.trend_table.item(1, 1).text()
+    assert "rozdíl v SD" in page.trend_note.text()
+    out = page.save_image(settings.work_root / "vyvoj.png")
+    assert out is not None and out.is_file()
+    # jen dimenze mimo normu
+    page.only_abnormal.setChecked(True)
+    assert all(r.abnormal for r in page.timeline().shown_rows(only_abnormal=True))
+    assert len(page.trend_grid.charts) == page.trend_table.rowCount()
+    page.only_abnormal.setChecked(False)
+    # přepnutí pacienta bez druhého vyšetření vrátí Vyšetření
+    page.save_from(page.make_dialog(initial=recording(page, "P-018_fonace.wav")))
+    assert page.current_assessment().subject == "P-018"
+    assert page.view() == "visit" and not page.view_trend_btn.isEnabled()
+    assert page.trend_panel.isHidden() and not page.middle.isHidden()

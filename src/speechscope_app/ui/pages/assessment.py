@@ -22,6 +22,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -67,6 +68,7 @@ from ...backend.dimensions import (
 )
 from ...backend.history import run_key
 from ...backend.library import FeatureInfo, Library, LibraryError
+from ...backend.longitudinal import Timeline, build_timeline, format_change
 from ...backend.norm_build import RUNNING
 from ...backend.norms import BOTH, DEFAULT_WINDOW, Norm, Selection, all_norms, version_changes
 from ...backend.visits import Recording, Visit, VisitIndex
@@ -79,6 +81,7 @@ from ..file_actions import file_menu, open_file
 from ..recording_detail import ColumnInfo, RecordingDetailDialog, column_index
 from ..widgets.elided_label import ElidedLabel
 from ..widgets.spider_chart import (
+    BAND_COLORS,
     BAND_SOFT,
     INWARD,
     OUTWARD,
@@ -89,6 +92,7 @@ from ..widgets.spider_chart import (
     format_sd,
 )
 from ..widgets.status_header import StatusHeader
+from ..widgets.trend_chart import TrendGrid, TrendSeries
 
 BAND_LABELS: dict[str, str] = {
     "ok": tr("v normě"),
@@ -326,6 +330,8 @@ class AssessmentPage(QWidget):
         self._badge_generation = 0  # líné štítky: starší tik po novém seznamu nic nedělá
         self._current: Visit | None = None
         self._evaluation: Evaluation | None = None
+        self._view = "visit"  # „visit“ = pavouk a strom vybraného vyšetření, „trend“ = vývoj
+        self._timeline: Timeline | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -427,6 +433,32 @@ class AssessmentPage(QWidget):
         visit_layout.addWidget(self.visit_btn)
         right_layout.addWidget(self.visit_bar)
         self.visit_bar.hide()
+        # přepínač Vyšetření · Vývoj v čase (vývoj až od dvou vyšetření s datem a s normou)
+        self.view_bar = QWidget()
+        view_layout = QHBoxLayout(self.view_bar)
+        view_layout.setContentsMargins(4, 0, 0, 0)
+        view_layout.setSpacing(6)
+        self.view_visit_btn = QPushButton(tr("Vyšetření"))
+        self.view_trend_btn = QPushButton(tr("Vývoj v čase"))
+        self.view_group = QButtonGroup(self)
+        for button, view in ((self.view_visit_btn, "visit"), (self.view_trend_btn, "trend")):
+            button.setCheckable(True)
+            self.view_group.addButton(button)
+            button.clicked.connect(lambda _c=False, v=view: self.set_view(v))
+            view_layout.addWidget(button)
+        self.view_visit_btn.setChecked(True)
+        self.view_trend_btn.setEnabled(False)
+        self.view_trend_btn.setToolTip(
+            tr("Vývoj je k dispozici od dvou vyšetření s datem a s normou.")
+        )
+        self.only_abnormal = QCheckBox(tr("jen dimenze mimo normu"))
+        self.only_abnormal.toggled.connect(lambda _c: self._fill_trend())
+        self.only_abnormal.hide()
+        view_layout.addSpacing(12)
+        view_layout.addWidget(self.only_abnormal)
+        view_layout.addStretch(1)
+        right_layout.addWidget(self.view_bar)
+        self.view_bar.hide()
         # pod hlavičkou se roluje: pavouk a strom pod sebou se na menší okno nevejdou
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -588,6 +620,58 @@ class AssessmentPage(QWidget):
         self.middle = QWidget()
         self.middle.setLayout(middle)
         right_layout.addWidget(self.middle, 1)
+
+        # vývoj v čase: mřížka malých grafů po dimenzích, pod ní tabulka dimenze × datum
+        trend = QVBoxLayout()
+        trend.setContentsMargins(0, 0, 0, 0)
+        trend.setSpacing(12)
+        grid_card = QFrame()
+        grid_card.setObjectName("card")
+        grid_layout = QVBoxLayout(grid_card)
+        grid_layout.setContentsMargins(12, 10, 12, 10)
+        grid_layout.setSpacing(6)
+        grid_title = QLabel(tr("Vývoj po dimenzích"))
+        grid_title.setObjectName("card_title")
+        grid_layout.addWidget(grid_title)
+        grid_hint = QLabel(
+            tr(
+                "Osa y v SD proti normě, patologie nahoru. Zelený pás ±1 SD, čárkovaně ±2 SD, "
+                "silná čára norma. Šipka v hlavičce = změna proti předchozímu vyšetření; dutý "
+                "bod = vyšetření počítané jinou verzí feature než norma."
+            )
+        )
+        grid_hint.setObjectName("muted")
+        grid_hint.setWordWrap(True)
+        grid_layout.addWidget(grid_hint)
+        self.trend_grid = TrendGrid()
+        grid_layout.addWidget(self.trend_grid)
+        trend.addWidget(grid_card)
+        table_card = QFrame()
+        table_card.setObjectName("card")
+        table_layout = QVBoxLayout(table_card)
+        table_layout.setContentsMargins(12, 10, 12, 10)
+        table_layout.setSpacing(6)
+        table_title = QLabel(tr("Dimenze po vyšetřeních"))
+        table_title.setObjectName("card_title")
+        table_layout.addWidget(table_title)
+        self.trend_table = QTableWidget()
+        self.trend_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.trend_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.trend_table.verticalHeader().setVisible(False)
+        trend_header = self.trend_table.horizontalHeader()
+        trend_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        trend_header.setStretchLastSection(False)
+        table_layout.addWidget(self.trend_table)
+        self.trend_note = QLabel("")
+        self.trend_note.setObjectName("muted")
+        self.trend_note.setWordWrap(True)
+        table_layout.addWidget(self.trend_note)
+        trend.addWidget(table_card)
+        trend.addStretch(1)
+        self.trend_panel = QWidget()
+        self.trend_panel.setLayout(trend)
+        right_layout.addWidget(self.trend_panel, 1)
+        self.trend_panel.hide()
 
         bottom = QHBoxLayout()
         bottom.setSpacing(12)
@@ -1316,6 +1400,7 @@ class AssessmentPage(QWidget):
             self.middle.hide()
             self.image_btn.setEnabled(False)
             self.about.setText("")
+            self._update_view_bar()
             return
         self.middle.show()
         current = self.current_assessment()
@@ -1343,6 +1428,7 @@ class AssessmentPage(QWidget):
         self.same_sex.setEnabled(visit.sex in ("f", "m"))
         self.about.setText(self._about_text(norm))
         self.image_btn.setEnabled(bool(self._evaluation.shown))
+        self._update_view_bar()
         # štítky v seznamu podle téže normy a téhož okna
         current_row = self.visits.currentRow()
         for row, card in enumerate(self._cards):
@@ -1359,8 +1445,155 @@ class AssessmentPage(QWidget):
             card.set_current(row == current_row)
         self._schedule_badges()
 
+    # --- vývoj v čase ---------------------------------------------------------------------
+
+    def view(self) -> str:
+        return self._view
+
+    def set_view(self, view: str) -> None:
+        """„visit“ = pavouk a strom vybraného vyšetření, „trend“ = vývoj v čase pacienta."""
+        if view == "trend" and not self.view_trend_btn.isEnabled():
+            view = "visit"
+        self._view = view
+        (self.view_trend_btn if view == "trend" else self.view_visit_btn).setChecked(True)
+        trend = view == "trend"
+        self.only_abnormal.setVisible(trend)
+        self.trend_panel.setVisible(trend)
+        self.middle.setVisible(not trend and self.current_norm() is not None)
+        self.bottom.setVisible(not trend)
+        self.visit_bar.setVisible(not trend and len(self.patient_entries()) > 0)
+        self.image_btn.setToolTip(
+            tr("Grafy vývoje a tabulka jako PNG, třeba do zprávy.")
+            if trend
+            else tr("Pavouk jako PNG, třeba do zprávy.")
+        )
+        if trend:
+            self._fill_trend()
+
+    def _dated_entries(self) -> list[Entry]:
+        return [e for e in self.patient_entries() if e[0].date]
+
+    def _update_view_bar(self) -> None:
+        """Přepínač je vidět u pacienta; Vývoj jde od dvou vyšetření s datem a s normou."""
+        entries = self.patient_entries()
+        self.view_bar.setVisible(bool(entries))
+        can = self.current_norm() is not None and len(self._dated_entries()) >= 2
+        self.view_trend_btn.setEnabled(can)
+        if self._view == "trend" and not can:
+            self.set_view("visit")
+        elif self._view == "trend":
+            self._fill_trend()
+
+    def timeline(self) -> Timeline | None:
+        return self._timeline
+
+    def _fill_trend(self) -> None:
+        norm = self.current_norm()
+        entries = self._dated_entries()
+        if norm is None or len(entries) < 2:
+            self._timeline = None
+            return
+        evaluations = [(a, self._cached_evaluation(a, v, norm)) for a, v, _m in entries]
+        timeline = build_timeline(evaluations)
+        self._timeline = timeline
+        labels = [_short_date(v.date) for v in timeline.visits]
+        series: list[TrendSeries] = []
+        rows = timeline.shown_rows(only_abnormal=self.only_abnormal.isChecked())
+        for row in rows:
+            last = row.last
+            headline = ""
+            if last is not None:
+                headline = format_sd(last).removesuffix(" SD")  # jednotka je v nápovědě
+                if row.change_last is not None:
+                    headline += " · " + format_change(row.change_last).removesuffix(" SD")
+            series.append(
+                TrendSeries(
+                    row.dimension.display_name,
+                    labels,
+                    list(row.scores),
+                    list(row.bands),
+                    [v.outdated for v in timeline.visits],
+                    headline,
+                    BAND_COLORS.get(row.last_band, theme.TEXT),
+                )
+            )
+        self.trend_grid.empty.setText(
+            tr("Žádná dimenze mimo normu.")
+            if self.only_abnormal.isChecked()
+            else tr("Žádná dimenze se nedá spočítat.")
+        )
+        self.trend_grid.set_series(series)
+        # tabulka dimenze × datum se změnou za období
+        table = self.trend_table
+        table.clear()
+        table.setColumnCount(len(timeline.visits) + 2)
+        headers = [tr("dimenze")]
+        for visit in timeline.visits:
+            text = format_visit_date(visit.date)
+            if visit.outdated:
+                text += " \u26a0"
+            headers.append(text)
+        headers.append(tr("změna za období"))
+        table.setHorizontalHeaderLabels(headers)
+        for c, visit in enumerate(timeline.visits, start=1):
+            item = table.horizontalHeaderItem(c)
+            if item is not None:
+                tip = []
+                if visit.age is not None:
+                    tip.append(tr("{age} let").format(age=int(round(visit.age))))
+                if visit.outdated:
+                    tip.append(tr("jiná verze feature než norma, přepočítejte vyšetření"))
+                item.setToolTip(" · ".join(tip))
+        table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            name = QTableWidgetItem(row.dimension.display_name)
+            font = name.font()
+            font.setBold(True)
+            name.setFont(font)
+            table.setItem(r, 0, name)
+            for c, (score, band) in enumerate(zip(row.scores, row.bands, strict=True), start=1):
+                cell = QTableWidgetItem(
+                    format_sd(score).removesuffix(" SD") if score is not None else "–"
+                )
+                if score is not None:
+                    cell.setForeground(QColor(BAND_COLORS.get(band, theme.TEXT)))
+                table.setItem(r, c, cell)
+            change = QTableWidgetItem(format_change(row.change_total))
+            if row.change_total is not None and abs(row.change_total) >= 1.0:
+                change.setForeground(QColor(theme.MISSING if row.change_total > 0 else theme.OK))
+            table.setItem(r, len(timeline.visits) + 1, change)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for c in range(1, table.columnCount()):
+            header.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+        height = header.height() + 4 + sum(table.rowHeight(i) for i in range(len(rows)))
+        table.setFixedHeight(max(height, 60))
+        notes = [
+            tr(
+                "Kontroly se vybírají podle věku při každém vyšetření (okno z lišty nahoře), "
+                "posun okna sám o sobě skóre mírně hýbe. Změna je rozdíl v SD, ne tvrzení "
+                "o statistické významnosti."
+            )
+        ]
+        if timeline.outdated:
+            notes.append(
+                tr(
+                    "⚠ {dates}: vyšetření počítané jinou verzí feature než norma, hodnoty jsou "
+                    "jen orientační; přepočítejte ho na záložce Vyšetření (Přepočítat…)."
+                ).format(dates=", ".join(format_visit_date(v.date) for v in timeline.outdated))
+            )
+        if timeline.skipped:
+            notes.append(
+                tr("{n} vyšetření bez data se do vývoje nebere.").format(n=timeline.skipped)
+            )
+        self.trend_note.setText("\n".join(notes))
+
     def _show_empty_state(self) -> None:
         self._evaluation = None
+        self._timeline = None
+        self.view_bar.hide()
+        self.trend_panel.hide()
+        self.bottom.show()
         self.plan_detail.setVisible(False)
         self.right.setVisible(True)
         self.header.title.setText(tr("Pacient"))
@@ -1630,12 +1863,16 @@ class AssessmentPage(QWidget):
     # --- export -----------------------------------------------------------------------
 
     def _chart_image(self) -> QPixmap:
-        """Pavouk se stupnicí vedle, aby PNG do zprávy neslo i význam kružnic."""
+        """Pavouk se stupnicí vedle, aby PNG do zprávy neslo i význam kružnic; ve Vývoji
+        mřížka grafů s tabulkou."""
+        if self._view == "trend":
+            return self.trend_panel.grab()
         return _side_by_side(self.chart.grab(self.chart.content_rect()), self.scale.grab())
 
     def save_image(self, path: Path | None = None) -> Path | None:
         if path is None:
-            name = (self._current.subject if self._current else "pavouk") + ".png"
+            suffix = "-vyvoj" if self._view == "trend" else ""
+            name = (self._current.subject if self._current else "pavouk") + suffix + ".png"
             # výchozí místo: složka výsledků (Dokumenty\SpeechScope), ne pracovní adresář
             folder = self._index.work_root if self._index is not None else Path.home()
             chosen, _ = QFileDialog.getSaveFileName(
@@ -1700,6 +1937,15 @@ def _changed_versions(recs: list[Recording], norm: Norm | None) -> list[str]:
             if text not in out:
                 out.append(text)
     return out
+
+
+def _short_date(iso: str) -> str:
+    """Popisek pod bodem grafu: „10/25“ z ISO data."""
+    try:
+        date = dt.date.fromisoformat(iso[:10])
+    except ValueError:
+        return iso
+    return f"{date.month}/{date.year % 100:02d}"
 
 
 def _selection_part(task: str, sel: Selection) -> str:

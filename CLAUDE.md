@@ -320,7 +320,20 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   z nahrávek / z hotových běhů; z nahrávek
   `new_visit_from_recordings_requested` → `MainWindow.new_visit_from_recordings`,
   dialog průvodce s `prefill`; z běhů `AssessmentDialog(template=…)` předvyplní
-  pacienta, věk a pohlaví bez nahrávek a data). Staré tlačítko se při výměně řady napřed skryje
+  pacienta, věk a pohlaví bez nahrávek a data). Pod řadou vyšetření přepínač
+  Vyšetření · Vývoj v čase (`view_bar`, `set_view`, `view()`; Vývoj aktivní od dvou
+  vyšetření s datem a s normou, `_update_view_bar`): Vývoj schová pavouk, strom i
+  nahrávky a ukáže `trend_panel` = mřížka malých grafů po dimenzích
+  (`widgets/trend_chart.py`, `TrendGrid`/`TrendChart`: osa y −2 až +3 SD, zelený
+  pás ±1, čárkovaně ±2, body barvou pásma, dutý bod = jiná verze feature než
+  norma, popisky „10/25“) a tabulka dimenze × datum se změnou za období
+  (`backend/longitudinal.py`: `build_timeline` z hotových vyhodnocení, nic nového
+  nepočítá; kontroly podle věku při každém vyšetření, změna = rozdíl v SD bez
+  významnosti, vyšetření bez data se vynechá, dvě v jeden den vedle sebe podle
+  založení; `format_change` ▲ horší ▼ lepší). „jen dimenze mimo normu“ filtruje
+  podle posledního skóre (|z| ≥ 1). Uložit obrázek… ve Vývoji uloží mřížku s
+  tabulkou (`trend_panel.grab`, přípona `-vyvoj`). Překryv v pavouku zatím není
+  (mockup 3b). Staré tlačítko se při výměně řady napřed skryje
   (`deleteLater` kreslil zbytkový modrý pruh). Vpravo hlavička
   pacienta se štítky dimenzí a Upravit…, Uložit obrázek… (PNG pavouka),
   Smazat…, výběr normy, věkového okna a „jen stejné pohlaví“ (řádek pod tím
