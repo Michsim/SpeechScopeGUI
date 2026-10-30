@@ -15,9 +15,10 @@ běhu, takže `features.csv` má `subject`, `age`, `sex` a `visit`.
 
 from __future__ import annotations
 
+import csv
 import datetime as dt
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
@@ -32,7 +33,44 @@ from .protocol import Protocol
 from .visits import Recording, Visit
 
 PLAN_SUFFIX = ".plan.json"
-PLAN_VERSION = 1
+PLAN_VERSION = 2  # 2: dávky s datem (`visit`) a `people` pro víc pacientů; 1 se čte dál
+
+
+def normalize_visit(text: str) -> str:
+    """Datum vyšetření jako ISO (rok-měsíc-den) z ISO i z „14. 10. 2026“; jinak prázdné."""
+    text = str(text or "").strip()
+    if not text:
+        return ""
+    try:
+        return dt.date.fromisoformat(text[:10]).isoformat()
+    except ValueError:
+        pass
+    parts = [p.strip() for p in text.replace("/", ".").split(".") if p.strip()]
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        try:
+            return dt.date(int(parts[2]), int(parts[1]), int(parts[0])).isoformat()
+        except ValueError:
+            return ""
+    return ""
+
+
+def patients_text(n: int) -> str:
+    """„1 pacient“, „2 pacienti“, „5 pacientů“."""
+    if n == 1:
+        return tr("1 pacient")
+    if 2 <= n <= 4:
+        return tr("{n} pacienti").format(n=n)
+    return tr("{n} pacientů").format(n=n)
+
+
+@dataclass(slots=True)
+class PersonRow:
+    """Údaje jedné nahrávky z manifestu, když je v plánu víc pacientů nebo dat."""
+
+    subject: str = ""
+    visit: str = ""  # ISO; prázdné = nahrávka se spočítá, ale do vyšetření se nezaloží
+    age: float | None = None
+    sex: str = ""
 
 
 @dataclass(slots=True)
@@ -51,10 +89,26 @@ class AssessmentPlan(PlanState):
     language: str
     tasks: list[TaskPlan]
     created: str = ""
+    # víc pacientů nebo dat z manifestu: nahrávka → pacient, datum, věk, pohlaví;
+    # prázdné = jeden pacient a jedno datum (`patient`)
+    people: dict[Path, PersonRow] = field(default_factory=dict)
 
     @property
     def key(self) -> Path:
         return self.path
+
+    @property
+    def multi(self) -> bool:
+        return bool(self.people)
+
+    def subjects(self) -> list[str]:
+        return sorted({p.subject for p in self.people.values() if p.subject})
+
+    def visits(self) -> int:
+        """Kolik vyšetření (pacient a datum) z plánu vznikne."""
+        if not self.multi:
+            return 1
+        return len({(p.subject, p.visit) for p in self.people.values() if p.subject and p.visit})
 
     @property
     def done(self) -> int:
@@ -73,21 +127,33 @@ class AssessmentPlan(PlanState):
         return any(t.table is not None for t in self.tasks)
 
     def title(self, task: TaskPlan) -> str:
+        if self.multi:
+            subjects = sorted(
+                {self.people[_key(r)].subject for r in task.inputs if _key(r) in self.people}
+            )
+            who = ", ".join(subjects) if 0 < len(subjects) <= 3 else patients_text(len(subjects))
+            text = tr("Hodnocení {who} · {task}").format(who=who, task=tasks.label(task.task))
+            if task.visit:
+                text += f" · {task.visit}"
+            return text
         return tr("Hodnocení {subject} · {task}").format(
             subject=self.patient.subject, task=tasks.label(task.task)
         )
 
     def manifest_for(self, task: TaskPlan) -> Manifest:
         """Manifest dávky: pacient, věk, pohlaví a datum pro každou nahrávku."""
-        manifest = Manifest(path=self.path.with_name(f"{self.id}-{task.task}.csv"))
+        manifest = Manifest(path=self.path.with_name(f"{self.id}-{task.key}.csv"))
         manifest.columns = [meta.SUBJECT, meta.AGE, meta.SEX, meta.VISIT]
         p = self.patient
         for rec in task.inputs:
+            person = self.people.get(_key(rec))
+            subject = person.subject if person else p.subject
+            age = person.age if person else p.age
             manifest.rows[_key(rec)] = {
-                meta.SUBJECT: p.subject,
-                meta.AGE: "" if p.age is None else f"{p.age:g}",
-                meta.SEX: p.sex,
-                meta.VISIT: p.date,
+                meta.SUBJECT: subject,
+                meta.AGE: "" if age is None else f"{age:g}",
+                meta.SEX: person.sex if person else p.sex,
+                meta.VISIT: person.visit if person else p.date,
             }
         return manifest
 
@@ -104,12 +170,23 @@ class AssessmentPlan(PlanState):
             "tasks": [
                 {
                     "task": t.task,
+                    "visit": t.visit,
                     "protocol": t.protocol,
                     "inputs": [str(x) for x in t.inputs],
                     "status": t.status,
                     "run_dir": str(t.run_dir) if t.run_dir else "",
                 }
                 for t in self.tasks
+            ],
+            "people": [
+                {
+                    "path": str(path),
+                    "subject": person.subject,
+                    "visit": person.visit,
+                    "age": person.age,
+                    "sex": person.sex,
+                }
+                for path, person in self.people.items()
             ],
         }
 
@@ -141,9 +218,20 @@ class AssessmentPlan(PlanState):
                 inputs=[Path(x) for x in t.get("inputs", [])],
                 status=str(t.get("status", PENDING)),
                 run_dir=Path(t["run_dir"]) if t.get("run_dir") else None,
+                visit=str(t.get("visit") or ""),
             )
             for t in data.get("tasks", [])
         ]
+        people = {
+            Path(str(row["path"])): PersonRow(
+                subject=str(row.get("subject") or ""),
+                visit=str(row.get("visit") or ""),
+                age=meta.parse_age(row.get("age")),
+                sex=meta.parse_sex(row.get("sex")) if row.get("sex") else "",
+            )
+            for row in data.get("people", [])
+            if row.get("path")
+        }
         return cls(
             path=path,
             id=str(data.get("id") or path.name.removesuffix(PLAN_SUFFIX)),
@@ -151,6 +239,7 @@ class AssessmentPlan(PlanState):
             language=str(data.get("language") or ""),
             tasks=tasks,
             created=str(data.get("created") or ""),
+            people=people,
         )
 
     def discard(self) -> None:
@@ -165,10 +254,73 @@ def _key(path: Path) -> Path:
 
 
 def new_plan(
-    folder: Path, patient: Patient, language: str, tasks: list[TaskPlan]
+    folder: Path,
+    patient: Patient,
+    language: str,
+    tasks: list[TaskPlan],
+    people: dict[Path, PersonRow] | None = None,
 ) -> AssessmentPlan:
     plan_id = new_id()
-    return AssessmentPlan(folder / f"{plan_id}{PLAN_SUFFIX}", plan_id, patient, language, tasks)
+    return AssessmentPlan(
+        folder / f"{plan_id}{PLAN_SUFFIX}", plan_id, patient, language, tasks, people=people or {}
+    )
+
+
+def people_from_scans(scans: dict[str, FolderScan]) -> dict[Path, PersonRow]:
+    """Pacient, datum, věk a pohlaví každé nahrávky z manifestů složek.
+
+    Nahrávka bez řádku v manifestu nebo bez pacienta dostane prázdného pacienta;
+    průvodce ji pak nechá doplnit, nebo vynechá."""
+    people: dict[Path, PersonRow] = {}
+    for scan in scans.values():
+        for rec in scan.recordings:
+            key = _key(rec)
+            if key in people:
+                continue
+            row = scan.manifest.meta_for(rec) if scan.manifest is not None else None
+            row = row or {}
+            people[key] = PersonRow(
+                subject=str(row.get(meta.SUBJECT, "")).strip(),
+                visit=normalize_visit(row.get(meta.VISIT, "")),
+                age=meta.parse_age(row.get(meta.AGE, "")),
+                sex=meta.parse_sex(row.get(meta.SEX, "")) if row.get(meta.SEX) else "",
+            )
+    return people
+
+
+def is_multi(people: dict[Path, PersonRow]) -> bool:
+    """Víc pacientů nebo víc dat vyšetření: průvodce přepne na tabulku nahrávek."""
+    subjects = {p.subject for p in people.values() if p.subject}
+    visits = {p.visit for p in people.values() if p.visit}
+    return len(subjects) > 1 or len(visits) > 1
+
+
+def split_by_visit(recordings: list[Path], people: dict[Path, PersonRow]) -> dict[str, list[Path]]:
+    """Nahrávky úlohy po datech vyšetření (dávka na úlohu a datum); bez data pod „“."""
+    groups: dict[str, list[Path]] = {}
+    for rec in recordings:
+        person = people.get(_key(rec))
+        groups.setdefault(person.visit if person else "", []).append(rec)
+    return dict(sorted(groups.items()))
+
+
+def write_manifest_template(target: Path, recordings: dict[Path, str], base: Path) -> Path:
+    """CSV se seznamem nahrávek a prázdnými sloupci k vyplnění v Excelu.
+
+    `recordings` je nahrávka → úloha (z řádku průvodce); cesty jsou relativní
+    k `base`, aby manifest šel uložit vedle nahrávek. Do složky se zapíše jen
+    tam, kam uživatel ukáže."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.writer(fh, delimiter=";")
+        writer.writerow(["path", meta.SUBJECT, meta.VISIT, "task", meta.AGE, meta.SEX])
+        for rec, task in recordings.items():
+            try:
+                shown = rec.relative_to(base)
+            except ValueError:
+                shown = rec
+            writer.writerow([str(shown), "", "", task, "", ""])
+    return target
 
 
 def pending_plans(folder: Path) -> list[AssessmentPlan]:
@@ -236,9 +388,15 @@ def plan_from_assessment(
     return AssessmentPlan(path, assessment.id, patient, language, plan_tasks), []
 
 
-def finish_plan(plan: AssessmentPlan, store: AssessmentStore) -> Assessment:
-    """Hodnocení z tabulek hotových dávek; plán se smaže, hodnocení uloží."""
-    refs: list[RecordingRef] = []
+def finish_plan(plan: AssessmentPlan, store: AssessmentStore) -> list[Assessment]:
+    """Hodnocení z tabulek hotových dávek; plán se smaže, hodnocení se uloží.
+
+    Řádky se seskupí podle pacienta a data vyšetření ze sloupců tabulky
+    (manifest dávky je tam zapsal). Jeden pacient a jedno datum = jedno
+    hodnocení s id plánu jako dřív; víc pacientů nebo dat = hodnocení na každou
+    dvojici, řádek bez data se vynechá."""
+    groups: dict[tuple[str, str], list[RecordingRef]] = {}
+    details: dict[tuple[str, str], tuple[float | None, str]] = {}
     for task in plan.tasks:
         table = task.table
         if table is None or task.run_dir is None:
@@ -252,14 +410,37 @@ def finish_plan(plan: AssessmentPlan, store: AssessmentStore) -> Assessment:
                 task_name = task.task  # knihovna zapsala základní úlohu, hodnocení zná vlastní
             else:
                 task_name = contract.canonical_task(str(record.get("task") or task.task))
-            refs.append(RecordingRef(task.run_dir.name, row, file, task_name))
-    if not refs:
+            if plan.multi:
+                subject = str(record.get(meta.SUBJECT) or "").strip()
+                visit = normalize_visit(str(record.get(meta.VISIT) or ""))
+                if subject in ("", "nan") or not visit:
+                    continue  # bez pacienta nebo data: spočítané, ale žádné vyšetření
+                group = (subject, visit)
+                if group not in details:
+                    sex = str(record.get(meta.SEX) or "")
+                    details[group] = (
+                        meta.parse_age(record.get(meta.AGE)),
+                        meta.parse_sex(sex) if sex not in ("", "nan") else "",
+                    )
+            else:
+                group = (plan.patient.subject, plan.patient.date)
+            groups.setdefault(group, []).append(
+                RecordingRef(task.run_dir.name, row, file, task_name)
+            )
+    if not groups:
         raise ValueError(tr("Žádná dávka hodnocení nemá tabulku výsledků."))
-    p = plan.patient
-    assessment = Assessment(plan.id, p.subject, p.age, p.sex, p.date, refs)
-    store.save(assessment)
+    out: list[Assessment] = []
+    for (subject, visit), refs in groups.items():
+        if plan.multi:
+            age, sex = details[(subject, visit)]
+            assessment = Assessment(new_id(), subject, age, sex, visit, refs)
+        else:
+            p = plan.patient
+            assessment = Assessment(plan.id, p.subject, p.age, p.sex, p.date, refs)
+        store.save(assessment)
+        out.append(assessment)
     plan.discard()
-    return assessment
+    return out
 
 
 # --- nahrávky ze složek -------------------------------------------------------------

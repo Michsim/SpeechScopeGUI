@@ -11,6 +11,16 @@ režimu jiný); složka s `manifest.csv` se sloupcem `task` vyplní i ostatní
 (30. 10. 2026): v kroku 2 stránky Domů (Nové hodnocení… z karty, bez
 přeskakování na Pacienty) a v tenkém `AssessmentFromRecordingsDialog`
 (Nové hodnocení… na Pacientech); hlásí `accepted` (Spustit) a `rejected`.
+
+Víc pacientů nebo dat najednou (30. 10. 2026, mockup
+docs/mockups/domu-pacienti, artboard 4): jediný zdroj je `manifest.csv`
+(sloupce pacient, datum, úloha, věk, pohlaví). Když manifest dá víc než
+jednoho pacienta nebo víc dat, pole pacienta nahoře zmizí a místo nich je
+tabulka nahrávek (`people_table`, prázdné datum a věk jdou dopsat jen pro
+tento výpočet), dávka je na úlohu a datum (`TaskPlan.visit`) a po skončení
+vznikne vyšetření na každou dvojici pacient a datum. Ze struktury složek se
+nic neodvozuje (rozhodnuto 30. 10.); kdo manifest nemá, dostane
+„Uložit šablonu manifestu…“ se seznamem nahrávek k vyplnění v Excelu.
 """
 
 from __future__ import annotations
@@ -20,6 +30,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QDate, Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -47,9 +58,16 @@ from ..backend import meta, tasks
 from ..backend.assessment_build import (
     AssessmentPlan,
     Patient,
+    PersonRow,
+    is_multi,
     new_plan,
+    normalize_visit,
     patient_from_scan,
+    patients_text,
+    people_from_scans,
     split_by_task,
+    split_by_visit,
+    write_manifest_template,
 )
 from ..backend.norm_build import FolderScan, TaskPlan, with_language
 from ..backend.norms import RECOMMENDED_CONTROLS  # noqa: F401  (stejná sada textů)
@@ -157,6 +175,10 @@ class AssessmentBuildWidget(QWidget):
         super().__init__(parent)
         self._dir = assessments_dir
         self._rate = rate_lookup
+        self._people: dict[Path, PersonRow] = {}  # nahrávka → pacient, datum… z manifestu
+        self._edits: dict[Path, PersonRow] = {}  # ručně dopsané hodnoty (jen tento výpočet)
+        self._people_rows: list[Path] = []  # řádky tabulky → nahrávka
+        self._multi = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -200,6 +222,10 @@ class AssessmentBuildWidget(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
+        self.person_box = QWidget()
+        person_layout = QVBoxLayout(self.person_box)
+        person_layout.setContentsMargins(0, 0, 0, 0)
+        person_layout.setSpacing(6)
         person = QGridLayout()
         person.setHorizontalSpacing(10)
         self.subject = QLineEdit()
@@ -231,12 +257,60 @@ class AssessmentBuildWidget(QWidget):
             person.addWidget(QLabel(text), 0, 2 * col)
             person.addWidget(widget, 0, 2 * col + 1)
         person.setColumnStretch(1, 1)
-        layout.addLayout(person)
+        person_layout.addLayout(person)
         self.prefill_note = QLabel("")
         self.prefill_note.setObjectName("muted")
         self.prefill_note.setWordWrap(True)
         self.prefill_note.hide()
-        layout.addWidget(self.prefill_note)
+        person_layout.addWidget(self.prefill_note)
+        layout.addWidget(self.person_box)
+
+        # víc pacientů nebo dat z manifestu: místo polí pacienta tabulka nahrávek
+        self.people_box = QFrame()
+        self.people_box.setObjectName("card")
+        people_layout = QVBoxLayout(self.people_box)
+        people_layout.setContentsMargins(12, 10, 12, 10)
+        people_layout.setSpacing(6)
+        self.people_summary = QLabel("")
+        self.people_summary.setObjectName("card_title")
+        people_layout.addWidget(self.people_summary)
+        people_note = QLabel(
+            tr(
+                "Pacient, datum vyšetření, úloha, věk a pohlaví jsou z manifest.csv ve složce. "
+                "Co chybí, dopište v tabulce (platí jen pro tento výpočet). Nahrávka bez pacienta "
+                "nebo data se spočítá, ale do žádného vyšetření se nezaloží."
+            )
+        )
+        people_note.setObjectName("muted")
+        people_note.setWordWrap(True)
+        people_layout.addWidget(people_note)
+        self.people_table = QTableWidget()
+        self.people_table.setColumnCount(6)
+        self.people_table.setHorizontalHeaderLabels(
+            [
+                tr("soubor"),
+                tr("pacient"),
+                tr("datum vyšetření"),
+                tr("úloha"),
+                tr("věk"),
+                tr("pohlaví"),
+            ]
+        )
+        self.people_table.verticalHeader().setVisible(False)
+        self.people_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.people_table.setEditTriggers(
+            QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.EditKeyPressed
+        )
+        header = self.people_table.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in range(1, 6):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        self.people_table.setMinimumHeight(180)
+        self.people_table.itemChanged.connect(self._people_edited)
+        people_layout.addWidget(self.people_table, 1)
+        layout.addWidget(self.people_box, 1)
+        self.people_box.hide()
 
         grid_box = QFrame()
         grid_box.setObjectName("card")
@@ -265,15 +339,29 @@ class AssessmentBuildWidget(QWidget):
             self.rows[task] = row
         grid.setColumnStretch(1, 1)
         layout.addWidget(grid_box)
+        options = QHBoxLayout()
         self.recursive = QCheckBox(tr("včetně podsložek"))
         self.recursive.toggled.connect(self._rescan_all)
-        layout.addWidget(self.recursive)
+        options.addWidget(self.recursive)
+        options.addStretch(1)
+        self.template_btn = QPushButton(tr("Uložit šablonu manifestu…"))
+        self.template_btn.setToolTip(
+            tr(
+                "CSV se seznamem nalezených nahrávek a prázdnými sloupci pacient, datum, "
+                "věk, pohlaví k vyplnění v Excelu; pro víc pacientů nebo dat najednou"
+            )
+        )
+        self.template_btn.setEnabled(False)
+        self.template_btn.clicked.connect(lambda: self.save_template())
+        options.addWidget(self.template_btn)
+        layout.addLayout(options)
         note = QLabel(
             tr(
                 "Když vybraná složka má manifest.csv se sloupcem task, nahrávky se rozdělí "
-                "podle něj a vyplní se i ostatní úlohy. Protokol je přibalený pro danou úlohu, "
-                "jiný jde vybrat jen v rozšířeném režimu. Do složek s nahrávkami se nic "
-                "nezapisuje."
+                "podle něj a vyplní se i ostatní úlohy; s pacientem a datem v manifestu jde "
+                "spočítat víc pacientů nebo vyšetření najednou. Protokol je přibalený pro "
+                "danou úlohu, jiný jde vybrat jen v rozšířeném režimu. Do složek "
+                "s nahrávkami se nic nezapisuje."
             )
         )
         note.setObjectName("muted")
@@ -322,7 +410,9 @@ class AssessmentBuildWidget(QWidget):
                 other.scan = scan
                 self._show_count(other)
         self._show_count(row)
-        self._prefill(row.scan)
+        self._refresh_people()
+        if not self._multi:
+            self._prefill(row.scan)
         self._update_buttons()
 
     def _show_count(self, row: TaskRow) -> None:
@@ -367,6 +457,147 @@ class AssessmentBuildWidget(QWidget):
         return [
             r for r in self.rows.values() if r.scan.recordings and r.current_protocol() is not None
         ]
+
+    # --- víc pacientů a dat --------------------------------------------------------
+
+    def _recording_tasks(self) -> dict[Path, str]:
+        """Nahrávka → úloha podle řádku, ve kterém se našla."""
+        out: dict[Path, str] = {}
+        for row in self.rows.values():
+            for rec in row.scan.recordings:
+                try:
+                    key = rec.resolve()  # stejný klíč jako `people_from_scans`
+                except OSError:
+                    key = rec
+                out.setdefault(key, row.task)
+        return out
+
+    def _refresh_people(self) -> None:
+        scans = {task: row.scan for task, row in self.rows.items() if row.scan.recordings}
+        people = people_from_scans(scans)
+        for path, edit in self._edits.items():
+            if path in people:
+                people[path] = edit
+        self._people = people
+        self._multi = is_multi(people)
+        self.person_box.setVisible(not self._multi)
+        self.people_box.setVisible(self._multi)
+        self.template_btn.setEnabled(bool(scans))
+        if self._multi:
+            self._fill_people_table()
+
+    def people(self) -> dict[Path, PersonRow]:
+        """Údaje nahrávek z manifestu a ručních oprav (jen u víc pacientů nebo dat)."""
+        return dict(self._people) if self._multi else {}
+
+    def is_multi(self) -> bool:
+        return self._multi
+
+    def people_counts(self) -> tuple[int, int, int, int]:
+        """(pacientů, vyšetření, nahrávek, bez pacienta nebo data)."""
+        complete = {(p.subject, p.visit) for p in self._people.values() if p.subject and p.visit}
+        missing = sum(1 for p in self._people.values() if not (p.subject and p.visit))
+        return len({s for s, _v in complete}), len(complete), len(self._people), missing
+
+    def _fill_people_table(self) -> None:
+        rec_tasks = self._recording_tasks()
+        order = sorted(
+            self._people.items(), key=lambda kv: (kv[1].subject, kv[1].visit, kv[0].name)
+        )
+        self._people_rows = [path for path, _p in order]
+        table = self.people_table
+        table.blockSignals(True)
+        table.setRowCount(len(order))
+        for r, (path, person) in enumerate(order):
+            cells = [
+                path.name,
+                person.subject,
+                person.visit,
+                tasks.label(rec_tasks.get(path, "")),
+                "" if person.age is None else f"{person.age:g}",
+                {"f": tr("žena"), "m": tr("muž")}.get(person.sex, ""),
+            ]
+            for col, text in enumerate(cells):
+                item = QTableWidgetItem(text)
+                if col in (0, 3, 5):
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if col == 0:
+                    item.setToolTip(str(path))
+                if (col == 1 and not person.subject) or (col == 2 and not person.visit):
+                    item.setBackground(QColor(theme.WARN_SOFT))
+                    item.setToolTip(tr("chybí v manifestu, dopište dvojklikem"))
+                table.setItem(r, col, item)
+        table.blockSignals(False)
+        patients, visits, n, missing = self.people_counts()
+        text = tr("{p} · vyšetření: {v} · nahrávek: {n}").format(
+            p=patients_text(patients), v=visits, n=n
+        )
+        if missing:
+            text += tr(" · bez pacienta nebo data: {k}").format(k=missing)
+        self.people_summary.setText(text)
+
+    def _people_edited(self, item: QTableWidgetItem) -> None:
+        if not (0 <= item.row() < len(self._people_rows)):
+            return
+        path = self._people_rows[item.row()]
+        person = self._people.get(path)
+        if person is None:
+            return
+        text = item.text().strip()
+        if item.column() == 1:
+            person.subject = text
+        elif item.column() == 2:
+            person.visit = normalize_visit(text)
+        elif item.column() == 4:
+            person.age = meta.parse_age(text)
+        else:
+            return
+        self._edits[path] = person
+        self._fill_people_table()  # přepsaný text v kanonické podobě, podbarvení, souhrn
+        self._update_buttons()
+
+    def set_person(self, path: Path, **values: object) -> None:
+        """Ruční doplnění údajů nahrávky (jako dvojklik v tabulce); pro testy a skripty."""
+        person = self._people.get(path)
+        if person is None:
+            return
+        for name, value in values.items():
+            setattr(person, name, value)
+        self._edits[path] = person
+        self._fill_people_table()
+        self._update_buttons()
+
+    def save_template(self, target: Path | None = None) -> Path | None:
+        """Šablona manifestu se seznamem nalezených nahrávek, kam uživatel ukáže."""
+        rec_tasks = self._recording_tasks()
+        if not rec_tasks:
+            return None
+        folders = [
+            Path(r.folder.text().strip()) for r in self.rows.values() if r.folder.text().strip()
+        ]
+        base = folders[0] if folders else next(iter(rec_tasks)).parent
+        if target is None:
+            text, _filter = QFileDialog.getSaveFileName(
+                self, tr("Uložit šablonu manifestu"), str(base / "manifest.csv"), "CSV (*.csv)"
+            )
+            if not text:
+                return None
+            target = Path(text)
+        return write_manifest_template(target, rec_tasks, base)
+
+    def _task_plans(self) -> list[TaskPlan]:
+        language = str(self.language.currentData() or "")
+        plans: list[TaskPlan] = []
+        for row in self.active_rows():
+            proto = row.current_protocol()
+            assert proto is not None
+            protocol = with_language(proto, language).to_dict()
+            if self._multi:
+                for visit, recs in split_by_visit(list(row.scan.recordings), self._people).items():
+                    plans.append(TaskPlan(row.task, protocol, recs, visit=visit))
+            else:
+                plans.append(TaskPlan(row.task, protocol, list(row.scan.recordings)))
+        return plans
 
     # --- krok 2 -------------------------------------------------------------------
 
@@ -416,39 +647,52 @@ class AssessmentBuildWidget(QWidget):
 
     def _fill_summary(self) -> None:
         rows = self.active_rows()
-        p = self.patient()
-        person = [p.subject]
-        if p.sex:
-            person.append(tr("žena") if p.sex == "f" else tr("muž"))
-        if p.age is not None:
-            person.append(tr("{age} let").format(age=int(round(p.age))))
-        self.summary_title.setText(" · ".join(person))
+        plans = self._task_plans()
+        if self._multi:
+            patients, visits, _n, _missing = self.people_counts()
+            self.summary_title.setText(
+                tr("{p} · {v} vyšetření").format(p=patients_text(patients), v=visits)
+            )
+        else:
+            p = self.patient()
+            person = [p.subject]
+            if p.sex:
+                person.append(tr("žena") if p.sex == "f" else tr("muž"))
+            if p.age is not None:
+                person.append(tr("{age} let").format(age=int(round(p.age))))
+            self.summary_title.setText(" · ".join(person))
         n = sum(len(r.scan.recordings) for r in rows)
         self.summary_text.setText(
             tr(
                 "{k} úlohy, {n} nahrávek. Spočítá se dávek: {b}, každá na stránce Výpočet "
                 "jako běžná analýza."
-            ).format(k=len(rows), n=n, b=len(rows))
+            ).format(k=len(rows), n=n, b=len(plans))
         )
-        self.batches.setRowCount(len(rows))
+        self.batches.setRowCount(len(plans))
         total = 0.0
         known = True
-        for r, row in enumerate(rows):
-            proto = row.current_protocol()
-            assert proto is not None
-            self.batches.setItem(r, 0, QTableWidgetItem(row.label.text()))
+        durations = {rec: seconds for row in rows for rec, seconds in row.scan.durations.items()}
+        for r, plan in enumerate(plans):
+            proto = plan.proto()
+            label = tasks.label(plan.task)
+            if plan.visit:
+                label += f" · {plan.visit}"
+            elif self._multi:
+                label += tr(" · bez data")
+            self.batches.setItem(r, 0, QTableWidgetItem(label))
             self.batches.setItem(
                 r,
                 1,
                 QTableWidgetItem(
                     tr("{n} nahrávek · {proto}").format(
-                        n=len(row.scan.recordings), proto=proto.display_name
+                        n=len(plan.inputs), proto=proto.display_name
                     )
                 ),
             )
             rate = self._rate(proto.slug())
-            if rate and row.scan.audio_seconds:
-                seconds = rate / 60 * row.scan.audio_seconds
+            audio = sum(durations.get(rec) or 0.0 for rec in plan.inputs)
+            if rate and audio:
+                seconds = rate / 60 * audio
                 total += seconds
                 estimate = format_duration(seconds)
             else:
@@ -456,7 +700,7 @@ class AssessmentBuildWidget(QWidget):
                 estimate = tr("po prvním běhu")
             self.batches.setItem(r, 2, QTableWidgetItem(estimate))
         height = self.batches.horizontalHeader().height() + 4
-        height += sum(self.batches.rowHeight(i) for i in range(len(rows)))
+        height += sum(self.batches.rowHeight(i) for i in range(len(plans)))
         self.batches.setFixedHeight(height)
         if total:
             text = tr("Celkem odhad asi {t}").format(t=format_duration(total))
@@ -495,7 +739,17 @@ class AssessmentBuildWidget(QWidget):
         hint, ok = "", True
         if self.step() == 0:
             rows = self.active_rows()
-            if not self.subject.text().strip():
+            if self._multi:
+                patients, visits, n, missing = self.people_counts()
+                if not visits:
+                    ok, hint = False, tr("Žádná nahrávka nemá pacienta i datum vyšetření.")
+                else:
+                    hint = tr("{p} · vyšetření: {v} · nahrávek: {n}").format(
+                        p=patients_text(patients), v=visits, n=n
+                    )
+                    if missing:
+                        hint += tr(" · bez data: {k}").format(k=missing)
+            elif not self.subject.text().strip():
                 ok, hint = False, tr("Vyplňte pacienta.")
             elif not rows:
                 ok, hint = False, tr("Vyberte složku aspoň pro jednu úlohu.")
@@ -532,18 +786,7 @@ class AssessmentBuildWidget(QWidget):
 
     def plan(self) -> AssessmentPlan:
         language = str(self.language.currentData() or "")
-        tasks = []
-        for row in self.active_rows():
-            proto = row.current_protocol()
-            assert proto is not None
-            tasks.append(
-                TaskPlan(
-                    task=row.task,
-                    protocol=with_language(proto, language).to_dict(),
-                    inputs=list(row.scan.recordings),
-                )
-            )
-        return new_plan(self._dir, self.patient(), language, tasks)
+        return new_plan(self._dir, self.patient(), language, self._task_plans(), self.people())
 
 
 class AssessmentFromRecordingsDialog(QDialog):

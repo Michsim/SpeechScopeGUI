@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__, contract
 from ..backend import tasks
-from ..backend.assessment_build import PLAN_SUFFIX, AssessmentPlan, pending_plans
+from ..backend.assessment_build import PLAN_SUFFIX, AssessmentPlan, patients_text, pending_plans
 from ..backend.assessment_build import finish_plan as finish_assessment_plan
 from ..backend.assessments import AssessmentStore
 from ..backend.audio import duration_seconds
@@ -113,8 +113,11 @@ class Job:
     label: str = ""  # vlastní název běhu z Analýzy; prázdné = podle protokolu
     plan_kind: str = ""  # dávka plánu: "norm" (nová norma), "assessment"; prázdné = běžná
     plan: Path | None = None  # klíč plánu (složka normy, soubor plánu hodnocení)
-    plan_task: str = ""  # úloha v plánu (u vlastní úlohy její klíč, protokol má základní)
+    plan_task: str = ""  # klíč dávky v plánu (`TaskPlan.key`: úloha, nebo `úloha@datum`)
     subject: str = ""  # pacient dávky hodnocení (do run.json jako `patient`)
+    # běhy dávky patří pod kartu hodnocení v historii (jeden pacient); dávka s víc
+    # pacienty zůstává mezi analýzami, vyšetření na ni jen ukazují
+    plan_group: bool = True
 
     def title(self) -> str:
         name = self.label or self.proto.display_name
@@ -804,7 +807,7 @@ class MainWindow(QMainWindow):
         jobs = [
             self._plan_job(kind, plan, task)
             for task in plan.remaining()
-            if (plan.key, task.task) not in queued and (plan.key, task.task) != running_key
+            if (plan.key, task.key) not in queued and (plan.key, task.key) != running_key
         ]
         self._submit_all(jobs)
         self._plans_changed(kind, select=plan.key)
@@ -821,8 +824,9 @@ class MainWindow(QMainWindow):
             label=plan.title(task),
             plan_kind=kind,
             plan=plan.key,
-            plan_task=task.task,
-            subject=plan.patient.subject if kind == "assessment" else "",
+            plan_task=task.key,
+            subject=plan.patient.subject if kind == "assessment" and not plan.multi else "",
+            plan_group=not getattr(plan, "multi", False),
         )
 
     def _submit_all(self, jobs: list[Job]) -> None:
@@ -858,9 +862,9 @@ class MainWindow(QMainWindow):
         verze knihovny a feature, kterými se počítalo."""
         running = getattr(self, "_running_plan", None)
         assessment = ""
-        if running and running[0] == "assessment":
+        if running and running[0] == "assessment" and getattr(self, "_running_group", True):
             assessment = Path(running[1]).name.removesuffix(PLAN_SUFFIX)
-        task = str(running[2]) if running else ""
+        task = str(running[2]).split("@", 1)[0] if running else ""  # klíč dávky bez data
         return {
             "norm": self._running_norm_text(),
             "assessment": assessment,
@@ -1013,7 +1017,7 @@ class MainWindow(QMainWindow):
 
     def _finish_assessment(self, plan: AssessmentPlan) -> bool:
         try:
-            assessment = finish_assessment_plan(
+            assessments = finish_assessment_plan(
                 plan, AssessmentStore(self.settings.assessments_dir(), self.catalog)
             )
         except (ValueError, OSError) as exc:
@@ -1021,11 +1025,19 @@ class MainWindow(QMainWindow):
                 tr("Hodnocení se nepodařilo založit: {error}").format(error=exc), 10000
             )
             return False
-        self.statusBar().showMessage(
-            tr("Hodnocení {subject} je hotové.").format(subject=assessment.subject), 10000
-        )
-        self._merge_finished_groups(only=assessment.id)
-        self.assessment_page.refresh(select=assessment.id)
+        if len(assessments) == 1:
+            self.statusBar().showMessage(
+                tr("Hodnocení {subject} je hotové.").format(subject=assessments[0].subject), 10000
+            )
+            self._merge_finished_groups(only=assessments[0].id)
+        else:
+            self.statusBar().showMessage(
+                tr("Založeno {n} vyšetření ({p}).").format(
+                    n=len(assessments), p=patients_text(len({a.subject for a in assessments}))
+                ),
+                10000,
+            )
+        self.assessment_page.refresh(select=assessments[0].id)
         if not self._queue:
             self._after_batch_page = PAGE_ASSESSMENT  # _batch_finished místo Výsledků
         return True
@@ -1459,6 +1471,7 @@ class MainWindow(QMainWindow):
         self._running_plan = (
             (job.plan_kind, job.plan, job.plan_task or proto.task) if job.plan else None
         )
+        self._running_group = job.plan_group
         dir_slug = slugify(job.label) if job.label.strip() else slug
         run_dir = unique_run_dir(self.settings.work_root, f"{stamp}_{dir_slug}{suffix}")
         run_dir.mkdir(parents=True, exist_ok=True)

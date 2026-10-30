@@ -348,7 +348,22 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   hodnocení z řádků tabulek (chybné nahrávky vynechá), smaže plán a
   `_after_batch_page` přepne na Hodnocení místo Výsledků. Rozpracované
   hodnocení je na stránce jako `PendingCard` („počítá se k z n“) s detailem
-  dávek a Dopočítat zbývající, Založit z hotových, Zahodit…. Zbývá: PDF,
+  dávek a Dopočítat zbývající, Založit z hotových, Zahodit…. **Víc pacientů
+  a dat najednou** (30. 10. 2026, mockup
+  https://claude.ai/artifact/UkcxmVZDY3M9n89UQFuhdq artboard 4, rozhodnuto: jen
+  manifest, ze struktury složek se nic neodvozuje): když `manifest.csv`
+  (sloupce pacient, datum, úloha, věk, pohlaví) dá víc pacientů nebo dat
+  (`assessment_build.is_multi`, `people_from_scans`, `normalize_visit` bere
+  ISO i „14. 10. 2026“), průvodce schová pole pacienta a ukáže tabulku
+  nahrávek (`people_table`, prázdný pacient/datum/věk dopsat dvojklikem, jen pro
+  tento výpočet, `set_person`), dávka je na úlohu **a datum** (`TaskPlan.visit`,
+  klíč `úloha@datum` = `TaskPlan.key`, `Job.plan_task`), `AssessmentPlan.people`
+  (nahrávka → `PersonRow`) jde do manifestu dávky, běhy zůstávají mezi
+  analýzami (`Job.plan_group=False`, v `run.json` bez `assessment`), po
+  poslední dávce `finish_plan` vrátí seznam vyšetření po (pacient, datum),
+  řádek bez data se spočítá, ale nezaloží. „Uložit šablonu manifestu…“
+  (`write_manifest_template`) zapíše CSV se seznamem nahrávek, kam uživatel
+  ukáže. Jeden pacient a jedno datum = dnešní cesta beze změny. Zbývá: PDF,
   vývoj v čase, složka s víc pacienty.
 - **Běhy hodnocení v historii** (mockup https://claude.ai/artifact/FMkyX9ddZ6WNv2kMoXTSYt,
   `docs/mockups/historie-filtr/` mimo git, rozhodnuto 28. 10. večer): dávky

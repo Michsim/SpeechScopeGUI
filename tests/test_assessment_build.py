@@ -12,16 +12,20 @@ from pytestqt.qtbot import QtBot
 from speechscope_app.backend.assessment_build import (
     AssessmentPlan,
     Patient,
+    PersonRow,
     finish_plan,
     new_plan,
+    normalize_visit,
     patient_from_scan,
     pending_plans,
+    people_from_scans,
     plan_from_assessment,
     split_by_task,
+    split_by_visit,
 )
 from speechscope_app.backend.assessments import AssessmentStore
 from speechscope_app.backend.catalog import Catalog
-from speechscope_app.backend.history import RunGroup, read_run
+from speechscope_app.backend.history import RunGroup, read_group, read_run
 from speechscope_app.backend.norm_build import ERROR, OK, TaskPlan, default_protocol
 from speechscope_app.backend.protocol import builtin_protocols
 from speechscope_app.backend.settings import AppSettings
@@ -107,7 +111,9 @@ def test_plan_roundtrip_manifest_and_finish(tmp_path: Path) -> None:
     loaded.set_status("ddk", ERROR)
     assert loaded.all_finished and not loaded.all_ok and loaded.buildable
     store = AssessmentStore(tmp_path / "assessments", Catalog(None))
-    assessment = finish_plan(loaded, store)
+    made = finish_plan(loaded, store)
+    assert len(made) == 1
+    assessment = made[0]
     assert assessment.id == plan.id and assessment.subject == "P1" and assessment.age == 64
     assert [r.file for r in assessment.recordings] == ["P1_a.wav"]  # chybná nahrávka ne
     assert assessment.recordings[0].run == run.name and assessment.recordings[0].row == 0
@@ -340,3 +346,126 @@ def test_home_runs_wizard_in_place(qtbot: QtBot, settings: AppSettings, tmp_path
     dialog = window.make_assessment_build_dialog()
     qtbot.addWidget(dialog)
     assert dialog.step() == 0 and dialog.widget.step() == 0 and not dialog.next_btn.isEnabled()
+
+
+def test_normalize_visit_and_people_helpers(tmp_path: Path) -> None:
+    assert normalize_visit("2026-10-14T10:00") == "2026-10-14"
+    assert (
+        normalize_visit("14. 10. 2026") == "2026-10-14"
+        and normalize_visit("14.10.2026") == "2026-10-14"
+    )
+    assert normalize_visit("říjen") == "" and normalize_visit("") == ""
+    folder = make_folder(
+        tmp_path / "p",
+        {"": ["a.wav", "b.wav", "c.wav"]},
+        "path;pacient;datum;task;vek;pohlavi\n"
+        "a.wav;P1;14. 10. 2025;phonation;63;muž\n"
+        "b.wav;P1;2026-10-14;phonation;64;muž\n"
+        "c.wav;P2;;phonation;;\n",
+    )
+    scan = split_by_task(folder, "phonation")["phonation"]
+    people = people_from_scans({"phonation": scan})
+    a, b, c = (people[(folder / n).resolve()] for n in ("a.wav", "b.wav", "c.wav"))
+    assert a == PersonRow("P1", "2025-10-14", 63.0, "m") and b.visit == "2026-10-14"
+    assert c == PersonRow("P2", "", None, "")
+    groups = split_by_visit(scan.recordings, people)
+    assert [(k, [p.name for p in v]) for k, v in groups.items()] == [
+        ("", ["c.wav"]),
+        ("2025-10-14", ["a.wav"]),
+        ("2026-10-14", ["b.wav"]),
+    ]
+
+
+def test_wizard_with_manifest_runs_batches_per_date_and_creates_visits(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    """Víc pacientů a dat z manifestu: tabulka nahrávek, dávka na úlohu a datum, N vyšetření."""
+    data = make_folder(
+        tmp_path / "pacienti",
+        {"": ["p1_2025.wav", "p1_2026.wav", "p2_2026.wav", "p2_bezdata.wav"]},
+        "path;subject;visit;task;age;sex\n"
+        "p1_2025.wav;P1;2025-10-14;phonation;63;m\n"
+        "p1_2026.wav;P1;2026-10-14;phonation;64;m\n"
+        "p2_2026.wav;P2;14. 10. 2026;phonation;70;f\n"
+        "p2_bezdata.wav;P2;;phonation;70;f\n",
+    )
+    before = {p.name for p in data.rglob("*")}
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    dialog = window.make_assessment_build_dialog()
+    qtbot.addWidget(dialog)
+    dialog.set_folder("phonation", data)
+    assert dialog.is_multi() and dialog.person_box.isHidden() and not dialog.people_box.isHidden()
+    assert dialog.people_table.rowCount() == 4 and dialog.template_btn.isEnabled()
+    assert (
+        dialog.people_summary.text()
+        == "2 pacienti · vyšetření: 3 · nahrávek: 4 · bez pacienta nebo data: 1"
+    )
+    assert [dialog.people_table.item(r, 0).text() for r in range(4)] == [
+        "p1_2025.wav",
+        "p1_2026.wav",
+        "p2_bezdata.wav",
+        "p2_2026.wav",
+    ]
+    assert (
+        dialog.people_table.item(2, 2).text() == ""
+        and dialog.people_table.item(3, 2).text() == "2026-10-14"
+    )
+    assert [dialog.people_table.item(r, 3).text() for r in range(4)] == ["Fonace"] * 4
+    assert dialog.next_btn.isEnabled() and "2 pacienti · vyšetření: 3" in dialog.hint.text()
+    # šablona manifestu kam uživatel ukáže; do složky s nahrávkami nic
+    template = dialog.save_template(tmp_path / "sablona.csv")
+    assert template is not None and template.read_text(encoding="utf-8-sig").startswith(
+        "path;subject;visit;task;age;sex"
+    )
+    assert "p2_bezdata.wav;;;phonation;;" in template.read_text(encoding="utf-8-sig")
+    assert {p.name for p in data.rglob("*")} == before
+    # doplněné datum jen pro tento výpočet
+    dialog.set_person((data / "p2_bezdata.wav").resolve(), visit="2026-10-20")
+    assert dialog.people_summary.text() == "2 pacienti · vyšetření: 4 · nahrávek: 4"
+    dialog.go_next()
+    assert dialog.step() == 1 and dialog.batches.rowCount() == 3  # fonace × 3 různá data
+    assert dialog.summary_title.text() == "2 pacienti · 4 vyšetření"
+    plan = dialog.plan()
+    assert plan.multi and plan.visits() == 4 and plan.subjects() == ["P1", "P2"]
+    assert [t.key for t in plan.tasks] == [
+        "phonation@2025-10-14",
+        "phonation@2026-10-14",
+        "phonation@2026-10-20",
+    ]
+    manifest = plan.manifest_for(next(t for t in plan.tasks if t.visit == "2026-10-14"))
+    assert manifest.meta_for(data / "p2_2026.wav") == {
+        "subject": "P2",
+        "age": "70",
+        "sex": "f",
+        "visit": "2026-10-14",
+    }
+    assert plan.title(plan.tasks[0]) == "Hodnocení P1 · Fonace · 2025-10-14"
+    assert plan.title(plan.tasks[1]) == "Hodnocení P1, P2 · Fonace · 2026-10-14"
+    reloaded = AssessmentPlan.load(plan.save())
+    assert reloaded.multi and reloaded.tasks[0].visit == "2025-10-14"
+    assert reloaded.people[(data / "p1_2025.wav").resolve()].age == 63.0
+
+    assert window.start_plan("assessment", reloaded) == 3
+    qtbot.waitUntil(lambda: not reloaded.path.exists(), timeout=60000)
+    qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=10000)
+    page = window.assessment_page
+    page.refresh()
+    assessments = page.assessments()
+    assert sorted((a.subject, a.date) for a in assessments) == [
+        ("P1", "2025-10-14"),
+        ("P1", "2026-10-14"),
+        ("P2", "2026-10-14"),
+        ("P2", "2026-10-20"),
+    ]
+    assert all(a.id != reloaded.id for a in assessments)
+    assert page.count() == 2  # dvě karty pacientů
+    p2 = next(a for a in assessments if a.subject == "P2" and a.date == "2026-10-14")
+    assert p2.age == 70 and p2.sex == "f" and [r.file for r in p2.recordings] == ["p2_2026.wav"]
+    # běhy zůstaly mezi analýzami: žádná karta hodnocení, žádné slučování do složky pacienta
+    history = window.results_page.history
+    history.refresh()
+    assert history.filter_buttons["analysis"].text() == "Analýzy (3)"
+    assert history.filter_buttons["assessment"].text() == "Hodnocení"
+    assert not any(read_group(p) for p in settings.work_root.iterdir() if p.is_dir())
+    assert {p.name for p in data.rglob("*")} == before

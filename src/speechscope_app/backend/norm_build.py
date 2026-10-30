@@ -107,6 +107,12 @@ class TaskPlan:
     inputs: list[Path]
     status: str = PENDING
     run_dir: Path | None = None
+    visit: str = ""  # datum vyšetření (ISO) u hodnocení víc pacientů: dávka na úlohu a datum
+
+    @property
+    def key(self) -> str:
+        """Klíč dávky v plánu a ve frontě: úloha, u dávky s datem `úloha@datum`."""
+        return f"{self.task}@{self.visit}" if self.visit else self.task
 
     def proto(self) -> Protocol:
         return Protocol.from_dict(self.protocol)
@@ -135,8 +141,9 @@ class PlanState:
     def save(self) -> Path:  # pragma: no cover - přepisuje potomek
         raise NotImplementedError
 
-    def task(self, task: str) -> TaskPlan | None:
-        return next((t for t in self.tasks if t.task == task), None)
+    def task(self, key: str) -> TaskPlan | None:
+        """Dávka podle klíče (`TaskPlan.key`); samotná úloha najde dávku bez data."""
+        return next((t for t in self.tasks if t.key == key), None)
 
     @property
     def done(self) -> int:
@@ -159,8 +166,8 @@ class PlanState:
         """Úlohy k dopočítání: nespuštěné, spadlé nebo zrušené (ne právě běžící)."""
         return [t for t in self.tasks if t.status in (PENDING, ERROR, CANCELLED)]
 
-    def set_status(self, task: str, status: str, run_dir: Path | None = None) -> None:
-        item = self.task(task)
+    def set_status(self, key: str, status: str, run_dir: Path | None = None) -> None:
+        item = self.task(key)
         if item is None:
             return
         item.status = status
