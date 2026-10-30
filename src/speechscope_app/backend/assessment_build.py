@@ -36,22 +36,7 @@ PLAN_SUFFIX = ".plan.json"
 PLAN_VERSION = 2  # 2: dávky s datem (`visit`) a `people` pro víc pacientů; 1 se čte dál
 
 
-def normalize_visit(text: str) -> str:
-    """Datum vyšetření jako ISO (rok-měsíc-den) z ISO i z „14. 10. 2026“; jinak prázdné."""
-    text = str(text or "").strip()
-    if not text:
-        return ""
-    try:
-        return dt.date.fromisoformat(text[:10]).isoformat()
-    except ValueError:
-        pass
-    parts = [p.strip() for p in text.replace("/", ".").split(".") if p.strip()]
-    if len(parts) == 3 and all(p.isdigit() for p in parts):
-        try:
-            return dt.date(int(parts[2]), int(parts[1]), int(parts[0])).isoformat()
-        except ValueError:
-            return ""
-    return ""
+normalize_visit = meta.normalize_visit  # dřív tady; sdílí ho tabulka metadat i Analýza
 
 
 def patients_text(n: int) -> str:

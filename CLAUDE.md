@@ -122,18 +122,24 @@ je používá dál.
 Prostředí (doctor, modely, Diagnostika… = zip pro podporu z
 `backend/diagnostics.py`) · Analýza (dva kroky v `QStackedWidget`:
 1 nahrávky s metadaty z `manifest.csv` (`backend/manifest.py`, tolerantní
-čtení, normalizovaná kopie do složky běhu); sloupce metadat jdou od 30. 10. 2026
-upravit dvojklikem a přidat tlačítkem + Sloupec… (nabídka vyhrazených
-`meta.META_COLUMNS` s popisky `meta.label`, nebo vlastní název, kanonizuje se
-`meta.canonical_column`): úpravy drží `BatchPage._meta_edits` a `_extra_columns`
-pro aktuální složku (jiná složka je zahodí), `manifest()` je skládá se souborem
-do jednoho `Manifest` pro běh (`base_manifest()` = jen soubor), hodnoty se
-normalizují jako v manifestu (`_normalize_meta`: věk, pohlaví, datum ISO),
-upravená buňka je podbarvená s původní hodnotou v tooltipu, řádek pod tabulkou
-říká „upraveno: n“ a Zahodit úpravy; do složky s nahrávkami se nic nezapisuje
-(rozhodnuto: běh + pozdější výslovné Uložit manifest…, ne katalog); dvojklik
-na metadata upravuje, na název přehrává (`open_recording` sloupce před
-`_meta_from` ); `set_meta`, `add_meta_column`, `discard_meta_edits` i pro testy. Výběr více řádků a Odebrat
+čtení, normalizovaná kopie do složky běhu); tabulka nahrávek je od 30. 10. 2026
+`widgets/meta_table.py` (`MetaTable`, sdílená s průvodcem z nahrávek): vlevo
+pevné sloupce jen ke čtení (název, délka, ruční vstupy), vpravo metadata
+upravitelná dvojklikem, + Sloupec… (nabídka vyhrazených `meta.META_COLUMNS`
+s popisky `meta.label`, nebo vlastní název, kanonizuje se `meta.canonical_column`),
+Vyplnit vybrané… (jedna hodnota pro označené řádky, `fill_selected`), úpravy
+drží tabulka podle cesty nahrávky (`edits`, přežijí přeskenování téže složky,
+jiná složka = `reset`), hodnoty se normalizují `meta.normalize_value` (věk,
+pohlaví f/m, datum ISO, `meta.normalize_visit`), upravená buňka je podbarvená
+s původní hodnotou v tooltipu, prázdná povinná (`set_required`) žlutě.
+`BatchPage.manifest()` skládá soubor plus úpravy do jednoho `Manifest` pro běh
+(`base_manifest()` = jen soubor), řádek pod tabulkou říká „upraveno: n“ a
+Zahodit úpravy; do složky s nahrávkami se nic nezapisuje samo, jen výslovné
+Uložit manifest… (`save_manifest`: CSV se `;`, cesty relativní k cíli, uložení
+do složky nahrávek manifest znovu načte a úpravy se stanou základem; rozhodnuto:
+běh + výslovné uložení, ne katalog); dvojklik na metadata upravuje, na název
+přehrává (`open_recording` před `files.meta_from`); `set_meta`, `add_meta_column`,
+`fill_selected`, `discard_meta_edits` i pro testy. Výběr více řádků a Odebrat
 (tlačítko, Delete, pravé tlačítko: nahrávka zůstane na disku, jen vypadne
 z dávky; `_excluded` přežije přeskenování téže složky, jiná složka ho
 zahodí; Vrátit odebrané (k); počty ukazují „(k odebráno)“) a Pokračovat; 2 úloha a jazyk
@@ -380,8 +386,9 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   (sloupce pacient, datum, úloha, věk, pohlaví) dá víc pacientů nebo dat
   (`assessment_build.is_multi`, `people_from_scans`, `normalize_visit` bere
   ISO i „14. 10. 2026“), průvodce schová pole pacienta a ukáže tabulku
-  nahrávek (`people_table`, prázdný pacient/datum/věk dopsat dvojklikem, jen pro
-  tento výpočet, `set_person`), dávka je na úlohu **a datum** (`TaskPlan.visit`,
+  nahrávek (`people_table` = `MetaTable` s českými hlavičkami a povinnými pacient
+  a datum; prázdné dopsat dvojklikem, jen pro tento výpočet, `set_person`,
+  úpravy přežijí přeskenování, `_merged_people`), dávka je na úlohu **a datum** (`TaskPlan.visit`,
   klíč `úloha@datum` = `TaskPlan.key`, `Job.plan_task`), `AssessmentPlan.people`
   (nahrávka → `PersonRow`) jde do manifestu dávky, běhy zůstávají mezi
   analýzami (`Job.plan_group=False`, v `run.json` bez `assessment`), po

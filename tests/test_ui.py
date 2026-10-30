@@ -659,6 +659,41 @@ def test_metadata_edits_and_custom_columns_reach_run(
     assert (recordings / "manifest.csv").read_text(
         encoding="utf-8-sig"
     ) == "path;pacient\np01.wav;PD001\n"
+    assert not (settings.work_root / "export").exists()
+
+    # Vyplnit vybrané: jedna hodnota pro označené řádky; Uložit manifest… mimo složku
+    page.files.clearSelection()
+    page.files.selectRow(1)
+    page.files.selectionModel().select(
+        page.files.model().index(2, 0),
+        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    assert page.fill_btn.isEnabled() and page.fill_selected("skupina", "HC") == 2
+    assert page.manifest().meta_for(recordings / "p02_bad.wav")["group"] == "HC"
+    assert page.manifest().meta_for(recordings / "p01.wav")["group"] == ""
+    saved = page.save_manifest(settings.work_root / "export" / "manifest.csv")
+    assert saved is not None
+    text = saved.read_text(encoding="utf-8-sig")
+    assert text.splitlines()[0] == "path;subject;age;sex;visit;group"
+    # mimo složku nahrávek jsou cesty absolutní; nahrávka bez metadat má prázdné sloupce
+    assert any("p04.flac" in line and line.endswith(";;;;;") for line in text.splitlines())
+    assert page.meta_edits() == 6  # uložení jinam úpravy nemění
+    # uložení do složky nahrávek: načte se jako manifest, úpravy se stanou základem
+    saved = page.save_manifest(recordings / "manifest.csv")
+    assert saved == recordings / "manifest.csv" and page.meta_edits() == 0
+    assert page.base_manifest() is not None and page.base_manifest().columns == [
+        "subject",
+        "age",
+        "sex",
+        "visit",
+        "group",
+    ]
+    assert page.manifest().meta_for(recordings / "p03_short.wav")["sex"] == "f"
+    (recordings / "manifest.csv").write_text(
+        "\ufeffpath;pacient\np01.wav;PD001\n", encoding="utf-8"
+    )
+    page.set_manifest(None)
+    page.set_meta(recordings / "p01.wav", "age", "64.5")
 
     page.discard_meta_edits()
     assert page.meta_edits() == 0 and page.manifest().columns == ["subject"]

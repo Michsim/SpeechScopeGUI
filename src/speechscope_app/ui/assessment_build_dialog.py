@@ -30,7 +30,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QDate, Qt, Signal
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -61,7 +60,6 @@ from ..backend.assessment_build import (
     PersonRow,
     is_multi,
     new_plan,
-    normalize_visit,
     patient_from_scan,
     patients_text,
     people_from_scans,
@@ -75,6 +73,7 @@ from ..backend.protocol import Protocol
 from ..i18n import tr
 from . import theme
 from .new_norm_dialog import SEX_CHOICES, TaskRow, format_duration
+from .widgets.meta_table import MetaRow, MetaTable
 from .widgets.status_header import Pill
 
 
@@ -176,8 +175,6 @@ class AssessmentBuildWidget(QWidget):
         self._dir = assessments_dir
         self._rate = rate_lookup
         self._people: dict[Path, PersonRow] = {}  # nahrávka → pacient, datum… z manifestu
-        self._edits: dict[Path, PersonRow] = {}  # ručně dopsané hodnoty (jen tento výpočet)
-        self._people_rows: list[Path] = []  # řádky tabulky → nahrávka
         self._multi = False
 
         outer = QVBoxLayout(self)
@@ -284,30 +281,10 @@ class AssessmentBuildWidget(QWidget):
         people_note.setObjectName("muted")
         people_note.setWordWrap(True)
         people_layout.addWidget(people_note)
-        self.people_table = QTableWidget()
-        self.people_table.setColumnCount(6)
-        self.people_table.setHorizontalHeaderLabels(
-            [
-                tr("soubor"),
-                tr("pacient"),
-                tr("datum vyšetření"),
-                tr("úloha"),
-                tr("věk"),
-                tr("pohlaví"),
-            ]
-        )
-        self.people_table.verticalHeader().setVisible(False)
-        self.people_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        self.people_table.setEditTriggers(
-            QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.EditKeyPressed
-        )
-        header = self.people_table.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in range(1, 6):
-            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        self.people_table = MetaTable([tr("soubor"), tr("úloha")], labels=True)
+        self.people_table.set_required({meta.SUBJECT, meta.VISIT})
         self.people_table.setMinimumHeight(180)
-        self.people_table.itemChanged.connect(self._people_edited)
+        self.people_table.edited.connect(self._people_changed)
         people_layout.addWidget(self.people_table, 1)
         layout.addWidget(self.people_box, 1)
         self.people_box.hide()
@@ -474,60 +451,65 @@ class AssessmentBuildWidget(QWidget):
 
     def _refresh_people(self) -> None:
         scans = {task: row.scan for task, row in self.rows.items() if row.scan.recordings}
-        people = people_from_scans(scans)
-        for path, edit in self._edits.items():
-            if path in people:
-                people[path] = edit
-        self._people = people
-        self._multi = is_multi(people)
+        self._people = people_from_scans(scans)
+        self._multi = is_multi(self._merged_people())
         self.person_box.setVisible(not self._multi)
         self.people_box.setVisible(self._multi)
         self.template_btn.setEnabled(bool(scans))
         if self._multi:
             self._fill_people_table()
 
+    def _merged_people(self) -> dict[Path, PersonRow]:
+        """Údaje z manifestu přepsané úpravami v tabulce (ty přežijí přeskenování)."""
+        edits = self.people_table.edits()
+        out: dict[Path, PersonRow] = {}
+        for path, person in self._people.items():
+            row = edits.get(path, {})
+            out[path] = PersonRow(
+                subject=row.get(meta.SUBJECT, person.subject),
+                visit=row.get(meta.VISIT, person.visit),
+                age=meta.parse_age(row[meta.AGE]) if meta.AGE in row else person.age,
+                sex=meta.parse_sex(row[meta.SEX]) if meta.SEX in row else person.sex,
+            )
+        return out
+
     def people(self) -> dict[Path, PersonRow]:
         """Údaje nahrávek z manifestu a ručních oprav (jen u víc pacientů nebo dat)."""
-        return dict(self._people) if self._multi else {}
+        return self._merged_people() if self._multi else {}
 
     def is_multi(self) -> bool:
         return self._multi
 
     def people_counts(self) -> tuple[int, int, int, int]:
         """(pacientů, vyšetření, nahrávek, bez pacienta nebo data)."""
-        complete = {(p.subject, p.visit) for p in self._people.values() if p.subject and p.visit}
-        missing = sum(1 for p in self._people.values() if not (p.subject and p.visit))
-        return len({s for s, _v in complete}), len(complete), len(self._people), missing
+        people = self._merged_people()
+        complete = {(p.subject, p.visit) for p in people.values() if p.subject and p.visit}
+        missing = sum(1 for p in people.values() if not (p.subject and p.visit))
+        return len({s for s, _v in complete}), len(complete), len(people), missing
 
     def _fill_people_table(self) -> None:
         rec_tasks = self._recording_tasks()
         order = sorted(
             self._people.items(), key=lambda kv: (kv[1].subject, kv[1].visit, kv[0].name)
         )
-        self._people_rows = [path for path, _p in order]
-        table = self.people_table
-        table.blockSignals(True)
-        table.setRowCount(len(order))
-        for r, (path, person) in enumerate(order):
-            cells = [
-                path.name,
-                person.subject,
-                person.visit,
-                tasks.label(rec_tasks.get(path, "")),
-                "" if person.age is None else f"{person.age:g}",
-                {"f": tr("žena"), "m": tr("muž")}.get(person.sex, ""),
-            ]
-            for col, text in enumerate(cells):
-                item = QTableWidgetItem(text)
-                if col in (0, 3, 5):
-                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                if col == 0:
-                    item.setToolTip(str(path))
-                if (col == 1 and not person.subject) or (col == 2 and not person.visit):
-                    item.setBackground(QColor(theme.WARN_SOFT))
-                    item.setToolTip(tr("chybí v manifestu, dopište dvojklikem"))
-                table.setItem(r, col, item)
-        table.blockSignals(False)
+        rows = [
+            MetaRow(
+                path,
+                [path.name, tasks.label(rec_tasks.get(path, ""))],
+                {
+                    meta.SUBJECT: person.subject,
+                    meta.VISIT: person.visit,
+                    meta.AGE: "" if person.age is None else f"{person.age:g}",
+                    meta.SEX: person.sex,
+                },
+                tooltip=str(path),
+            )
+            for path, person in order
+        ]
+        self.people_table.set_rows(rows, [meta.SUBJECT, meta.VISIT, meta.AGE, meta.SEX])
+        self._update_people_summary()
+
+    def _update_people_summary(self) -> None:
         patients, visits, n, missing = self.people_counts()
         text = tr("{p} · vyšetření: {v} · nahrávek: {n}").format(
             p=patients_text(patients), v=visits, n=n
@@ -536,36 +518,15 @@ class AssessmentBuildWidget(QWidget):
             text += tr(" · bez pacienta nebo data: {k}").format(k=missing)
         self.people_summary.setText(text)
 
-    def _people_edited(self, item: QTableWidgetItem) -> None:
-        if not (0 <= item.row() < len(self._people_rows)):
-            return
-        path = self._people_rows[item.row()]
-        person = self._people.get(path)
-        if person is None:
-            return
-        text = item.text().strip()
-        if item.column() == 1:
-            person.subject = text
-        elif item.column() == 2:
-            person.visit = normalize_visit(text)
-        elif item.column() == 4:
-            person.age = meta.parse_age(text)
-        else:
-            return
-        self._edits[path] = person
-        self._fill_people_table()  # přepsaný text v kanonické podobě, podbarvení, souhrn
+    def _people_changed(self) -> None:
+        self._update_people_summary()
         self._update_buttons()
 
     def set_person(self, path: Path, **values: object) -> None:
         """Ruční doplnění údajů nahrávky (jako dvojklik v tabulce); pro testy a skripty."""
-        person = self._people.get(path)
-        if person is None:
-            return
         for name, value in values.items():
-            setattr(person, name, value)
-        self._edits[path] = person
-        self._fill_people_table()
-        self._update_buttons()
+            text = "" if value is None else f"{value:g}" if isinstance(value, float) else str(value)
+            self.people_table.set_value(path, name, text)
 
     def save_template(self, target: Path | None = None) -> Path | None:
         """Šablona manifestu se seznamem nalezených nahrávek, kam uživatel ukáže."""
@@ -593,7 +554,8 @@ class AssessmentBuildWidget(QWidget):
             assert proto is not None
             protocol = with_language(proto, language).to_dict()
             if self._multi:
-                for visit, recs in split_by_visit(list(row.scan.recordings), self._people).items():
+                people = self._merged_people()
+                for visit, recs in split_by_visit(list(row.scan.recordings), people).items():
                     plans.append(TaskPlan(row.task, protocol, recs, visit=visit))
             else:
                 plans.append(TaskPlan(row.task, protocol, list(row.scan.recordings)))

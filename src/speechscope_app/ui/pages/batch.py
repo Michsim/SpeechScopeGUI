@@ -7,12 +7,13 @@ kterým výzkumník upraví protokol pro tento běh nebo ho uloží jako nový.
 
 from __future__ import annotations
 
+import csv
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -22,7 +23,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -31,15 +31,12 @@ from PySide6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QStackedWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from ... import contract
 from ...backend import meta
-from ...backend.assessment_build import normalize_visit
 from ...backend.audio import format_duration
 from ...backend.discover import Recording, find_recordings
 from ...backend.library import Library, LibraryError
@@ -51,6 +48,7 @@ from ..file_actions import file_menu, open_file
 from ..pages.run import format_seconds
 from ..protocol_detail import ProtocolDetailDialog
 from ..widgets.elided_label import ElidedLabel
+from ..widgets.meta_table import MetaRow, MetaTable
 from ..widgets.protocol_editor import ProtocolEditorDialog
 from ..widgets.protocol_list import ProtocolCardInfo, ProtocolList
 
@@ -69,21 +67,6 @@ def _step(number: int, title: str, hint: str = "") -> tuple[QHBoxLayout, QLabel]
     row.addWidget(label)
     row.addWidget(hint_label, 1)
     return row, hint_label
-
-
-def _normalize_meta(column: str, text: str) -> str:
-    """Hodnota metadat jako v manifestu: věk číslo, pohlaví f/m, datum ISO; jinak text."""
-    text = text.strip()
-    if not text:
-        return ""
-    if column == meta.AGE:
-        age = meta.parse_age(text)
-        return f"{age:g}" if age is not None else text
-    if column == meta.SEX:
-        return meta.parse_sex(text) or text
-    if column == meta.VISIT:
-        return normalize_visit(text) or text
-    return text
 
 
 class BatchPage(QWidget):
@@ -110,14 +93,6 @@ class BatchPage(QWidget):
         self._doctor_known = False  # True po první zprávě doctor (i neúspěšné)
         self._advanced = False
         self._manifest_auto = True  # manifest nalezený ve složce, ne vybraný ručně
-        # Úpravy metadat v tabulce (nahrávka → sloupec → hodnota) a sloupce přidané
-        # tlačítkem + Sloupec…; platí pro tuto složku a jdou jen do manifestu běhu,
-        # do složky s nahrávkami nic (rozhodnuto 30. 10. 2026; Uložit manifest… později).
-        self._meta_edits: dict[Path, dict[str, str]] = {}
-        self._extra_columns: list[str] = []
-        self._meta_columns: list[str] = []  # sloupce metadat, jak jsou v tabulce
-        self._meta_from = 2  # index prvního sloupce metadat v tabulce
-        self._filling = False  # plnění tabulky nesmí vypadat jako úprava
         self._seconds_per_file: Callable[[str], float | None] = lambda _slug: None
         self._seconds_per_audio_minute: Callable[[str], float | None] = lambda _slug: None
 
@@ -170,24 +145,15 @@ class BatchPage(QWidget):
         self.recursive.toggled.connect(self.rescan)
         folder_row.addWidget(self.recursive)
         left_layout.addLayout(folder_row)
-        self.files = QTableWidget()
-        self.files.setColumnCount(3)
-        self.files.setHorizontalHeaderLabels([tr("nahrávka")])
-        # Název vyplní zbylé místo, ostatní sloupce podle obsahu; šířka pak
-        # neposkakuje při přeskenování (podsložky, jiná složka, metadata).
-        self.files.horizontalHeader().setStretchLastSection(False)
-        # metadata jdou upravit dvojklikem nebo F2, ostatní buňky jsou jen ke čtení (flags)
-        self.files.setEditTriggers(
-            QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.EditKeyPressed
-        )
-        self.files.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.files.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
-        self.files.verticalHeader().setVisible(False)
+        # Tabulka nahrávek: název, délka (a ruční vstupy) jen ke čtení, metadata
+        # upravitelná (`widgets/meta_table.py`); úpravy jdou do manifestu běhu, do
+        # složky s nahrávkami nic (rozhodnuto 30. 10. 2026).
+        self.files = MetaTable([tr("nahrávka"), tr("délka")])
         self.files.verticalHeader().setDefaultSectionSize(26)
         self.files.setShowGrid(False)
         self.files.setAlternatingRowColors(True)
+        self.files.edited.connect(self._meta_edited)
         self.files.cellDoubleClicked.connect(self.open_recording)
-        self.files.itemChanged.connect(self._meta_item_changed)
         self.files.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.files.customContextMenuRequested.connect(self._files_menu)
         self.files.itemSelectionChanged.connect(self._selection_changed)
@@ -223,12 +189,29 @@ class BatchPage(QWidget):
         custom = self.column_menu.addAction(tr("Vlastní název…"))
         custom.triggered.connect(lambda: self._ask_meta_column())
         self.column_btn.setMenu(self.column_menu)
+        self.fill_btn = QPushButton(tr("Vyplnit vybrané…"))
+        self.fill_btn.setToolTip(
+            tr("Jedna hodnota do sloupce pro všechny vybrané řádky (třeba skupina nebo věk).")
+        )
+        self.fill_btn.setEnabled(False)
+        self.fill_btn.clicked.connect(lambda: self._ask_fill())
+        self.save_btn = QPushButton(tr("Uložit manifest…"))
+        self.save_btn.setToolTip(
+            tr(
+                "Zapíše metadata z tabulky (soubor i úpravy) jako CSV, kam ukážete; "
+                "vedle nahrávek se načte příště samo. Jinak se do složky nic nezapisuje."
+            )
+        )
+        self.save_btn.setEnabled(False)
+        self.save_btn.clicked.connect(lambda: self.save_manifest())
         self.edits_btn = QPushButton("")
         self.edits_btn.setFlat(True)
         self.edits_btn.setToolTip(tr("Zahodí úpravy metadat i přidané sloupce; manifest zůstane."))
         self.edits_btn.clicked.connect(lambda: self.discard_meta_edits())
         self.edits_btn.hide()
         meta_row.addWidget(self.column_btn)
+        meta_row.addWidget(self.fill_btn)
+        meta_row.addWidget(self.save_btn)
         meta_row.addWidget(self.edits_btn)
         self.manifest_label = QLabel("")
         self.manifest_label.setObjectName("muted")
@@ -599,7 +582,7 @@ class BatchPage(QWidget):
         return rec.path
 
     def open_recording(self, row: int, column: int = 0) -> bool:
-        if self._meta_columns and column >= self._meta_from:
+        if self.files.columns and column >= self.files.meta_from:
             return False  # dvojklik na metadata upravuje buňku, nepřehrává
         path = self.file_for_cell(row, column)
         return open_file(path, self.notice.emit) if path is not None else False
@@ -792,8 +775,7 @@ class BatchPage(QWidget):
         text = self.folder.text().strip()
         if text != self._scanned_folder:
             self._excluded.clear()
-            self._meta_edits.clear()  # úpravy patří složce; jiná složka = od začátku
-            self._extra_columns.clear()
+            self.files.reset()  # úpravy metadat patří složce; jiná složka = od začátku
             self._scanned_folder = text
         self._found = (
             find_recordings(Path(text), recursive=self.recursive.isChecked()) if text else []
@@ -824,6 +806,7 @@ class BatchPage(QWidget):
         return sorted(index.row() for index in self.files.selectionModel().selectedRows())
 
     def _selection_changed(self) -> None:
+        self.fill_btn.setEnabled(bool(self.selected_rows()))
         self.remove_btn.setEnabled(bool(self.selected_rows()))
 
     def remove_selected(self) -> None:
@@ -856,43 +839,104 @@ class BatchPage(QWidget):
         `None` = bez metadat. Složí se při každém volání, takže běh dostane
         vždy aktuální tabulku; do souboru ve složce se nic nezapisuje."""
         base = self.base_manifest()
-        if base is None and not self._meta_edits and not self._extra_columns:
+        if base is None and not self.files.has_changes():
             return None
-        columns = list(base.columns) if base else []
-        for column in self._extra_columns:
-            if column not in columns:
-                columns.append(column)
-        for edits in self._meta_edits.values():
-            for column in edits:
-                if column not in columns:
-                    columns.append(column)
+        columns = list(self.files.columns)
         folder = self.folder.text().strip()
         merged = Manifest(
             path=base.path if base else Path(folder or ".") / "manifest.csv",
             columns=columns,
             tasks=dict(base.tasks) if base else {},
         )
-        for rec in self._recordings:
-            key = key_for(rec.path)
-            row = dict(base.meta_for(rec.path) or {}) if base else {}
-            row.update(self._meta_edits.get(key, {}))
-            if row:
+        for key, row in self.files.rows_merged().items():
+            if any(row.values()):
                 merged.rows[key] = {c: row.get(c, "") for c in columns}
         return merged
 
     def meta_edits(self) -> int:
-        return sum(len(v) for v in self._meta_edits.values())
+        return self.files.edit_count()
 
     def add_meta_column(self, name: str) -> str:
         """Přidá sloupec metadat (název se kanonizuje: vek → age); vrátí jeho klíč."""
-        column = meta.canonical_column(name.strip()) if name.strip() else ""
-        if not column or column in ("path", "task"):
-            return ""
-        if column not in self._meta_columns and column not in self._extra_columns:
-            self._extra_columns.append(column)
-            self._fill_files()
-            self._update_run_state()
-        return column
+        return self.files.add_column(name)
+
+    def set_meta(self, path: Path, column: str, value: str) -> str:
+        """Hodnota metadat jedné nahrávky (jako dvojklik v tabulce); vrátí uloženou podobu."""
+        return self.files.set_value(key_for(path), column, value)
+
+    def fill_selected(self, column: str, value: str) -> int:
+        """Vyplní hodnotu sloupce všem vybraným řádkům; vrátí jejich počet."""
+        return self.files.fill_selected(column, value)
+
+    def discard_meta_edits(self) -> None:
+        self.files.discard()
+
+    def save_manifest(self, target: Path | None = None) -> Path | None:
+        """Zapíše metadata z tabulky jako CSV, kam uživatel ukáže (výchozí složka nahrávek).
+
+        Cesty jsou relativní ke složce cíle. Když se uloží tam, odkud se manifest
+        načítá, načte se znovu a úpravy se stanou základem."""
+        manifest = self.manifest()
+        folder = Path(self.folder.text().strip() or ".")
+        if manifest is None:
+            return None
+        if target is None:
+            text, _filter = QFileDialog.getSaveFileName(
+                self, tr("Uložit manifest"), str(folder / "manifest.csv"), "CSV (*.csv)"
+            )
+            if not text:
+                return None
+            target = Path(text)
+        columns = list(manifest.columns)
+        with_task = bool(manifest.tasks)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("w", encoding="utf-8-sig", newline="") as fh:
+            writer = csv.writer(fh, delimiter=";")
+            writer.writerow(["path", *(["task"] if with_task else []), *columns])
+            for rec in self._recordings:
+                key = key_for(rec.path)
+                row = manifest.rows.get(key, {})
+                try:
+                    shown = rec.path.resolve().relative_to(target.parent.resolve())
+                except ValueError:
+                    shown = rec.path
+                task = [manifest.tasks.get(key, "")] if with_task else []
+                writer.writerow([str(shown), *task, *(row.get(c, "") for c in columns)])
+        self.notice.emit(tr("Manifest uložen: {path}").format(path=target))
+        auto = self._manifest_auto and target.parent == folder
+        if auto or (self._manifest is not None and target == self._manifest.path):
+            self.files.reset()
+            self.set_manifest(None if auto else target)
+        return target
+
+    def _ask_fill(self) -> None:
+        rows = self.selected_rows()
+        if not rows:
+            return
+        choices = list(self.files.columns)
+        for column in meta.META_COLUMNS:
+            if column not in choices:
+                choices.append(column)
+        labels = [f"{meta.label(c)} ({c})" if c in meta.META_COLUMNS else c for c in choices]
+        label, ok = QInputDialog.getItem(
+            self, tr("Vyplnit vybrané"), tr("Sloupec:"), labels, 0, False
+        )
+        if not ok:
+            return
+        column = choices[labels.index(label)]
+        value, ok = QInputDialog.getText(
+            self,
+            tr("Vyplnit vybrané"),
+            tr("Hodnota pro {n} vybraných řádků, sloupec {column}:").format(
+                n=len(rows), column=column
+            ),
+        )
+        if ok:
+            self.fill_selected(column, value)
+
+    def _meta_edited(self) -> None:
+        self._update_meta_label()
+        self._update_run_state()
 
     def _ask_meta_column(self) -> None:
         name, ok = QInputDialog.getText(
@@ -901,71 +945,14 @@ class BatchPage(QWidget):
         if ok and name.strip():
             self.add_meta_column(name)
 
-    def set_meta(self, path: Path, column: str, value: str) -> str:
-        """Hodnota metadat jedné nahrávky (jako dvojklik v tabulce); vrátí uloženou podobu."""
-        column = meta.canonical_column(column.strip())
-        if column not in self._meta_columns and column not in self._extra_columns:
-            self._extra_columns.append(column)
-        stored = self._store_meta(path, column, value)
-        self._fill_files()
-        self._update_run_state()
-        return stored
-
-    def discard_meta_edits(self) -> None:
-        self._meta_edits.clear()
-        self._extra_columns.clear()
-        self._fill_files()
-        self._update_run_state()
-
-    def _store_meta(self, path: Path, column: str, value: str) -> str:
-        """Uloží úpravu; hodnota shodná s manifestem úpravu ruší. Vrátí normalizovanou hodnotu."""
-        normalized = _normalize_meta(column, value)
-        base = self.base_manifest()
-        original = ((base.meta_for(path) if base else None) or {}).get(column, "")
-        key = key_for(path)
-        edits = self._meta_edits.setdefault(key, {})
-        if normalized == original:
-            edits.pop(column, None)
-            if not edits:
-                del self._meta_edits[key]
-        else:
-            edits[column] = normalized
-        return normalized
-
-    def _meta_item_changed(self, item: QTableWidgetItem) -> None:
-        if self._filling or item.column() < self._meta_from:
-            return
-        row, col = item.row(), item.column() - self._meta_from
-        if not (0 <= row < len(self._recordings)) or not (0 <= col < len(self._meta_columns)):
-            return
-        rec, column = self._recordings[row], self._meta_columns[col]
-        stored = self._store_meta(rec.path, column, item.text())
-        self._filling = True
-        try:
-            item.setText(stored)
-            self._mark_meta_item(item, rec.path, column)
-        finally:
-            self._filling = False
-        self._update_meta_label()
-        self._update_run_state()
-
-    def _mark_meta_item(self, item: QTableWidgetItem, path: Path, column: str) -> None:
-        edits = self._meta_edits.get(key_for(path), {})
-        base = self.base_manifest()
-        if column in edits:
-            original = ((base.meta_for(path) if base else None) or {}).get(column, "")
-            item.setBackground(QColor(theme.ACCENT_SOFT))
-            item.setToolTip(
-                tr("Upraveno pro tento běh; v manifestu: {value}").format(value=original or "–")
-            )
-        else:
-            item.setBackground(QColor(Qt.GlobalColor.transparent))
-            item.setToolTip(tr("Dvojklik upraví hodnotu, jen pro tento běh."))
-
     def set_manifest(self, path: Path | None) -> None:
         """Ručně vybraný manifest; relativní cesty se berou od složky s nahrávkami."""
         base = Path(self.folder.text().strip()) if self.folder.text().strip() else None
-        self._manifest = read_manifest(path, base) if path else None
+        if path is None and base is not None:
+            found = find_manifest(base)  # zpět k souboru ve složce, když tam je
+            self._manifest = read_manifest(found, base) if found else None
+        else:
+            self._manifest = read_manifest(path, base) if path else None
         self._manifest_auto = path is None
         self._fill_files()
         self._update_run_state()
@@ -985,81 +972,49 @@ class BatchPage(QWidget):
             self.set_manifest(Path(chosen))
 
     def _fill_files(self) -> None:
-        self._filling = True
-        try:
-            self._fill_files_now()
-        finally:
-            self._filling = False
-
-    def _fill_files_now(self) -> None:
-        manifest = self.manifest()
+        manifest = self.base_manifest()
         if manifest is None and self._manifest is not None:
             manifest = self._manifest  # rozbitý soubor: sloupce ukázat, hodnoty šedě
         columns = list(manifest.columns) if manifest else []
-        self._meta_columns = columns
         # Ruční vstupy (labely, přepis vedle nahrávky) zajímají výzkumníka,
         # klinik je nikdy nemá; v základním režimu se sloupec neukazuje.
         headers = [tr("nahrávka"), tr("délka")]
         if self._advanced:
             headers.append(tr("ruční vstupy"))
-        headers.extend(columns)
-        meta_from = len(headers) - len(columns)
-        self._meta_from = meta_from
-        self.files.setColumnCount(len(headers))
-        self.files.setHorizontalHeaderLabels(headers)
-        for c, column in enumerate(columns):
-            head = self.files.horizontalHeaderItem(meta_from + c)
-            if head is not None and column in meta.META_COLUMNS:
-                head.setToolTip(meta.label(column))
-        self.files.setRowCount(len(self._recordings))
-        for r, rec in enumerate(self._recordings):
+        self.files.set_leading_headers(headers)
+        rows: list[MetaRow] = []
+        for rec in self._recordings:
             row_meta = manifest.meta_for(rec.path) if manifest else None
-            values = [rec.name, format_duration(rec.duration)]
+            leading = [rec.name, format_duration(rec.duration)]
             if self._advanced:
                 manual = [tr("labely")] * rec.has_labels + [tr("přepis")] * rec.has_transcript
-                values.append(", ".join(manual))
-            values.extend((row_meta or {}).get(c, "") for c in columns)
-            for c, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                item.setToolTip(tr("{path}\nDvojklik přehraje.").format(path=rec.path))
-                if c >= meta_from:
-                    self._mark_meta_item(item, rec.path, columns[c - meta_from])
-                else:
-                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                if c == 1:
-                    item.setTextAlignment(
-                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-                    )
-                    if rec.duration is None:
-                        item.setToolTip(tr("Délka se z hlavičky nedá přečíst (jen WAV a FLAC)."))
-                if self._advanced and c == 2 and value:
-                    item.setToolTip(
-                        tr(
-                            "Ruční vstupy vedle nahrávky mají přednost před modely: "
-                            "`.labels.txt` nahradí segmentaci, `.txt` přepis Whisperem."
-                        )
-                    )
-                if c >= meta_from and row_meta is None:
-                    item.setForeground(QColor(theme.MUTED))
-                self.files.setItem(r, c, item)
-        header = self.files.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for c in range(1, len(headers)):
-            header.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+                leading.append(", ".join(manual))
+            rows.append(
+                MetaRow(
+                    key_for(rec.path),
+                    leading,
+                    dict(row_meta or {}),
+                    tooltip=tr("{path}\nDvojklik přehraje.").format(path=rec.path),
+                    muted=row_meta is None,
+                )
+            )
+        self.files.set_rows(rows, columns)
         self._update_meta_label()
 
     def _update_meta_label(self) -> None:
         """Řádek pod tabulkou: soubor manifestu, sloupce, shoda, počet úprav."""
         base = self._manifest
         edits = self.meta_edits()
+        columns = self.files.columns
         self.manifest_clear_btn.setVisible(base is not None)
-        self.edits_btn.setVisible(bool(edits or self._extra_columns))
+        self.edits_btn.setVisible(self.files.has_changes())
         self.edits_btn.setText(tr("Zahodit úpravy ({n})").format(n=edits))
+        self.save_btn.setEnabled(self.manifest() is not None)
         if base is None:
-            if self._extra_columns or edits:
+            if self.files.has_changes():
                 self.manifest_label.setText(
                     tr("Vlastní metadata: {columns} · upraveno: {n}").format(
-                        columns=", ".join(self._meta_columns), n=edits
+                        columns=", ".join(columns), n=edits
                     )
                 )
             else:
@@ -1080,7 +1035,7 @@ class BatchPage(QWidget):
         matched = base.matched(paths)
         text = tr("{name}: {columns} · {matched} z {total}").format(
             name=base.path.name,
-            columns=", ".join(self._meta_columns) or tr("bez sloupců"),
+            columns=", ".join(columns) or tr("bez sloupců"),
             matched=matched,
             total=len(paths),
         )

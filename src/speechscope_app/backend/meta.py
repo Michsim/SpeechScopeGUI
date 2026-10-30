@@ -9,6 +9,7 @@ a věku se čistí tady, ne v každé obrazovce zvlášť.
 
 from __future__ import annotations
 
+import datetime as dt
 import math
 import unicodedata
 
@@ -113,3 +114,38 @@ def parse_age(value: object) -> float | None:
     except ValueError:
         return None
     return age if 0 <= age < 130 else None
+
+
+def normalize_visit(text: object) -> str:
+    """Datum vyšetření jako ISO (rok-měsíc-den) z ISO i z „14. 10. 2026“; jinak prázdné."""
+    text = str(text or "").strip()
+    if not text:
+        return ""
+    try:
+        return dt.date.fromisoformat(text[:10]).isoformat()
+    except ValueError:
+        pass
+    parts = [p.strip() for p in text.replace("/", ".").split(".") if p.strip()]
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        try:
+            return dt.date(int(parts[2]), int(parts[1]), int(parts[0])).isoformat()
+        except ValueError:
+            return ""
+    return ""
+
+
+def normalize_value(column: str, text: str) -> str:
+    """Hodnota metadat jako v manifestu: věk číslo, pohlaví f/m, datum ISO; jinak text.
+
+    Nerozpoznaná hodnota zůstane, jak ji uživatel napsal (uvidí ji v tabulce)."""
+    text = text.strip()
+    if not text:
+        return ""
+    if column == AGE:
+        age = parse_age(text)
+        return f"{age:g}" if age is not None else text
+    if column == SEX:
+        return parse_sex(text) or text
+    if column == VISIT:
+        return normalize_visit(text) or text
+    return text

@@ -408,10 +408,12 @@ def test_wizard_with_manifest_runs_batches_per_date_and_creates_visits(
         "p2_2026.wav",
     ]
     assert (
-        dialog.people_table.item(2, 2).text() == ""
-        and dialog.people_table.item(3, 2).text() == "2026-10-14"
+        dialog.people_table.item(2, 3).text() == ""
+        and dialog.people_table.item(3, 3).text() == "2026-10-14"
     )
-    assert [dialog.people_table.item(r, 3).text() for r in range(4)] == ["Fonace"] * 4
+    assert [dialog.people_table.item(r, 1).text() for r in range(4)] == ["Fonace"] * 4
+    headers = [dialog.people_table.horizontalHeaderItem(c).text() for c in range(6)]
+    assert headers == ["soubor", "úloha", "pacient", "datum vyšetření", "věk", "pohlaví"]
     assert dialog.next_btn.isEnabled() and "2 pacienti · vyšetření: 3" in dialog.hint.text()
     # šablona manifestu kam uživatel ukáže; do složky s nahrávkami nic
     template = dialog.save_template(tmp_path / "sablona.csv")
