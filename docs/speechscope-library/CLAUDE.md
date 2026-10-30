@@ -250,6 +250,26 @@ dávají u CPP a MFCC totéž, u perturbace do 7 % (poloha okna na hranici).
 F0 ořez nemá, `voiced_fraction` u fonace je proto podíl ticha v souboru.
 Testy `tests/test_trim_voice.py`; verze v `test_revision_*` zvednuty.
 
+## CPP 1.3 (30. 10. 2026, necommitováno)
+`acoustic.quality.cpp` počítá medián **jen ze znělých rámců** (`frames` =
+voiced | all, výchozí voiced): znělost SWIPE jako F0 1.1 a intenzita 2.0
+(`f_min` 60, `f_max` 400, `timestep` 0.01, `strength_threshold` 0.3,
+`drop_bounds`), rámec CPP je znělý podle rámce trackeru nejblíž jeho
+středu (`pitch.voiced_at`, sdílí ho intenzita). CPPS se vyhlazuje až po
+výběru, zvlášť v každém souvislém běhu znělých rámců (`_voiced_runs`,
+hranice = vynechaný rámec nebo hranice úseku VAD); u `all` přes všechny
+rámce za sebou jako 1.2. Pod `min_voiced_seconds` (1 s) InsufficientData,
+nový sloupec `voiced_fraction`. Zlatý test nastavuje `frames=all`
+(prošel na zkouska.wav a PN648a). Testy `tests/test_cpp_voiced.py`.
+Studie (30 nahrávek čtení Zahradníka PN648–659 a RBD108/117/122 a/b z
+`Downloads/data`, 10 kontrol HC06/07/23/104, HN27/49, HC880 a/b, HN06/07;
+skripty `cpp_varianty.py` a CSV ve scratchpadu sezení): proti sv+su
+zvedne CPP i CPPS o ~2 dB (sd rozdílu 0.7–1 dB), Spearman 0.94, HC–RBD
+d 1.9 → 3.2 (CPPS), HC–PN 0.2 → 0.6 (slabé, n malé). Jen `sv` conformeru
+dává skoro totéž (d 0.49) a potřebuje segmentaci; `novad` nejhorší.
+Praat sám znělost neřeší (všechny rámce, průměr), znělé úseky vybírá
+AVQI pitch trackerem. **Normy z kontrol se musí přepočítat.**
+
 ## Pravidla pro přenos starých skriptů
 1. Feature funkce nesmí dělat I/O – dostane `Signal`, vrátí čísla.
 2. Konstanty natvrdo → deklarované parametry.

@@ -1,7 +1,7 @@
 {
   "kind": "feature",
   "name": "acoustic.quality.cpp",
-  "version": "1.2",
+  "version": "1.3",
   "tasks": [
     "phonation",
     "reading",
@@ -20,7 +20,8 @@
   "description": "",
   "outputs": {
     "cpp": "Cepstral peak prominence (dB) - breathness",
-    "cpps": "Cepstral peak prominence smoothed (dB) - breathness"
+    "cpps": "Cepstral peak prominence smoothed (dB) - breathness",
+    "voiced_fraction": "Podíl znělých rámců na rámcích, ze kterých se počítalo (0 až 1)"
   },
   "params": {
     "trim_silence": {
@@ -37,6 +38,51 @@
       "default": 0.05,
       "type": "float",
       "description": "Rezerva ořezu před hlasem a za ním (s)",
+      "ge": 0
+    },
+    "frames": {
+      "default": "voiced",
+      "type": "str",
+      "description": "Rámce, ze kterých se počítá souhrn: voiced (znělé podle SWIPE) nebo all (všechny rámce řeči, verze 1.2)",
+      "choices": [
+        "voiced",
+        "all"
+      ]
+    },
+    "f_min": {
+      "default": 60.0,
+      "type": "float",
+      "description": "Nejnižší hledaná F0 pro znělost (Hz)",
+      "gt": 0
+    },
+    "f_max": {
+      "default": 400.0,
+      "type": "float",
+      "description": "Nejvyšší hledaná F0 pro znělost (Hz)",
+      "gt": 0
+    },
+    "timestep": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Krok rámců trackeru znělosti (s)",
+      "gt": 0
+    },
+    "strength_threshold": {
+      "default": 0.3,
+      "type": "float",
+      "description": "Minimální síla tónu SWIPE, pod kterou je rámec neznělý",
+      "ge": 0,
+      "le": 1
+    },
+    "drop_bounds": {
+      "default": true,
+      "type": "bool",
+      "description": "Rámce, kde SWIPE narazil na f_min nebo f_max, brát jako neznělé"
+    },
+    "min_voiced_seconds": {
+      "default": 1.0,
+      "type": "float",
+      "description": "Nejmenší úhrn znělých rámců (s); pod ním se nic nevydá a důvod jde do notes",
       "ge": 0
     },
     "window_length": {

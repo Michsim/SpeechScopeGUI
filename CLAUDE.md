@@ -423,6 +423,14 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   proto jiné než ve starších bězích a normách; normu i hodnocení je třeba
   spočítat znovu, GUI to nepozná (verze knihovny se nezměnila). Fixtury
   falešky zachycené znovu, kopie dokumentace v `docs/speechscope-library/`.
+- CPP 1.3 (knihovna 30. 10. 2026, verze stále 0.4.0): `acoustic.quality.cpp`
+  počítá medián jen ze znělých rámců podle SWIPE (parametr `frames` =
+  voiced | all, `all` dá hodnotu 1.2), CPPS se vyhlazuje zvlášť v každém
+  souvislém znělém běhu, pod `min_voiced_seconds` (1 s) nic nevydá, nový
+  sloupec `voiced_fraction` (třetí sloupec feature, v dimenzi Kvalita hlasu
+  zůstává `cpp.cpp`). CPP i CPPS u čtení a spontánní řeči stoupnou asi o 2 dB
+  proti starším běhům, normy i hodnocení znovu spočítat. Fixtury a kopie
+  dokumentace obnovené 30. 10. 2026.
 - Knihovna zapisuje `features.csv` průběžně po každé nahrávce (přes
   `.part` a přejmenování). Po Zrušit nebo chybě GUI ukáže částečnou
   tabulku. Soubor nesmí být během běhu otevřený v Excelu, **ani GUI ho

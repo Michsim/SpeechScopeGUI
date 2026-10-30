@@ -338,7 +338,7 @@ Přenos laboratorních skriptů běží. Hotové jsou tyhle feature:
 
 | jméno | co počítá | sloupce |
 |---|---|---|
-| `acoustic.quality.cpp` | cepstrální vrcholová prominence, rozsah F0 60–333 Hz a trend 1–50 ms jako Praat, medián přes rámce, u souvislé řeči s VAD, u fonace po ořezu na hlas (verze 1.2) | `cpp`, `cpps` |
+| `acoustic.quality.cpp` | cepstrální vrcholová prominence, rozsah F0 60–333 Hz a trend 1–50 ms jako Praat, medián jen přes znělé rámce (SWIPE, `frames`), CPPS vyhlazené uvnitř souvislých znělých běhů, u souvislé řeči s VAD, u fonace po ořezu na hlas (verze 1.3) | `cpp`, `cpps`, `voiced_fraction` |
 | `acoustic.quality.perturbation` | jitter, shimmer a HNR přes Praat z prostředních dvou třetin hlasu (po ořezu ticha podle SWIPE), jen fonace (verze 1.1) | `jitter_local`, `jitter_rap`, `jitter_ppq5`, `shimmer_local`, `shimmer_apq3`, `shimmer_apq11`, `hnr` |
 | `acoustic.pitch.f0` | statistiky základní frekvence v půltónech i Hz, kontura bez rámců na mezi hledání a mimo medián ±12 půltónů (verze 1.1) | `std`, `median`, `mean`, `max`, `min`, `median_hz`, `mean_hz`, `range`, `voiced_fraction` |
 | `acoustic.spectral.ltas` | tvar dlouhodobého průměrného spektra po převzorkování na 16 kHz (`analysis_fs`), u souvislé řeči s VAD | `mean`, `std`, `skew`, `kurt` |

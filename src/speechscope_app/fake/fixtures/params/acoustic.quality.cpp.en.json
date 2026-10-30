@@ -1,7 +1,7 @@
 {
   "kind": "feature",
   "name": "acoustic.quality.cpp",
-  "version": "1.2",
+  "version": "1.3",
   "tasks": [
     "phonation",
     "reading",
@@ -20,7 +20,8 @@
   "description": "",
   "outputs": {
     "cpp": "Cepstral peak prominence (dB)",
-    "cpps": "Cepstral peak prominence smoothed (dB)"
+    "cpps": "Cepstral peak prominence smoothed (dB)",
+    "voiced_fraction": "Share of voiced frames in the frames analysed (0–1)"
   },
   "params": {
     "trim_silence": {
@@ -37,6 +38,51 @@
       "default": 0.05,
       "type": "float",
       "description": "Margin kept before and after the voice when trimming (s)",
+      "ge": 0
+    },
+    "frames": {
+      "default": "voiced",
+      "type": "str",
+      "description": "Frames the summary is computed from: voiced (by SWIPE) or all (every speech frame, version 1.2)",
+      "choices": [
+        "voiced",
+        "all"
+      ]
+    },
+    "f_min": {
+      "default": 60.0,
+      "type": "float",
+      "description": "Lowest F0 searched for voicing (Hz)",
+      "gt": 0
+    },
+    "f_max": {
+      "default": 400.0,
+      "type": "float",
+      "description": "Highest F0 searched for voicing (Hz)",
+      "gt": 0
+    },
+    "timestep": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Frame step of the voicing tracker (s)",
+      "gt": 0
+    },
+    "strength_threshold": {
+      "default": 0.3,
+      "type": "float",
+      "description": "Minimum SWIPE pitch strength below which a frame is unvoiced",
+      "ge": 0,
+      "le": 1
+    },
+    "drop_bounds": {
+      "default": true,
+      "type": "bool",
+      "description": "Treat frames where SWIPE hit f_min or f_max as unvoiced"
+    },
+    "min_voiced_seconds": {
+      "default": 1.0,
+      "type": "float",
+      "description": "Minimum total of voiced frames (s); below it nothing is reported and the reason goes to notes",
       "ge": 0
     },
     "window_length": {
