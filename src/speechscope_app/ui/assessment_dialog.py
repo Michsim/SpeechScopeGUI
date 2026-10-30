@@ -161,9 +161,12 @@ class AssessmentDialog(QDialog):
         *,
         assessment: Assessment | None = None,
         initial: Recording | None = None,
+        template: Assessment | None = None,
         norm_protocols: dict[str, str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
+        """`assessment` = úprava (stejné id), `template` = nové vyšetření téhož pacienta
+        (jen pacient, věk a pohlaví, bez nahrávek a data), `initial` = první nahrávka."""
         super().__init__(parent)
         self.setWindowTitle(tr("Upravit hodnocení") if assessment else tr("Nové hodnocení"))
         self.resize(900, 640)
@@ -261,6 +264,10 @@ class AssessmentDialog(QDialog):
 
         if assessment is not None:
             self._load(assessment)
+        elif template is not None:
+            self.subject.setText(template.subject)
+            self.age.setText("" if template.age is None else f"{template.age:g}")
+            self.sex.setCurrentIndex(max(0, self.sex.findData(template.sex)))
         elif initial is not None:
             self.add_recording(initial)
         for task in self.boxes:

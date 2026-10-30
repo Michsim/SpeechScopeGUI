@@ -16,11 +16,12 @@ from speechscope_app.backend.history import read_run
 from speechscope_app.backend.library import ParamInfo
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import (
+    PAGE_ASSESSMENT,
     PAGE_BATCH,
     PAGE_ENV,
+    PAGE_HOME,
     PAGE_RESULTS,
     PAGE_RUN,
-    PAGE_WELCOME,
     MainWindow,
 )
 from speechscope_app.ui.widgets.param_form import ParamForm
@@ -216,38 +217,38 @@ def test_new_protocol_from_analysis(
 
 
 def test_start_page_depends_on_models(settings: AppSettings, qtbot: QtBot) -> None:
-    """Start je vždy uvítání bez záložky; bez modelů doporučí Prostředí a zkontroluje ho."""
+    """Start je vždy Domů; bez modelů doporučí Prostředí a zkontroluje ho."""
     from speechscope_app.backend.library import fake_command
 
     settings.use_fake_library = False
     settings.library_command = fake_command()  # chová se jako skutečná, ale bez modelů
     window = MainWindow(settings)
     qtbot.addWidget(window)
-    assert window.nav.currentRow() == -1
-    assert window.pages.currentIndex() == PAGE_WELCOME
-    welcome = window.welcome_page
+    assert window.nav.currentRow() == PAGE_HOME
+    assert window.pages.currentIndex() == PAGE_HOME
+    home = window.home_page
     assert window.env_page.checking  # kontrola se po startu pustila sama, na pozadí
     wait_doctor(qtbot, window)
     assert window.env_page.report is not None
     # falešný doctor hlásí vše připravené, doporučení se řídí jeho zprávou
-    assert welcome.recommends_environment() == (not window.env_page.report["all_ready"])
-    welcome.set_state(library_ok=True, models_ok=False)  # laciný stav před kontrolou
-    assert welcome.recommends_environment() and welcome.env_btn.property("role") == "primary"
-    welcome.set_report({"all_ready": False})
-    assert "chybí" in welcome.status.text()
-    welcome.env_btn.click()
+    assert home.recommends_environment() == (not window.env_page.report["all_ready"])
+    home.set_state(library_ok=True, models_ok=False)  # laciný stav před kontrolou
+    assert home.recommends_environment() and home.env_btn.property("role") == "primary"
+    home.set_report({"all_ready": False})
+    assert "chybí" in home.status.text()
+    home.env_btn.click()
     assert window.nav.currentRow() == PAGE_ENV and window.pages.currentIndex() == PAGE_ENV
 
     settings.models_dir.mkdir(parents=True)
     (settings.models_dir / "whisper-large-v3-ct2").mkdir()
     window2 = MainWindow(settings)
     qtbot.addWidget(window2)
-    assert window2.pages.currentIndex() == PAGE_WELCOME
-    welcome2 = window2.welcome_page
-    assert not welcome2.recommends_environment()
-    assert welcome2.start_btn.property("role") == "primary"
+    assert window2.pages.currentIndex() == PAGE_HOME
+    home2 = window2.home_page
+    assert not home2.recommends_environment() and home2.env_btn.property("role") != "primary"
+    assert home2.assess_btn.property("role") == "primary"  # doporučená karta
     assert window2.env_page.checking  # doctor běží na pozadí i s modely (kvůli Spustit)
-    welcome2.start_btn.click()
+    home2.start_btn.click()
     assert window2.nav.currentRow() == PAGE_BATCH
 
 
@@ -800,7 +801,7 @@ def test_environment_cache_cleanup(qtbot: QtBot, settings: AppSettings) -> None:
     assert "1 souborů, 10 B" in env.cache_detail.text() and not old.exists()
 
 
-def test_welcome_first_setup_block(
+def test_home_first_setup_block(
     qtbot: QtBot, settings: AppSettings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Bez modelů: blok se složkami a instalací; složky jdou změnit; po modelech zmizí."""
@@ -811,16 +812,16 @@ def test_welcome_first_setup_block(
     monkeypatch.setenv("SPEECHSCOPE_FAKE_DOCTOR", "missing")
     window = MainWindow(settings)
     qtbot.addWidget(window)
-    welcome = window.welcome_page
-    assert welcome.setup.isVisibleTo(welcome) and not welcome.status.isVisibleTo(welcome)
-    assert welcome.models_row.path.toolTip() == str(settings.models_dir)
-    assert welcome.work_row.path.toolTip() == str(settings.work_root)
-    assert welcome.install_btn.isEnabled() and "Volné místo" in welcome.space.text()
+    home = window.home_page
+    assert home.setup.isVisibleTo(home) and home.status.isVisibleTo(home)
+    assert home.models_row.path.toolTip() == str(settings.models_dir)
+    assert home.work_row.path.toolTip() == str(settings.work_root)
+    assert home.install_btn.isEnabled() and "Volné místo" in home.space.text()
     assert window.env_page.models_path.text() == str(settings.models_dir)
 
     new_work = tmp_path / "vysledky"
     window.change_work_root(new_work)
-    assert settings.work_root == new_work and welcome.work_row.path.toolTip() == str(new_work)
+    assert settings.work_root == new_work and home.work_row.path.toolTip() == str(new_work)
     assert str(new_work) in window.batch_page.subtitle.text()  # podtitul Analýzy sedí
     assert window.env_page.work_path.text() == str(new_work)
     new_models = tmp_path / "modely"
@@ -830,29 +831,27 @@ def test_welcome_first_setup_block(
     window.change_models_dir(new_models)
     assert settings.models_dir == new_models and window.library is not None
     assert str(new_models) in " ".join(window.library.argv([]) + [str(window.library.models_dir)])
-    assert not welcome.setup.isVisibleTo(welcome) and welcome.status.isVisibleTo(welcome)
-    assert not welcome.recommends_environment()
+    assert not home.setup.isVisibleTo(home) and "nainstalované" in home.status.text()
+    assert not home.recommends_environment()
 
     # doctor: providery připravené, i když některý model chybí (balík kliniky) → blok pryč
-    welcome.set_report(
+    home.set_report(
         {
             "all_ready": False,
             "providers": {"transcript": {"ready": True}, "segments": {"ready": True}},
             "models": {"wavlm": {"present": False}},
         }
     )
-    assert not welcome.setup.isVisibleTo(welcome)
+    assert not home.setup.isVisibleTo(home)
     # provider bez modelu → blok zpět; Hotovo ho schová do dalšího startu
-    welcome.set_report(
+    home.set_report(
         {"all_ready": False, "providers": {"transcript": {"ready": False}}, "models": {}}
     )
-    assert (
-        welcome.setup.isVisibleTo(welcome) and "nejsou nainstalované" in welcome.setup_note.text()
-    )
-    welcome.done_btn.click()
-    assert not welcome.setup.isVisibleTo(welcome) and welcome.status.isVisibleTo(welcome)
-    welcome.set_state(library_ok=True, models_ok=False)
-    assert not welcome.setup.isVisibleTo(welcome)  # zůstává schovaný
+    assert home.setup.isVisibleTo(home) and "nejsou nainstalované" in home.setup_note.text()
+    home.done_btn.click()
+    assert not home.setup.isVisibleTo(home)
+    home.set_state(library_ok=True, models_ok=False)
+    assert not home.setup.isVisibleTo(home)  # zůstává schovaný
 
 
 def test_default_models_dir_next_to_installed_app(
@@ -1026,3 +1025,50 @@ def test_analysis_two_steps(qtbot: QtBot, settings: AppSettings, recordings: Pat
         page.run_btn.click()
     assert page.current_step() == 2
     assert len(page.protocols.task_buttons) == 4  # úlohy v jedné řadě
+
+
+def test_home_cards_running_strip_and_norm_warning(
+    qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Domů: karty vedou na stránky, pruh „právě běží“ sleduje dávku, stará norma varuje."""
+    from PySide6.QtWidgets import QDialog
+    from test_norms import controls_frame
+
+    from speechscope_app.backend.norms import Norm, NormInfo
+
+    Norm(
+        NormInfo(
+            name="Stará norma", feature_versions={"phonation": {"acoustic.quality.cpp": "1.2"}}
+        ),
+        controls_frame(),
+    ).save(settings.norms_dir() / "stara")
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    home = window.home_page
+    assert window.nav.currentRow() == PAGE_HOME and window.nav_labels[PAGE_HOME] == "Domů"
+    assert window.nav_labels[PAGE_BATCH] == "Analýza nahrávek"
+    assert home.running.isHidden() and not home.norm_warning.isHidden()
+    assert "Stará norma" in home.norm_warning.text()
+    home.start_btn.click()
+    assert window.nav.currentRow() == PAGE_BATCH
+    monkeypatch.setattr(
+        "speechscope_app.ui.pages.assessment.NewAssessmentChoiceDialog.exec",
+        lambda self: QDialog.DialogCode.Rejected,
+    )
+    home.assess_btn.click()
+    assert window.nav.currentRow() == PAGE_ASSESSMENT
+    home.env_btn.click()
+    assert window.nav.currentRow() == PAGE_ENV
+    window.nav.setCurrentRow(PAGE_HOME)
+
+    # pruh právě běží: název dávky, postup, fronta; po konci zmizí
+    window._running_label = "Pacienti září"
+    window._queue.append(object())  # type: ignore[arg-type]
+    window._show_progress("1/3")
+    assert not home.running.isHidden() and home.running_title.text() == "Pacienti září"
+    assert home.running_detail.text() == "1/3 nahrávek · ve frontě: 1"
+    window._queue.clear()
+    window._show_progress("")
+    assert home.running.isHidden()
+    home.run_btn.click()
+    assert window.nav.currentRow() == PAGE_RUN

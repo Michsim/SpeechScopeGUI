@@ -125,7 +125,7 @@ def test_manual_assessment_create_score_edit_and_delete(
     window = MainWindow(settings)
     qtbot.addWidget(window)
     page = window.assessment_page
-    assert window.nav_labels[PAGE_ASSESSMENT] == "Hodnocení"
+    assert window.nav_labels[PAGE_ASSESSMENT] == "Pacienti"
 
     # nic se neskládá samo: bez uložených hodnocení je seznam prázdný
     window.nav.setCurrentRow(PAGE_ASSESSMENT)
@@ -505,3 +505,57 @@ def test_changed_feature_version_is_shown(qtbot: QtBot, settings: AppSettings) -
     hnr = voice.child(0)
     assert hnr.text(0).endswith("\u26a0") and "1.1 u pacienta, 1.0 u kontrol" in hnr.toolTip(0)
     assert hnr.text(4)  # z-skóre se přesto počítá
+
+
+def test_patient_card_groups_visits_and_new_visit(qtbot: QtBot, settings: AppSettings) -> None:
+    """Karta vlevo je pacient; víc vyšetření = řada dat pod hlavičkou, nové vyšetření předvyplní."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    save_norm(settings.norms_dir())
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.assessment_page
+    first = page.save_from(page.make_dialog(initial=recording(page, "P-017_fonace.wav")))
+    assert first is not None and page.count() == 1 and not page.visit_bar.isHidden()
+    assert len(page.visit_buttons) == 1 and page.list_title.text() == "Pacienti (1)"
+
+    # druhé vyšetření téhož pacienta: dialog s předvyplněným pacientem, jiné datum a nahrávka
+    dialog = page.make_dialog(template=first)
+    qtbot.addWidget(dialog)
+    assert dialog.subject.text() == "P-017" and dialog.age.text() == "64"
+    assert dialog.sex.currentData() == "m" and dialog.windowTitle() == "Nové hodnocení"
+    assert all(box.list.count() == 0 for box in dialog.boxes.values())
+    dialog.add_recording(recording(page, "P-017_cteni.wav"))
+    dialog._set_date("2026-04-12")
+    second = page.save_from(dialog)
+    assert second is not None and second.id != first.id and second.subject == "P-017"
+    assert page.count() == 1 and page.card(0).title.text() == "P-017"
+    assert "2 vyšetření" in page.card(0).detail.text()
+    assert "12. 4. 2026 → 14. 10. 2026" in page.card(0).detail.text()
+    assert page.current_assessment().id == second.id  # uložené vyšetření je vybrané
+    assert not page.visit_bar.isHidden() and len(page.visit_buttons) == 2
+    assert [b.text() for b in page.visit_buttons] == ["14. 10. 2026", "12. 4. 2026"]
+    assert page.visit_buttons[1].property("role") == "primary"
+    assert [e[0].id for e in page.patient_entries()] == [first.id, second.id]
+
+    # přepnutí v řadě vyšetření a výběr podle id
+    page.visit_buttons[0].click()
+    assert page.current_assessment().id == first.id and page.current_visit().count("phonation") == 1
+    assert page.visit_buttons[0].property("role") == "primary"
+    assert page.select_assessment(second.id) and page.current_assessment().id == second.id
+    assert page.current_visit().count("reading") == 1
+    # štítek karty patří poslednímu vyšetření, i když je vybrané starší
+    assert page.card(0).pill.text() == "mimo normu"
+    page.refresh()
+    assert page.current_assessment().id == second.id  # obnova drží vybrané vyšetření
+
+    # druhý pacient = druhá karta; hledání filtruje pacienty
+    page.save_from(page.make_dialog(initial=recording(page, "P-018_fonace.wav")))
+    assert page.count() == 2 and page.list_title.text() == "Pacienti (2)"
+    page.search.setText("018")
+    assert page.count() == 1 and page.card(0).title.text() == "P-018"
+    page.search.clear()
+    # smazání jednoho vyšetření nechá pacienta s tím druhým
+    assert page.select_assessment(second.id) and page.delete_current(confirm=False)
+    assert page.count() == 2 and page.select_assessment(first.id)
+    assert len(page.visit_buttons) == 1 and page.patient_entries()[0][0].id == first.id

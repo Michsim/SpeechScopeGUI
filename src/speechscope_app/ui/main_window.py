@@ -60,7 +60,7 @@ from ..backend.norm_build import (
     finish_plan,
     load_plan,
 )
-from ..backend.norms import register_custom_tasks
+from ..backend.norms import all_norms, outdated_features, register_custom_tasks
 from ..backend.protocol import Protocol, all_protocols, slugify
 from ..backend.results import merge_results
 from ..backend.settings import AppSettings
@@ -75,18 +75,26 @@ from .new_norm_dialog import NewNormDialog
 from .pages.assessment import AssessmentPage
 from .pages.batch import BatchPage
 from .pages.environment import EnvironmentPage
+from .pages.home import HomePage
 from .pages.norms import NormsPage
 from .pages.protocols import ProtocolsPage
 from .pages.results import ResultsPage
 from .pages.run import RunPage
-from .pages.welcome import WelcomePage
 from .settings_dialog import SettingsDialog
 from .widgets.elided_label import ElidedLabel
 from .widgets.sidebar_nav import SidebarNav
 
 # Pořadí v nabídce: od každodenního (analýza) k jednorázovému (prostředí).
-PAGE_BATCH, PAGE_RUN, PAGE_RESULTS, PAGE_ASSESSMENT, PAGE_PROTOCOLS, PAGE_NORMS, PAGE_ENV = range(7)
-PAGE_WELCOME = 7  # uvítání po startu; v zásobníku stránek je, v nabídce ne
+(
+    PAGE_HOME,
+    PAGE_BATCH,
+    PAGE_RUN,
+    PAGE_RESULTS,
+    PAGE_ASSESSMENT,
+    PAGE_PROTOCOLS,
+    PAGE_NORMS,
+    PAGE_ENV,
+) = range(8)
 
 
 @dataclass(slots=True)
@@ -151,13 +159,14 @@ class MainWindow(QMainWindow):
         self.results_page = ResultsPage()
         self.assessment_page = AssessmentPage()
         self.norms_page = NormsPage()
-        self.welcome_page = WelcomePage()
+        self.home_page = HomePage()
 
         self.nav_labels = (
-            tr("Analýza"),
+            tr("Domů"),
+            tr("Analýza nahrávek"),
             tr("Výpočet"),
             tr("Výsledky"),
-            tr("Hodnocení"),
+            tr("Pacienti"),
             tr("Protokoly"),
             tr("Normy"),
             tr("Prostředí"),
@@ -166,6 +175,7 @@ class MainWindow(QMainWindow):
         self.nav = SidebarNav(self.nav_labels, bottom_from=PAGE_PROTOCOLS)
         self.pages = QStackedWidget()
         for page in (
+            self.home_page,
             self.batch_page,
             self.run_page,
             self.results_page,
@@ -173,7 +183,6 @@ class MainWindow(QMainWindow):
             self.protocols_page,
             self.norms_page,
             self.env_page,
-            self.welcome_page,
         ):
             self.pages.addWidget(page)
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
@@ -233,15 +242,19 @@ class MainWindow(QMainWindow):
         self.env_page.diagnostics_requested.connect(self.save_diagnostics)
         self.env_page.report_changed.connect(self.batch_page.set_doctor)
         self.batch_page.set_check_requester(self.env_page.refresh)
-        self.env_page.report_changed.connect(self.welcome_page.set_report)
+        self.env_page.report_changed.connect(self.home_page.set_report)
         self.env_page.models_dir_requested.connect(self.change_models_dir)
         self.env_page.work_root_requested.connect(self.change_work_root)
-        self.welcome_page.models_dir_requested.connect(self.change_models_dir)
-        self.welcome_page.work_root_requested.connect(self.change_work_root)
-        self.welcome_page.install_requested.connect(self.install_models)
-        self.welcome_page.download_requested.connect(self.download_models)
-        self.welcome_page.analysis_requested.connect(lambda: self.nav.setCurrentRow(PAGE_BATCH))
-        self.welcome_page.environment_requested.connect(lambda: self.nav.setCurrentRow(PAGE_ENV))
+        self.home_page.models_dir_requested.connect(self.change_models_dir)
+        self.home_page.work_root_requested.connect(self.change_work_root)
+        self.home_page.install_requested.connect(self.install_models)
+        self.home_page.download_requested.connect(self.download_models)
+        self.home_page.analysis_requested.connect(lambda: self.nav.setCurrentRow(PAGE_BATCH))
+        self.home_page.assessment_requested.connect(self.new_assessment_from_home)
+        self.home_page.norm_requested.connect(self.new_norm_from_home)
+        self.home_page.environment_requested.connect(lambda: self.nav.setCurrentRow(PAGE_ENV))
+        self.home_page.norms_requested.connect(lambda: self.nav.setCurrentRow(PAGE_NORMS))
+        self.home_page.run_requested.connect(lambda: self.nav.setCurrentRow(PAGE_RUN))
         self.env_page.report_changed.connect(self.protocols_page.set_doctor)
         self.batch_page.set_stats_lookup(self.settings.seconds_per_file)
         self.batch_page.set_rate_lookup(self.settings.seconds_per_audio_minute)
@@ -295,23 +308,25 @@ class MainWindow(QMainWindow):
 
         self._apply_settings()
         mark_orphans(self.settings.work_root)  # po pádu nesmí v historii zůstat „běží“
-        self.show_welcome()
+        self.show_home()
 
-    def show_welcome(self) -> None:
-        """Uvítání při každém startu: žádná záložka, doporučení podle prostředí."""
+    def show_home(self) -> None:
+        """Domů při každém startu; bez knihovny nebo modelů ukáže První nastavení."""
         recommended = self.start_page()
-        self.welcome_page.set_state(
+        self.home_page.set_state(
             library_ok=self.library is not None, models_ok=recommended != PAGE_ENV
         )
-        self.nav.setCurrentRow(-1)
-        self.pages.setCurrentIndex(PAGE_WELCOME)
+        self.nav.setCurrentRow(PAGE_HOME)
+        self._refresh_home()
         if self.library is not None:
             # Kontrola prostředí na pozadí hned po startu: Spustit pak nečeká na doctor
             # a lišta jazyků i stav providerů sedí bez návštěvy Prostředí.
             self.env_page.refresh()
 
     def _page_shown(self, index: int) -> None:
-        if index == PAGE_RESULTS:
+        if index == PAGE_HOME:
+            self._refresh_home()
+        elif index == PAGE_RESULTS:
             self._merge_finished_groups()
             self.results_page.refresh()
         elif index == PAGE_ASSESSMENT:
@@ -322,6 +337,25 @@ class MainWindow(QMainWindow):
             self.run_page.refresh_history()
         elif index == PAGE_ENV:
             self.env_page.refresh_cache()
+
+    def _refresh_home(self) -> None:
+        """Stav na Domů: normy, kterým se od spočítání změnila feature."""
+        versions = self.norms_page.current_versions()
+        names = [
+            norm.info.display_name
+            for norm in all_norms(self.settings.norms_dir())
+            if versions and outdated_features(norm, versions)
+        ]
+        self.home_page.set_norm_warnings(names)
+
+    def new_assessment_from_home(self) -> None:
+        """Karta Hodnocení pacienta: stránka Pacienti a dnešní volba zdroje."""
+        self.nav.setCurrentRow(PAGE_ASSESSMENT)
+        self.assessment_page.new_assessment()
+
+    def new_norm_from_home(self) -> None:
+        self.nav.setCurrentRow(PAGE_NORMS)
+        self.new_norm()
 
     def show_assessment(self, run_dir: Path, row: int) -> bool:
         """Z Výsledků: nové hodnocení s nahrávkou řádku; po uložení přepne na Hodnocení."""
@@ -406,6 +440,7 @@ class MainWindow(QMainWindow):
         run_dir = getattr(self, "_running_dir", None)
         if run_dir is None or not run_dir.is_dir():
             return
+        self.home_page.set_progress(processed, total)
         try:
             write_run_file(
                 run_dir,
@@ -433,7 +468,7 @@ class MainWindow(QMainWindow):
         self.batch_page.set_work_root(work_root)
         self.env_page.set_work_dir(work_root / "work")
         self.env_page.set_folders(models_dir, work_root)
-        self.welcome_page.set_folders(models_dir, work_root)
+        self.home_page.set_folders(models_dir, work_root)
 
     def change_models_dir(self, chosen: Path | None = None) -> None:
         """Složka modelů: dialog (nebo daná cesta v testech), uložit, znovu spojit knihovnu."""
@@ -446,7 +481,7 @@ class MainWindow(QMainWindow):
             chosen = Path(text)
         self.settings.models_dir = chosen
         self._apply_settings()  # knihovna dostává --models-dir, protokoly se přepočítají
-        self.welcome_page.set_state(
+        self.home_page.set_state(
             library_ok=self.library is not None, models_ok=self.start_page() != PAGE_ENV
         )
         if self.library is not None:
@@ -468,6 +503,14 @@ class MainWindow(QMainWindow):
     def _show_progress(self, text: str) -> None:
         """Postup běhu v nabídce a v titulku, ať je vidět i z jiné stránky."""
         self._last_progress = text
+        if text:
+            self.home_page.set_running(
+                getattr(self, "_running_label", "") or getattr(self, "_running_name", ""),
+                tr("{progress} nahrávek").format(progress=text) if "/" in text else text,
+                len(self._queue),
+            )
+        else:
+            self.home_page.clear_running()
         if self._queue:
             text = f"{text} (+{len(self._queue)})" if text else f"+{len(self._queue)}"
         label = self.nav_labels[PAGE_RUN]

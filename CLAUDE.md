@@ -89,14 +89,22 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   `proto.display_name`, `proto.name` zůstává klíč.
 
 ## Stránky
-Pořadí v nabídce: Analýza · Výpočet · Výsledky · Hodnocení, dole Protokoly · Normy ·
-Prostředí (`PAGE_ASSESSMENT`, `PAGE_NORMS`; popis stránek Hodnocení a Normy je v sekci
-Normy a dimenze).
-Po startu je vždy Uvítání (`pages/welcome.py`, v zásobníku jako
-`PAGE_WELCOME`, v nabídce není): logo, dvě věty, tlačítka Začít analýzu
-a Zkontrolovat prostředí; modré je to doporučené (`start_page()`: bez
-knihovny nebo modelů Prostředí, a to se rovnou zkontroluje). Dokud chybí
-modely, je na uvítání blok První nastavení: složka modelů a výsledků
+Pořadí v nabídce (od 30. 10. 2026, mockup
+https://claude.ai/artifact/UkcxmVZDY3M9n89UQFuhdq, `docs/mockups/domu-pacienti/` mimo
+git): Domů · Analýza nahrávek · Výpočet · Výsledky · Pacienti, dole Protokoly · Normy ·
+Prostředí (`PAGE_HOME` … `PAGE_ENV`; popis stránek Pacienti a Normy je v sekci
+Normy a dimenze). Uvítání mimo nabídku už není.
+**Domů** (`pages/home.py`, `HomePage`, po startu vždy, `show_home`): rozcestník
+podle výstupu, dvě velké karty `ActionCard` Hodnocení pacienta (modrá, doporučená →
+`MainWindow.new_assessment_from_home`: stránka Pacienti a dnešní volba zdroje)
+a Analýza nahrávek (→ Analýza); pod nimi pruh „právě běží“ (`set_running`
+z `_show_progress`, `set_progress` z `_file_done`, klik → Výpočet, po konci
+`clear_running`); dole pod čarou tlačítko Nová norma… (→ Normy a průvodce) a
+stav: štítek knihovna/modely jako dřív na uvítání (`set_state`, `set_report`,
+`recommends_environment`, modré tlačítko Prostředí), pod ním varování o normách
+se změněnou feature (`_refresh_home` přes `outdated_features`, odkaz na Normy).
+Rozhodnuto 30. 10.: žádné Pokračovat, žádné poslední běhy. Dokud chybí
+modely, je na Domů blok První nastavení: složka modelů a výsledků
 (Změnit… = `MainWindow.change_models_dir/change_work_root`), volné místo,
 Modely ze souboru… a Stáhnout modely…. Tytéž složky jsou i v Prostředí
 (karta Složky). Výchozí složka modelů je u zabalené aplikace `{app}\models`
@@ -244,10 +252,20 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   porovná normu s katalogem nainstalované knihovny (`norms.outdated_features`,
   `outdated_text`) a ve varováních řekne, co se změnilo. Bez záznamu na jedné
   straně (starší běh, import) se nic nehlásí.
-- **Stránka Hodnocení** (`ui/pages/assessment.py`, `AssessmentPage`): vlevo
-  uložená hodnocení (`VisitCard` se štítkem nejhoršího pásma `worst_band`:
-  v normě, hraniční, mimo normu, bez normy; úlohy s počtem nahrávek
-  `task_count`) a hledání pacienta, nahoře Nové hodnocení…; vpravo hlavička
+- **Stránka Pacienti** (dřív Hodnocení; `ui/pages/assessment.py`,
+  `AssessmentPage`, `PAGE_ASSESSMENT`, od 30. 10. 2026): vlevo karta na
+  pacienta (`PatientCard`; pacient = `patient_key(subject)`, zatím jen řetězec
+  bez mezer a velikosti písmen, rozhodnuto 30. 10.; štítek a pohlaví/věk podle
+  posledního vyšetření, u víc vyšetření „n vyšetření · první → poslední“;
+  `_groups` = vyšetření pacienta od nejnovějšího, `_shown` = právě vybrané),
+  štítek nejhoršího pásma `worst_band`: v normě, hraniční, mimo normu, bez
+  normy; úlohy s počtem nahrávek `task_count`) a hledání pacienta, nahoře Nové
+  hodnocení…; pod hlavičkou řada vyšetření (`visit_bar`, tlačítka s datem,
+  vybrané modré, `_select_visit`, `select_assessment(id)` přepne pacienta i
+  vyšetření, `patient_entries()`) a vpravo Nové vyšetření… (`new_visit`:
+  `AssessmentDialog(template=…)` předvyplní pacienta, věk a pohlaví bez
+  nahrávek a data). Staré tlačítko se při výměně řady napřed skryje
+  (`deleteLater` kreslil zbytkový modrý pruh). Vpravo hlavička
   pacienta se štítky dimenzí a Upravit…, Uložit obrázek… (PNG pavouka),
   Smazat…, výběr normy, věkového okna a „jen stejné pohlaví“ (řádek pod tím
   říká, kolik kontrol se vybralo po úlohách); pod hlavičkou se roluje

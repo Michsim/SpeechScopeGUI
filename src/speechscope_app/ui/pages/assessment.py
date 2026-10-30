@@ -156,17 +156,41 @@ def task_count(visit: Visit, task: str) -> str:
     return f"{label} ({n})" if n > 1 else label
 
 
-class VisitCard(QFrame):
-    def __init__(
-        self,
-        visit: Visit,
-        band: str,
-        assessment: Assessment | None = None,
-        parent: QWidget | None = None,
-    ) -> None:
+Entry = tuple[Assessment, Visit, list[RecordingRef]]  # hodnocení, vyšetření, chybějící odkazy
+
+
+def patient_key(subject: str) -> str:
+    """Pacient = stejné označení bez ohledu na mezery a velikost písmen (zatím jen řetězec)."""
+    return " ".join(subject.split()).casefold()
+
+
+def patient_subtitle(entries: list[Entry]) -> str:
+    """Řádek karty pacienta: pohlaví a věk z posledního vyšetření, počet a rozpětí dat."""
+    latest = entries[0][1]
+    if len(entries) == 1:
+        return visit_subtitle(latest)
+    person = []
+    if latest.sex:
+        person.append(tr("žena") if latest.sex == "f" else tr("muž"))
+    if latest.age is not None:
+        person.append(tr("{age} let").format(age=int(round(latest.age))))
+    parts = [", ".join(person)] if person else []
+    parts.append(tr("{n} vyšetření").format(n=len(entries)))
+    dates = [e[0].date for e in entries if e[0].date]
+    if dates:
+        first, last = format_visit_date(min(dates)), format_visit_date(max(dates))
+        parts.append(f"{first} → {last}" if first != last else last)
+    return " · ".join(parts)
+
+
+class PatientCard(QFrame):
+    """Karta pacienta v seznamu: štítek je pásmo posledního vyšetření."""
+
+    def __init__(self, entries: list[Entry], band: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.visit = visit
-        self.assessment = assessment
+        self.entries = entries
+        self.visit = entries[0][1]
+        self.assessment = entries[0][0]
         self.setObjectName("card")
         self._role = BAND_ROLES.get(band, "neutral")
         theme.set_role(self, self._role)
@@ -175,6 +199,7 @@ class VisitCard(QFrame):
         layout.setSpacing(3)
         head = QHBoxLayout()
         head.setSpacing(8)
+        visit = self.visit
         name = (
             visit.subject
             if visit.explicit
@@ -188,7 +213,7 @@ class VisitCard(QFrame):
         theme.set_role(self.pill, BAND_ROLES.get(band, "neutral"))
         head.addWidget(self.pill, 0, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(head)
-        self.detail = QLabel(visit_subtitle(visit))
+        self.detail = QLabel(patient_subtitle(entries))
         self.detail.setObjectName("muted")
         self.detail.setWordWrap(True)
         layout.addWidget(self.detail)
@@ -259,8 +284,9 @@ class AssessmentPage(QWidget):
         super().__init__(parent)
         self._index: VisitIndex | None = None
         self._store: AssessmentStore | None = None
-        self._entries: list[tuple[Assessment, Visit, list[RecordingRef]]] = []
-        self._shown: list[tuple[Assessment, Visit, list[RecordingRef]]] = []
+        self._entries: list[Entry] = []  # všechna hodnocení, nejnovější první
+        self._groups: list[list[Entry]] = []  # karta pacienta → jeho vyšetření (nejnovější první)
+        self._shown: list[Entry] = []  # karta pacienta → právě vybrané vyšetření
         self._missing: list[RecordingRef] = []
         self._plans: list[AssessmentPlan] = []
         self._shown_plans: list[AssessmentPlan] = []
@@ -269,7 +295,8 @@ class AssessmentPage(QWidget):
         self._library: Library | None = None
         self._columns: dict[str, ColumnInfo] | None = None
         self._dimensions: list[Dimension] = load_dimensions()
-        self._cards: list[VisitCard] = []
+        self._cards: list[PatientCard | PendingCard] = []
+        self.visit_buttons: list[QPushButton] = []
         self._eval_cache: dict[str, Evaluation] = {}  # id hodnocení → vyhodnocení
         self._eval_key: tuple = ()  # (norma, okno, pohlaví), pro které cache platí
         self._current: Visit | None = None
@@ -279,7 +306,7 @@ class AssessmentPage(QWidget):
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(10)
         title_row = QHBoxLayout()
-        title = QLabel(tr("Hodnocení"))
+        title = QLabel(tr("Pacienti"))
         title.setObjectName("page_title")
         title_row.addWidget(title, 1)
         self.new_btn = QPushButton(tr("Nové hodnocení…"))
@@ -300,7 +327,7 @@ class AssessmentPage(QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(6)
         head = QHBoxLayout()
-        self.list_title = QLabel(tr("Hodnocení"))
+        self.list_title = QLabel(tr("Pacienti"))
         self.list_title.setObjectName("section")
         head.addWidget(self.list_title, 1)
         left_layout.addLayout(head)
@@ -336,8 +363,8 @@ class AssessmentPage(QWidget):
         right_layout.setContentsMargins(12, 0, 0, 0)
         right_layout.setSpacing(8)
         self.header = StatusHeader()
-        self.header.title.setText(tr("Hodnocení"))
-        self.header.subtitle.setText(tr("Vyberte hodnocení vlevo, nebo založte nové."))
+        self.header.title.setText(tr("Pacient"))
+        self.header.subtitle.setText(tr("Vyberte pacienta vlevo, nebo založte nové hodnocení."))
         self.edit_btn = QPushButton(tr("Upravit…"))
         self.edit_btn.setEnabled(False)
         self.edit_btn.clicked.connect(self.edit_current)
@@ -357,6 +384,24 @@ class AssessmentPage(QWidget):
         self.delete_btn.clicked.connect(self.delete_current)
         self.header.add_button(self.delete_btn)
         right_layout.addWidget(self.header)
+        # řada vyšetření pacienta: vybrané je modré, ostatní obyčejná, vpravo Nové vyšetření…
+        self.visit_bar = QWidget()
+        visit_layout = QHBoxLayout(self.visit_bar)
+        visit_layout.setContentsMargins(4, 0, 0, 0)
+        visit_layout.setSpacing(6)
+        visit_label = QLabel(tr("Vyšetření:"))
+        visit_label.setObjectName("muted")
+        visit_layout.addWidget(visit_label)
+        self.visit_layout = QHBoxLayout()
+        self.visit_layout.setSpacing(6)
+        visit_layout.addLayout(self.visit_layout)
+        visit_layout.addStretch(1)
+        self.visit_btn = QPushButton(tr("Nové vyšetření…"))
+        self.visit_btn.setToolTip(tr("Další vyšetření téhož pacienta z hotových běhů"))
+        self.visit_btn.clicked.connect(lambda: self.new_visit())
+        visit_layout.addWidget(self.visit_btn)
+        right_layout.addWidget(self.visit_bar)
+        self.visit_bar.hide()
         # pod hlavičkou se roluje: pavouk a strom pod sebou se na menší okno nevejdou
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -851,26 +896,36 @@ class AssessmentPage(QWidget):
                 select_row = len(self._shown_plans)
             self._shown_plans.append(plan)
         pending_ids = {plan.id for plan in self._plans}  # přepočet: jen karta „počítá se“
+        # karta na pacienta; `_entries` jsou od nejnovějšího, takže první je poslední vyšetření
+        groups: dict[str, list[Entry]] = {}
+        patients: set[str] = set()
         for entry in self._entries:
-            assessment, visit, _missing = entry
-            if needle and needle not in assessment.subject.lower():
-                continue
+            assessment = entry[0]
             if assessment.id in pending_ids:
                 continue
+            key = patient_key(assessment.subject)
+            patients.add(key)
+            if needle and needle not in assessment.subject.lower():
+                continue
+            groups.setdefault(key, []).append(entry)
+        self._groups = []
+        for entries in groups.values():
+            chosen = next((e for e in entries if e[0].id == keep), entries[0])
             item = QListWidgetItem()
-            card = VisitCard(visit, self._visit_band(assessment, visit), assessment)
+            card = PatientCard(entries, self._visit_band(entries[0][0], entries[0][1]))
             item.setSizeHint(card.sizeHint())
             self.visits.addItem(item)
             self.visits.setItemWidget(item, card)
             self._cards.append(card)
-            if keep is not None and assessment.id == keep:
+            if keep is not None and chosen[0].id == keep:
                 select_row = len(self._shown_plans) + len(shown)
-            shown.append(entry)
+            shown.append(chosen)
+            self._groups.append(entries)
         self._shown = shown
         self._fit_cards()
         self.visits.blockSignals(False)
-        total = len(self._plans) + sum(1 for a, _v, _m in self._entries if a.id not in pending_ids)
-        self.list_title.setText(tr("Hodnocení ({n})").format(n=total) if total else tr("Hodnocení"))
+        total = len(self._plans) + len(patients)
+        self.list_title.setText(tr("Pacienti ({n})").format(n=total) if total else tr("Pacienti"))
         self.empty.setVisible(not total)
         if select_row is not None:
             self.visits.setCurrentRow(select_row)
@@ -891,19 +946,31 @@ class AssessmentPage(QWidget):
     def plans(self) -> list[AssessmentPlan]:
         return list(self._plans)
 
-    def card(self, row: int) -> VisitCard | PendingCard | None:
+    def card(self, row: int) -> PatientCard | PendingCard | None:
         return self._cards[row] if 0 <= row < len(self._cards) else None
+
+    def patient_entries(self) -> list[Entry]:
+        """Všechna vyšetření vybraného pacienta, nejnovější první."""
+        row = self.visits.currentRow() - len(self._shown_plans)
+        return list(self._groups[row]) if 0 <= row < len(self._groups) else []
 
     def select_row(self, row: int) -> None:
         if 0 <= row < self.visits.count():
             self.visits.setCurrentRow(row)
 
     def select_assessment(self, assessment_id: str) -> bool:
+        """Vybere pacienta a v jeho řadě dané vyšetření."""
         offset = len(self._shown_plans)
-        for row, (assessment, _v, _m) in enumerate(self._shown):
-            if assessment.id == assessment_id:
+        for row, entries in enumerate(self._groups):
+            entry = next((e for e in entries if e[0].id == assessment_id), None)
+            if entry is None:
+                continue
+            self._shown[row] = entry
+            if self.visits.currentRow() == offset + row:
+                self._item_changed(self.visits.currentItem(), None)
+            else:
                 self.visits.setCurrentRow(offset + row)
-                return True
+            return True
         for row, plan in enumerate(self._shown_plans):
             if plan.id == assessment_id:
                 self.visits.setCurrentRow(row)
@@ -913,16 +980,30 @@ class AssessmentPage(QWidget):
     # --- založení, úprava, smazání ----------------------------------------------------
 
     def make_dialog(
-        self, assessment: Assessment | None = None, initial: Recording | None = None
+        self,
+        assessment: Assessment | None = None,
+        initial: Recording | None = None,
+        template: Assessment | None = None,
     ) -> AssessmentDialog:
         norm = self.current_norm()
         return AssessmentDialog(
             self.recordings_pool(),
             assessment=assessment,
             initial=initial,
+            template=template,
             norm_protocols=norm.info.protocols if norm is not None else {},
             parent=self,
         )
+
+    def new_visit(self) -> Assessment | None:
+        """Další vyšetření téhož pacienta: dialog s předvyplněným pacientem, věkem a pohlavím."""
+        current = self.current_assessment()
+        if current is None:
+            return None
+        dialog = self.make_dialog(template=current)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return self.save_from(dialog)
 
     def save_from(self, dialog: AssessmentDialog) -> Assessment | None:
         """Uloží hodnocení z potvrzeného dialogu a vybere ho."""
@@ -1043,6 +1124,38 @@ class AssessmentPage(QWidget):
         entry = self._shown[row] if 0 <= row < len(self._shown) else None
         self._current = entry[1] if entry else None
         self._missing = entry[2] if entry else []
+        self._fill_visit_bar(row)
+        self._recompute()
+
+    def _fill_visit_bar(self, row: int) -> None:
+        """Tlačítka s daty vyšetření pacienta; vidět jen při víc vyšetřeních."""
+        for btn in self.visit_buttons:
+            self.visit_layout.removeWidget(btn)
+            btn.hide()  # Qt ho maže až z fronty událostí; do té doby by se kreslil přes řadu
+            btn.setParent(None)
+            btn.deleteLater()
+        self.visit_buttons = []
+        entries = self._groups[row] if 0 <= row < len(self._groups) else []
+        current = self._shown[row][0] if 0 <= row < len(self._shown) else None
+        for index, (assessment, _visit, _missing) in enumerate(entries):
+            text = format_visit_date(assessment.date) if assessment.date else tr("bez data")
+            btn = QPushButton(text)
+            btn.setToolTip(visit_subtitle(_visit))
+            chosen = current is not None and assessment.id == current.id
+            theme.set_role(btn, "primary" if chosen else "")
+            btn.clicked.connect(lambda _checked=False, i=index: self._select_visit(i))
+            self.visit_layout.addWidget(btn)
+            self.visit_buttons.append(btn)
+        self.visit_bar.setVisible(bool(entries))
+
+    def _select_visit(self, index: int) -> None:
+        row = self.visits.currentRow() - len(self._shown_plans)
+        if not (0 <= row < len(self._groups)) or not (0 <= index < len(self._groups[row])):
+            return
+        self._shown[row] = self._groups[row][index]
+        self._current = self._shown[row][1]
+        self._missing = self._shown[row][2]
+        self._fill_visit_bar(row)
         self._recompute()
 
     # --- vyhodnocení --------------------------------------------------------------------
@@ -1120,9 +1233,11 @@ class AssessmentPage(QWidget):
         self.about.setText(self._about_text(norm))
         self.image_btn.setEnabled(bool(self._evaluation.shown))
         # štítky v seznamu podle téže normy a téhož okna
-        for card in self._cards:
-            if not isinstance(card, VisitCard):
+        current_row = self.visits.currentRow()
+        for row, card in enumerate(self._cards):
+            if not isinstance(card, PatientCard):
                 continue  # rozpracované hodnocení má štítek z plánu, na normě nezávisí
+            # štítek karty = poslední vyšetření pacienta, i když je vybrané starší
             band = (
                 worst_band(self._cached_evaluation(card.assessment, card.visit, norm))
                 if card.visit is not visit
@@ -1131,19 +1246,20 @@ class AssessmentPage(QWidget):
             card.pill.setText(BAND_LABELS.get(band, tr("bez normy")))
             theme.set_role(card.pill, BAND_ROLES.get(band, "neutral"))
             card._role = BAND_ROLES.get(band, "neutral")
-            card.set_current(card.visit is visit)
+            card.set_current(row == current_row)
 
     def _show_empty_state(self) -> None:
         self._evaluation = None
         self.plan_detail.setVisible(False)
         self.right.setVisible(True)
-        self.header.title.setText(tr("Hodnocení"))
-        self.header.subtitle.setText(tr("Vyberte hodnocení vlevo, nebo založte nové."))
+        self.header.title.setText(tr("Pacient"))
+        self.header.subtitle.setText(tr("Vyberte pacienta vlevo, nebo založte nové hodnocení."))
         self.header.set_role("neutral")
         self.header.set_pills([])
         self.middle.hide()
         self.recordings.setRowCount(0)
         self.recordings_note.setText("")
+        self.visit_bar.hide()
         self.edit_btn.setEnabled(False)
         self.delete_btn.setEnabled(False)
         self.recompute_btn.setEnabled(False)
@@ -1538,7 +1654,7 @@ def _colorize(item: QTreeWidgetItem, band: str) -> None:
 
 __all__ = [
     "AssessmentPage",
-    "VisitCard",
+    "PatientCard",
     "PendingCard",
     "worst_band",
     "format_number",
