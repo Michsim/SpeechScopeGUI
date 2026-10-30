@@ -16,10 +16,11 @@ from speechscope_app.backend.assessment_build import (
     new_plan,
     patient_from_scan,
     pending_plans,
+    plan_from_assessment,
     split_by_task,
 )
 from speechscope_app.backend.assessments import AssessmentStore
-from speechscope_app.backend.history import RunGroup
+from speechscope_app.backend.history import RunGroup, read_run
 from speechscope_app.backend.norm_build import ERROR, OK, TaskPlan, default_protocol
 from speechscope_app.backend.protocol import builtin_protocols
 from speechscope_app.backend.settings import AppSettings
@@ -230,3 +231,73 @@ def test_pending_assessment_plan_discard(
     assert window.discard_assessment_plan(plan.path, confirm=False)
     assert page.count() == 0 and not plan.path.exists()
     shutil.rmtree(tmp_path / "assessments", ignore_errors=True)
+
+
+def test_recompute_assessment_reruns_and_replaces(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    """Přepočítat…: stejné nahrávky a protokoly znovu, hodnocení se stejným id se nahradí."""
+    folder = make_folder(tmp_path / "fonace", {"": ["P1_a.wav"]})
+    plan = make_plan(tmp_path, folder)
+    plan.tasks = plan.tasks[:1]  # jen fonace
+    plan.path = settings.assessments_dir() / plan.path.name
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.nav.setCurrentRow(PAGE_ASSESSMENT)
+    page = window.assessment_page
+    assert window.start_plan("assessment", plan) == 1
+    qtbot.waitUntil(lambda: not plan.path.exists(), timeout=30000)
+    qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=10000)
+    page.refresh()
+    first = page.current_assessment()
+    assert first is not None and first.id == plan.id and page.count() == 1
+    old_runs = {r.run for r in first.recordings}
+    assert page.recompute_btn.isEnabled() and "nahradí" in page.recompute_btn.toolTip()
+    history = window.results_page.history
+    history.refresh()
+    assert history.filter_buttons["assessment"].text() == "Hodnocení (1)"
+
+    # plán přepočtu: tytéž nahrávky, protokol z běhu
+    rec_plan, problems = page.recompute_plan(first.id)
+    assert problems == [] and rec_plan is not None and rec_plan.id == first.id
+    assert [t.task for t in rec_plan.tasks] == ["phonation"]
+    assert rec_plan.tasks[0].inputs == [folder / "P1_a.wav"]
+    assert rec_plan.tasks[0].proto().name == "Fonace, základní"
+    assert rec_plan.patient == Patient("P1", 64.0, "m", "2026-10-14")
+    assert page.recompute_plan("neni") == (None, ["hodnocení už neexistuje"])
+
+    # přepočet: v seznamu jen karta „počítá se“, po skončení totéž id s novými běhy
+    assert window.recompute_assessment(first.id, confirm=False) == 1
+    assert page.count() == 1 and page.current_plan() is not None
+    assert page.current_plan().id == first.id and "počítá se" in page.card(0).pill.text()
+    assert window.recompute_assessment(first.id, confirm=False) == 0  # už běží
+    qtbot.waitUntil(lambda: not rec_plan.path.exists(), timeout=30000)
+    qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=10000)
+    page.refresh()
+    second = page.current_assessment()
+    assert second is not None and second.id == first.id and page.count() == 1
+    new_runs = {r.run for r in second.recordings}
+    assert new_runs and new_runs.isdisjoint(old_runs)
+    assert page.current_visit() is not None and page.current_visit().count("phonation") == 1
+    # staré běhy zůstaly, ale už nepatří ke kartě hodnocení
+    history.refresh()
+    assert history.filter_buttons["assessment"].text() == "Hodnocení (1)"
+    assert history.filter_buttons["analysis"].text() == "Analýzy (1)"
+    retired = [r for r in history.all_runs() if not r.assessment]
+    assert len(retired) == 1 and retired[0].status == "ok"
+    assert read_run(retired[0].dir, group_dir=retired[0].group_dir) is not None
+    assert "Hodnocení P1" in retired[0].display_name
+
+    # důvody, proč přepočítat nejde: chybějící protokol, nahrávka mimo disk
+    run_dir = page.current_visit().recordings[0].run.dir
+    (run_dir / "protocol.yaml").rename(run_dir / "protocol.bak")
+    page.refresh()
+    assert not page.recompute_btn.isEnabled()
+    assert "nemá uložený protokol" in page.recompute_btn.toolTip()
+    (run_dir / "protocol.bak").rename(run_dir / "protocol.yaml")
+    (folder / "P1_a.wav").unlink()
+    page.refresh()
+    assert not page.recompute_btn.isEnabled() and "není na disku" in page.recompute_btn.toolTip()
+    assert window.recompute_assessment(first.id, confirm=False) == 0
+    none_plan, why = plan_from_assessment(second, page.current_visit(), [], tmp_path)
+    assert none_plan is None and why == ["nahrávka P1_a.wav už není na disku"]

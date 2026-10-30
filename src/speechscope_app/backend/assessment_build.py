@@ -28,6 +28,8 @@ from . import meta, tasks
 from .assessments import Assessment, AssessmentStore, RecordingRef, new_id
 from .manifest import Manifest
 from .norm_build import PENDING, FolderScan, PlanState, TaskPlan, scan_folder
+from .protocol import Protocol
+from .visits import Recording, Visit
 
 PLAN_SUFFIX = ".plan.json"
 PLAN_VERSION = 1
@@ -181,6 +183,57 @@ def pending_plans(folder: Path) -> list[AssessmentPlan]:
             continue  # rozbitý plán nesmí shodit stránku
     out.sort(key=lambda p: p.created, reverse=True)
     return out
+
+
+def plan_from_assessment(
+    assessment: Assessment, visit: Visit, missing: list[RecordingRef], folder: Path
+) -> tuple[AssessmentPlan | None, list[str]]:
+    """Plán přepočtu hotového hodnocení: tytéž nahrávky a protokoly, současná knihovna.
+
+    Nahrávky jsou cesty z tabulek běhů, protokol úlohy je `protocol.yaml` jejího
+    běhu (přesně to, čím se počítalo, včetně jazyka). Plán má id hodnocení, takže
+    `finish_plan` hodnocení přepíše na místě. Když něco chybí (nahrávka na disku,
+    běh, protokol), vrátí None a důvody.
+    """
+    problems: list[str] = []
+    if missing:
+        problems.append(
+            tr("v bězích chybí: {files}").format(files=", ".join(r.file for r in missing))
+        )
+    by_task: dict[str, list[Recording]] = {}
+    for rec in visit.recordings:
+        by_task.setdefault(rec.task, []).append(rec)
+    plan_tasks: list[TaskPlan] = []
+    language = ""
+    for task in sorted(by_task, key=tasks.task_order):
+        recs = by_task[task]
+        inputs: list[Path] = []
+        for rec in recs:
+            if rec.path is None or not rec.path.is_file():
+                problems.append(tr("nahrávka {file} už není na disku").format(file=rec.file))
+            else:
+                inputs.append(rec.path)
+        proto = None
+        for rec in recs:
+            try:
+                proto = Protocol.load(rec.run.dir / "protocol.yaml")
+                break
+            except Exception:  # noqa: BLE001  chybějící nebo rozbitý soubor
+                continue
+        if proto is None:
+            problems.append(
+                tr("běh úlohy {task} nemá uložený protokol").format(task=tasks.label(task))
+            )
+            continue
+        language = language or str(proto.config.get("transcript", {}).get("language") or "")
+        plan_tasks.append(TaskPlan(task, proto.to_dict(), inputs))
+    if not plan_tasks and not problems:
+        problems.append(tr("hodnocení nemá žádnou nahrávku"))
+    if problems:
+        return None, problems
+    patient = Patient(assessment.subject, assessment.age, assessment.sex, assessment.date)
+    path = folder / f"{assessment.id}{PLAN_SUFFIX}"
+    return AssessmentPlan(path, assessment.id, patient, language, plan_tasks), []
 
 
 def finish_plan(plan: AssessmentPlan, store: AssessmentStore) -> Assessment:

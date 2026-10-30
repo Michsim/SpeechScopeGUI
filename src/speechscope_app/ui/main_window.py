@@ -43,6 +43,7 @@ from ..backend.history import (
     read_run,
     rename_run,
     rename_run_dir,
+    retire_assessment_runs,
     trash_all,
     trash_run,
     unique_run_dir,
@@ -286,6 +287,7 @@ class MainWindow(QMainWindow):
             lambda key: self.resume_plan("assessment", key)
         )
         self.assessment_page.discard_requested.connect(self.discard_assessment_plan)
+        self.assessment_page.recompute_requested.connect(self.recompute_assessment)
         self.run_page.progress_changed.connect(self._show_progress)
         self.run_page.file_done.connect(self._file_done)
         self.run_page.queue_remove.connect(self.remove_queued)
@@ -901,6 +903,39 @@ class MainWindow(QMainWindow):
         dialog = self.make_assessment_build_dialog()
         if dialog.exec():
             self.start_plan("assessment", dialog.plan())
+
+    def recompute_assessment(self, assessment_id: str, *, confirm: bool = True) -> int:
+        """Hotové hodnocení spočítat znovu současnou knihovnou; vrátí počet dávek.
+
+        Plán má id hodnocení, po poslední dávce `finish_plan` hodnocení přepíše
+        (stejné id, nové odkazy na běhy). Dosavadní běhy zůstávají ve Výsledcích,
+        jen už ne pod kartou hodnocení (`retire_assessment_runs`)."""
+        plan_path = self.settings.assessments_dir() / f"{assessment_id}{PLAN_SUFFIX}"
+        if plan_path.exists() or self._plan_busy("assessment", plan_path):
+            self.statusBar().showMessage(tr("Hodnocení se už počítá."), 6000)
+            return 0
+        plan, problems = self.assessment_page.recompute_plan(assessment_id)
+        if plan is None:
+            self.statusBar().showMessage(
+                tr("Hodnocení nejde přepočítat: {why}").format(why="; ".join(problems)), 10000
+            )
+            return 0
+        if confirm:
+            answer = QMessageBox.question(
+                self,
+                tr("Přepočítat hodnocení"),
+                tr(
+                    "Nahrávky hodnocení {subject} se spočítají znovu současnou knihovnou "
+                    "({n} dávek). Hodnocení se po skončení nahradí, dosavadní běhy zůstanou "
+                    "ve Výsledcích mezi analýzami."
+                ).format(subject=plan.patient.subject, n=len(plan.tasks)),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return 0
+        retire_assessment_runs(self.settings.work_root, assessment_id)
+        return self.start_plan("assessment", plan)
 
     def _finish_assessment(self, plan: AssessmentPlan) -> bool:
         try:

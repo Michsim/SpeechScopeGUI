@@ -378,6 +378,30 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   Koše, běhy zůstávají). Do složek s nahrávkami se nic nezapisuje. Zbývá:
   varianta z hotových běhů, Přidat kontroly… a varování na Hodnocení, když
   pacient nemá protokol z `NormInfo.protocols`.
+- **Přepočet normy** (30. 10. 2026): `plan.json` zůstává ve složce normy i po
+  sestavení (do `.ssnorm` nejde, importovaná a přibalená norma přepočet nemá).
+  Na Normách Přepočítat… (`recompute_requested` → `MainWindow.recompute_norm`),
+  aktivní jen když plán existuje a nahrávky jsou na disku
+  (`NormPlan.missing_inputs`, důvod v tooltipu). `reset_for_recompute` vrátí
+  dávky na „čeká“ bez `run_dir` a nastaví `NormPlan.recomputing`; dokud platí,
+  `pending_plans` normu vrací jako rozpracovanou (karta „přepočítává se k z n“,
+  stránka ji neukazuje dvakrát), stará `norm.yaml` zůstává použitelná a
+  `finish_plan` ji po poslední dávce přepíše (vlajku zruší, `created` = dnešek).
+  Zahodit… je u přepočtu „Zrušit přepočet…“: `discard_norm` zavolá
+  `cancel_recompute` (nespuštěné dávky zrušené, norma beze změny), nic do Koše.
+- **Přepočet hodnocení** (30. 10. 2026): na Hodnocení Přepočítat…
+  (`recompute_requested(id)` → `MainWindow.recompute_assessment`) pro každé
+  hodnocení, i založené z hotových běhů: `assessment_build.plan_from_assessment`
+  složí plán s id hodnocení z cest nahrávek v tabulkách běhů a `protocol.yaml`
+  každého běhu (včetně jazyka); chybějící nahrávka, běh nebo protokol = tlačítko
+  neaktivní s důvodem (`AssessmentPage.recompute_plan`). Před spuštěním
+  `history.retire_assessment_runs` vyprázdní `assessment` v `run.json`
+  dosavadních běhů (`former_assessment` zůstane), takže v historii spadnou mezi
+  analýzy a karta hodnocení patří novým dávkám; jinak by `group_runs` míchal
+  staré a nové běhy jedné úlohy. Během výpočtu je v seznamu místo karty
+  hodnocení `PendingCard` téhož id (`_fill_list` kartu hodnocení skryje),
+  Zahodit… vrátí staré hodnocení; `finish_plan` ho pak přepíše na místě
+  (stejné id, nové odkazy), běhy se sloučí do nové složky vyšetření.
 - **Vlastní úlohy** (`backend/tasks.py`, rozhodnuto 29. 10. 2026 večer, mockup
   https://claude.ai/artifact/7tDEUpd2eP7RVwrXdPG5vz, `docs/mockups/vlastni-uloha/` mimo
   git): `CustomTask` = klíč (slug názvu, `registry().new_key`), název, `base` = úloha

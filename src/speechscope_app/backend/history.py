@@ -484,6 +484,28 @@ def group_runs(
     return entries
 
 
+def retire_assessment_runs(work_root: Path, assessment_id: str) -> int:
+    """Před přepočtem hodnocení: dosavadní běhy přestanou patřit k jeho kartě.
+
+    `assessment` v run.json se vyprázdní (karta vyšetření v historii patří novým
+    dávkám), `former_assessment` zůstane pro dohledání; běhy, tabulky i název
+    („Hodnocení P-017 · Fonace“) se nemění, v historii jsou dál mezi analýzami.
+    Vrací, kolik běhů upravil."""
+    changed = 0
+    for run in list_runs(work_root):
+        if run.assessment != assessment_id:
+            continue
+        data = _read_json(run.dir / RUN_FILE)
+        data["assessment"] = ""
+        data["former_assessment"] = assessment_id
+        try:
+            write_run_file(run.dir, **data)
+        except OSError:
+            continue
+        changed += 1
+    return changed
+
+
 def merge_assessment_runs(work_root: Path, group: RunGroup) -> tuple[Path, list[tuple[Path, Path]]]:
     """Ploché běhy vyšetření přesune do jedné složky `<datum>_<čas>_hodnoceni-<pacient>`.
 

@@ -47,7 +47,7 @@ from PySide6.QtWidgets import (
 
 from ... import contract
 from ...backend import tasks
-from ...backend.assessment_build import AssessmentPlan, pending_plans
+from ...backend.assessment_build import AssessmentPlan, pending_plans, plan_from_assessment
 from ...backend.assessments import (
     Assessment,
     AssessmentStore,
@@ -251,6 +251,7 @@ class AssessmentPage(QWidget):
     build_requested = Signal(object)  # plán: založit z hotových dávek
     resume_requested = Signal(object)  # plán: dopočítat zbývající dávky
     discard_requested = Signal(object)  # plán: zahodit rozpracované hodnocení
+    recompute_requested = Signal(str)  # id hodnocení: nahrávky znovu současnou knihovnou
     open_run_requested = Signal(object)  # složka běhu: Otevřít běh ve Výsledcích
     orientation_changed = Signal(str)  # orientace pavouka (hlavní okno uloží)
 
@@ -341,6 +342,10 @@ class AssessmentPage(QWidget):
         self.edit_btn.setEnabled(False)
         self.edit_btn.clicked.connect(self.edit_current)
         self.header.add_button(self.edit_btn)
+        self.recompute_btn = QPushButton(tr("Přepočítat…"))
+        self.recompute_btn.setEnabled(False)
+        self.recompute_btn.clicked.connect(lambda: self._recompute_current())
+        self.header.add_button(self.recompute_btn)
         self.image_btn = QPushButton(tr("Uložit obrázek…"))
         self.image_btn.setToolTip(tr("Pavouk jako PNG, třeba do zprávy."))
         self.image_btn.setEnabled(False)
@@ -845,9 +850,12 @@ class AssessmentPage(QWidget):
             if keep is not None and plan.id == keep:
                 select_row = len(self._shown_plans)
             self._shown_plans.append(plan)
+        pending_ids = {plan.id for plan in self._plans}  # přepočet: jen karta „počítá se“
         for entry in self._entries:
             assessment, visit, _missing = entry
             if needle and needle not in assessment.subject.lower():
+                continue
+            if assessment.id in pending_ids:
                 continue
             item = QListWidgetItem()
             card = VisitCard(visit, self._visit_band(assessment, visit), assessment)
@@ -861,7 +869,7 @@ class AssessmentPage(QWidget):
         self._shown = shown
         self._fit_cards()
         self.visits.blockSignals(False)
-        total = len(self._entries) + len(self._plans)
+        total = len(self._plans) + sum(1 for a, _v, _m in self._entries if a.id not in pending_ids)
         self.list_title.setText(tr("Hodnocení ({n})").format(n=total) if total else tr("Hodnocení"))
         self.empty.setVisible(not total)
         if select_row is not None:
@@ -939,6 +947,35 @@ class AssessmentPage(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         return self.save_from(dialog)
+
+    def recompute_plan(self, assessment_id: str) -> tuple[AssessmentPlan | None, list[str]]:
+        """Plán přepočtu hodnocení (nebo důvody, proč nejde), pro hlavní okno."""
+        for assessment, visit, missing in self._entries:
+            if assessment.id == assessment_id and self._store is not None:
+                return plan_from_assessment(assessment, visit, missing, self._store.folder)
+        return None, [tr("hodnocení už neexistuje")]
+
+    def _update_recompute(self) -> None:
+        current = self.current_assessment()
+        if current is None:
+            self.recompute_btn.setEnabled(False)
+            self.recompute_btn.setToolTip("")
+            return
+        plan, problems = self.recompute_plan(current.id)
+        self.recompute_btn.setEnabled(plan is not None)
+        self.recompute_btn.setToolTip(
+            tr(
+                "Nahrávky hodnocení znovu současnou knihovnou (po změně feature); "
+                "hodnocení se po skončení nahradí, dosavadní běhy zůstanou ve Výsledcích."
+            )
+            if plan is not None
+            else tr("Přepočítat nejde: {why}").format(why="; ".join(problems))
+        )
+
+    def _recompute_current(self) -> None:
+        current = self.current_assessment()
+        if current is not None:
+            self.recompute_requested.emit(current.id)
 
     def edit_current(self) -> Assessment | None:
         current = self.current_assessment()
@@ -1047,6 +1084,7 @@ class AssessmentPage(QWidget):
         self._fill_recordings(visit)
         self.edit_btn.setEnabled(True)
         self.delete_btn.setEnabled(True)
+        self._update_recompute()
         if norm is None:
             self._evaluation = None
             self.header.set_role("neutral")
@@ -1108,6 +1146,8 @@ class AssessmentPage(QWidget):
         self.recordings_note.setText("")
         self.edit_btn.setEnabled(False)
         self.delete_btn.setEnabled(False)
+        self.recompute_btn.setEnabled(False)
+        self.recompute_btn.setToolTip("")
         self.image_btn.setEnabled(False)
         self.selection_label.setText("")
         self.about.setText(self._about_text(self.current_norm()) if self.current_norm() else "")
