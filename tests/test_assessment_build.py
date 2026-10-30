@@ -24,7 +24,13 @@ from speechscope_app.backend.history import RunGroup, read_run
 from speechscope_app.backend.norm_build import ERROR, OK, TaskPlan, default_protocol
 from speechscope_app.backend.protocol import builtin_protocols
 from speechscope_app.backend.settings import AppSettings
-from speechscope_app.ui.main_window import PAGE_ASSESSMENT, PAGE_RESULTS, MainWindow
+from speechscope_app.ui.main_window import (
+    PAGE_ASSESSMENT,
+    PAGE_HOME,
+    PAGE_RESULTS,
+    PAGE_RUN,
+    MainWindow,
+)
 
 
 def make_folder(root: Path, names: dict[str, list[str]], manifest: str = "") -> Path:
@@ -301,3 +307,35 @@ def test_recompute_assessment_reruns_and_replaces(
     assert window.recompute_assessment(first.id, confirm=False) == 0
     none_plan, why = plan_from_assessment(second, page.current_visit(), [], tmp_path)
     assert none_plan is None and why == ["nahrávka P1_a.wav už není na disku"]
+
+
+def test_home_runs_wizard_in_place(qtbot: QtBot, settings: AppSettings, tmp_path: Path) -> None:
+    """Nové hodnocení… na Domů: průvodce v kroku 2, Spustit zařadí dávky a vrátí karty."""
+    data = make_folder(tmp_path / "pacient", {"": ["aaa1.wav"]})
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    home = window.home_page
+    assert window.nav.currentRow() == PAGE_HOME and home.step() == 0
+    home.assess_btn.click()
+    builder = home.builder
+    assert home.step() == 1 and builder is not None and not builder.next_btn.isEnabled()
+    builder.subject.setText("P1")
+    builder.set_folder("phonation", data)
+    assert builder.rows["phonation"].count.text() == "1 ✓" and builder.next_btn.isEnabled()
+    builder.go_next()
+    assert builder.step() == 1 and builder.batches.rowCount() == 1
+    builder.go_next()  # Spustit
+    assert window.nav.currentRow() == PAGE_RUN and home.step() == 0 and home.builder is None
+    page = window.assessment_page
+    page.refresh()
+    assert page.count() == 1 and page.current_plan() is not None
+    plan = page.current_plan()
+    qtbot.waitUntil(lambda: not plan.path.exists(), timeout=30000)
+    qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=10000)
+    assert window.nav.currentRow() == PAGE_ASSESSMENT
+    page.refresh()
+    assert page.current_assessment() is not None and page.current_assessment().subject == "P1"
+    # dialogová podoba průvodce dál funguje a sdílí widget
+    dialog = window.make_assessment_build_dialog()
+    qtbot.addWidget(dialog)
+    assert dialog.step() == 0 and dialog.widget.step() == 0 and not dialog.next_btn.isEnabled()

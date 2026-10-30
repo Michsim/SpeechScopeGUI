@@ -95,9 +95,17 @@ git): Domů · Analýza nahrávek · Výpočet · Výsledky · Pacienti, dole Pr
 Prostředí (`PAGE_HOME` … `PAGE_ENV`; popis stránek Pacienti a Normy je v sekci
 Normy a dimenze). Uvítání mimo nabídku už není.
 **Domů** (`pages/home.py`, `HomePage`, po startu vždy, `show_home`): rozcestník
-podle výstupu, dvě velké karty `ActionCard` Hodnocení pacienta (modrá, doporučená →
-`MainWindow.new_assessment_from_home`: stránka Pacienti a dnešní volba zdroje)
-a Analýza nahrávek (→ Analýza); pod nimi pruh „právě běží“ (`set_running`
+podle výstupu, dvě velké karty `ActionCard` Hodnocení pacienta a Analýza nahrávek
+(obě s modrým tlačítkem, dál vede jen tlačítko, ne klik do karty; → Analýza).
+Nové hodnocení… nepřeskakuje na Pacienty: Domů má dva kroky jako Analýza,
+krok 2 (`HomePage.show_builder`, `MainWindow.new_assessment_from_home`) je
+průvodce z nahrávek `AssessmentBuildWidget` se záhlavím „‹ Domů“ a odkazem
+„…nebo z hotových běhů“ (`runs_requested` → `new_assessment_from_runs`: Pacienti
+a `AssessmentPage.new_from_runs`, dialog bez volby zdroje); Spustit
+(`_start_home_plan`) zařadí dávky a vrátí karty, Zpět rozdělaný průvodce bez
+ptaní zahodí (`show_cards`). Týž widget je uvnitř tenkého
+`AssessmentFromRecordingsDialog` (Nové hodnocení… na Pacientech; dialog
+deleguje atributy na `widget`). Pod kartami pruh „právě běží“ (`set_running`
 z `_show_progress`, `set_progress` z `_file_done`, klik → Výpočet, po konci
 `clear_running`); dole pod čarou tlačítko Nová norma… (→ Normy a průvodce) a
 stav: štítek knihovna/modely jako dřív na uvítání (`set_state`, `set_report`,

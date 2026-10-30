@@ -11,6 +11,11 @@ změnila feature. Stránka sama nic nepočítá, jen volá to, co existuje.
 Dokud chybí modely, je pod kartami blok „První nastavení“: složka modelů
 (návrh vedle aplikace) a složka výsledků, obojí jde změnit, a tlačítka na
 instalaci modelů z balíku nebo stažení. Po instalaci blok zmizí.
+
+Nové hodnocení… nepřeskakuje na Pacienty: stránka má dva kroky jako Analýza.
+Krok 2 (`show_builder`) je průvodce `AssessmentBuildWidget` se záhlavím
+„‹ Domů · Nové hodnocení z nahrávek“ a odkazem „…nebo z hotových běhů“
+(`runs_requested`); po Spustit nebo Zpět se vrátí karty (`show_cards`).
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QProgressBar,
     QPushButton,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -95,7 +101,8 @@ class ActionCard(QFrame):
 
 
 class HomePage(QWidget):
-    assessment_requested = Signal()  # Hodnocení pacienta → volba zdroje a průvodce
+    assessment_requested = Signal()  # Hodnocení pacienta → průvodce v kroku 2
+    runs_requested = Signal()  # z kroku 2: hodnocení z hotových běhů (dialog na Pacientech)
     analysis_requested = Signal()  # Analýza nahrávek → stránka Analýza
     norm_requested = Signal()  # Nová norma… → průvodce Nová norma
     environment_requested = Signal()  # stránka Prostředí
@@ -108,7 +115,14 @@ class HomePage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        layout = QVBoxLayout(self)
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        self.stack = QStackedWidget()
+        page_layout.addWidget(self.stack)
+        cards_page = QWidget()
+        self.stack.addWidget(cards_page)
+        self.stack.addWidget(self._build_builder_page())
+        layout = QVBoxLayout(cards_page)
         layout.setContentsMargins(28, 24, 28, 20)
         layout.setSpacing(14)
 
@@ -292,6 +306,57 @@ class HomePage(QWidget):
         self._models_present = False
         self._dismissed = False  # Hotovo: blok se v tomto běhu už neukáže
         self.set_state(library_ok=False, models_ok=False)
+
+    # --- krok 2: průvodce ------------------------------------------------------------
+
+    def _build_builder_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(28, 24, 28, 20)
+        layout.setSpacing(14)
+        head = QHBoxLayout()
+        head.setSpacing(12)
+        self.home_btn = QPushButton(tr("‹ Domů"))
+        self.home_btn.clicked.connect(self.show_cards)
+        head.addWidget(self.home_btn)
+        title = QLabel(tr("Nové hodnocení z nahrávek"))
+        title.setObjectName("page_title")
+        head.addWidget(title, 1)
+        self.runs_link = QLabel(tr('<a href="runs">…nebo z hotových běhů</a>'))
+        self.runs_link.setObjectName("muted")
+        self.runs_link.setToolTip(tr("Nahrávky, které už jsou spočítané, bez dalšího výpočtu"))
+        self.runs_link.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self.runs_link.linkActivated.connect(lambda _href: self.runs_requested.emit())
+        head.addWidget(self.runs_link)
+        layout.addLayout(head)
+        self.builder_slot = QVBoxLayout()
+        self.builder_slot.setContentsMargins(0, 0, 0, 0)
+        layout.addLayout(self.builder_slot, 1)
+        self.builder: QWidget | None = None
+        return page
+
+    def step(self) -> int:
+        return self.stack.currentIndex()
+
+    def show_builder(self, widget: QWidget) -> None:
+        """Krok 2 s čerstvým průvodcem; předchozí se zahodí."""
+        self._drop_builder()
+        self.builder = widget
+        self.builder_slot.addWidget(widget)
+        self.stack.setCurrentIndex(1)
+
+    def show_cards(self) -> None:
+        """Zpět na karty; rozdělaný průvodce se bez ptaní zahodí."""
+        self._drop_builder()
+        self.stack.setCurrentIndex(0)
+
+    def _drop_builder(self) -> None:
+        if self.builder is not None:
+            self.builder_slot.removeWidget(self.builder)
+            self.builder.hide()
+            self.builder.setParent(None)
+            self.builder.deleteLater()
+            self.builder = None
 
     # --- stav ------------------------------------------------------------------------
 

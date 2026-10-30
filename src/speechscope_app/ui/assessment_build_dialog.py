@@ -2,12 +2,15 @@
 
 `NewAssessmentChoiceDialog` se ptá, odkud nahrávky vzít: z nahrávek (tento
 průvodce, spočítá se) nebo z hotových běhů (`AssessmentDialog`).
-`AssessmentFromRecordingsDialog` má dva kroky podle mockupu
+`AssessmentBuildWidget` má dva kroky podle mockupu
 (docs/mockups/hodnoceni-z-nahravek): 1 pacient, věk, pohlaví, datum, jazyk
 a pro každou úlohu složka s nahrávkami a protokol (přibalený, v rozšířeném
 režimu jiný); složka s `manifest.csv` se sloupcem `task` vyplní i ostatní
 úlohy a údaje pacienta; 2 souhrn dávek s odhadem. Výsledek je
-`AssessmentPlan`, dávky spouští hlavní okno.
+`AssessmentPlan`, dávky spouští hlavní okno. Widget žije na dvou místech
+(30. 10. 2026): v kroku 2 stránky Domů (Nové hodnocení… z karty, bez
+přeskakování na Pacienty) a v tenkém `AssessmentFromRecordingsDialog`
+(Nové hodnocení… na Pacientech); hlásí `accepted` (Spustit) a `rejected`.
 """
 
 from __future__ import annotations
@@ -134,7 +137,12 @@ class NewAssessmentChoiceDialog(QDialog):
         return "recordings" if self.recordings.isChecked() else "runs"
 
 
-class AssessmentFromRecordingsDialog(QDialog):
+class AssessmentBuildWidget(QWidget):
+    """Dva kroky průvodce: nahrávky po úlohách, souhrn dávek a Spustit."""
+
+    accepted = Signal()  # Spustit: `plan()` je hotový
+    rejected = Signal()  # Storno v prvním kroku
+
     def __init__(
         self,
         protocols: list[Protocol],
@@ -147,13 +155,11 @@ class AssessmentFromRecordingsDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle(tr("Nové hodnocení z nahrávek"))
-        self.resize(980, 700)
         self._dir = assessments_dir
         self._rate = rate_lookup
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(24, 18, 24, 16)
+        outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(12)
         steps = QHBoxLayout()
         steps.setSpacing(8)
@@ -505,11 +511,11 @@ class AssessmentFromRecordingsDialog(QDialog):
         if self.step() == 0:
             self._show_step(1)
         else:
-            self.accept()
+            self.accepted.emit()
 
     def go_back(self) -> None:
         if self.step() == 0:
-            self.reject()
+            self.rejected.emit()
         else:
             self._show_step(0)
 
@@ -540,4 +546,43 @@ class AssessmentFromRecordingsDialog(QDialog):
         return new_plan(self._dir, self.patient(), language, tasks)
 
 
-__all__ = ["NewAssessmentChoiceDialog", "AssessmentFromRecordingsDialog"]
+class AssessmentFromRecordingsDialog(QDialog):
+    """Průvodce v okně (Nové hodnocení… na Pacientech); vše ostatní dělá widget."""
+
+    def __init__(
+        self,
+        protocols: list[Protocol],
+        assessments_dir: Path,
+        *,
+        advanced: bool = False,
+        languages: list[str] | None = None,
+        language: str = "cs",
+        rate_lookup: Callable[[str], float | None] = lambda _slug: None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(tr("Nové hodnocení z nahrávek"))
+        self.resize(980, 700)
+        self.widget = AssessmentBuildWidget(
+            protocols,
+            assessments_dir,
+            advanced=advanced,
+            languages=languages,
+            language=language,
+            rate_lookup=rate_lookup,
+            parent=self,
+        )
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 18, 24, 16)
+        layout.addWidget(self.widget)
+        self.widget.accepted.connect(self.accept)
+        self.widget.rejected.connect(self.reject)
+
+    def __getattr__(self, name: str):  # noqa: ANN204
+        """Pole a metody průvodce (`plan`, `rows`, `set_folder`…) jako dřív přímo na dialogu."""
+        if name == "widget":
+            raise AttributeError(name)
+        return getattr(self.widget, name)
+
+
+__all__ = ["NewAssessmentChoiceDialog", "AssessmentBuildWidget", "AssessmentFromRecordingsDialog"]

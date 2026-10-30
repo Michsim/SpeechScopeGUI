@@ -1015,6 +1015,13 @@ class AssessmentPage(QWidget):
         self.refresh(select=assessment.id)
         return assessment
 
+    def new_from_runs(self) -> Assessment | None:
+        """Nové hodnocení z hotových běhů rovnou, bez volby zdroje (odkaz z Domů)."""
+        dialog = self.make_dialog()
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return self.save_from(dialog)
+
     def new_assessment(self, initial: Recording | None = None) -> Assessment | None:
         """Nové hodnocení: s nahrávkou z Výsledků rovnou dialog, jinak volba zdroje."""
         if initial is None:

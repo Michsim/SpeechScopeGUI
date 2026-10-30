@@ -1051,12 +1051,20 @@ def test_home_cards_running_strip_and_norm_warning(
     assert "Stará norma" in home.norm_warning.text()
     home.start_btn.click()
     assert window.nav.currentRow() == PAGE_BATCH
+    window.nav.setCurrentRow(PAGE_HOME)
+    home.assess_btn.click()  # průvodce v kroku 2, nabídka zůstává na Domů
+    assert window.nav.currentRow() == PAGE_HOME and home.step() == 1
+    assert home.builder is not None and home.builder.step() == 0
+    home.home_btn.click()
+    assert home.step() == 0 and home.builder is None
+    # odkaz „…nebo z hotových běhů“ vede na Pacienty a rovnou do dialogu nad běhy
+    home.assess_btn.click()
     monkeypatch.setattr(
-        "speechscope_app.ui.pages.assessment.NewAssessmentChoiceDialog.exec",
+        "speechscope_app.ui.pages.assessment.AssessmentDialog.exec",
         lambda self: QDialog.DialogCode.Rejected,
     )
-    home.assess_btn.click()
-    assert window.nav.currentRow() == PAGE_ASSESSMENT
+    home.runs_link.linkActivated.emit("runs")
+    assert window.nav.currentRow() == PAGE_ASSESSMENT and home.step() == 0
     home.env_btn.click()
     assert window.nav.currentRow() == PAGE_ENV
     window.nav.setCurrentRow(PAGE_HOME)

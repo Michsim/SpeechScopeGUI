@@ -68,7 +68,7 @@ from ..backend.trash import send_to_trash
 from ..backend.work import collect_prepare_outputs, work_dir_for
 from ..i18n import tr
 from . import theme
-from .assessment_build_dialog import AssessmentFromRecordingsDialog
+from .assessment_build_dialog import AssessmentBuildWidget, AssessmentFromRecordingsDialog
 from .models_dialog import ModelsDownloadDialog
 from .models_install_dialog import ModelsInstallDialog
 from .new_norm_dialog import NewNormDialog
@@ -251,6 +251,7 @@ class MainWindow(QMainWindow):
         self.home_page.download_requested.connect(self.download_models)
         self.home_page.analysis_requested.connect(lambda: self.nav.setCurrentRow(PAGE_BATCH))
         self.home_page.assessment_requested.connect(self.new_assessment_from_home)
+        self.home_page.runs_requested.connect(self.new_assessment_from_runs)
         self.home_page.norm_requested.connect(self.new_norm_from_home)
         self.home_page.environment_requested.connect(lambda: self.nav.setCurrentRow(PAGE_ENV))
         self.home_page.norms_requested.connect(lambda: self.nav.setCurrentRow(PAGE_NORMS))
@@ -349,9 +350,25 @@ class MainWindow(QMainWindow):
         self.home_page.set_norm_warnings(names)
 
     def new_assessment_from_home(self) -> None:
-        """Karta Hodnocení pacienta: stránka Pacienti a dnešní volba zdroje."""
+        """Karta Hodnocení pacienta: průvodce z nahrávek v kroku 2 na Domů."""
+        if self.library is None:
+            QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
+            return
+        builder = self.make_assessment_build_widget()
+        builder.accepted.connect(lambda: self._start_home_plan(builder))
+        builder.rejected.connect(self.home_page.show_cards)
+        self.home_page.show_builder(builder)
+
+    def _start_home_plan(self, builder: AssessmentBuildWidget) -> None:
+        plan = builder.plan()
+        self.home_page.show_cards()  # průvodce pryč dřív, než se přepne na Výpočet
+        self.start_plan("assessment", plan)
+
+    def new_assessment_from_runs(self) -> None:
+        """Odkaz „…nebo z hotových běhů“ na Domů: dialog nad hotovými běhy, pak Pacienti."""
+        self.home_page.show_cards()
         self.nav.setCurrentRow(PAGE_ASSESSMENT)
-        self.assessment_page.new_assessment()
+        self.assessment_page.new_from_runs()
 
     def new_norm_from_home(self) -> None:
         self.nav.setCurrentRow(PAGE_NORMS)
@@ -925,17 +942,28 @@ class MainWindow(QMainWindow):
 
     # --- hodnocení z nahrávek -----------------------------------------------------
 
-    def make_assessment_build_dialog(self) -> AssessmentFromRecordingsDialog:
+    def _assessment_build_kwargs(self) -> dict[str, Any]:
         combo = self.batch_page.language
-        languages = [str(combo.itemData(i)) for i in range(combo.count())]
+        return {
+            "advanced": self.settings.advanced,
+            "languages": [str(combo.itemData(i)) for i in range(combo.count())],
+            "language": self.batch_page.language_code() or "cs",
+            "rate_lookup": self.settings.seconds_per_audio_minute,
+        }
+
+    def make_assessment_build_dialog(self) -> AssessmentFromRecordingsDialog:
         return AssessmentFromRecordingsDialog(
             all_protocols(self.settings.protocols_dir()),
             self.settings.assessments_dir(),
-            advanced=self.settings.advanced,
-            languages=languages,
-            language=self.batch_page.language_code() or "cs",
-            rate_lookup=self.settings.seconds_per_audio_minute,
             parent=self,
+            **self._assessment_build_kwargs(),
+        )
+
+    def make_assessment_build_widget(self) -> AssessmentBuildWidget:
+        return AssessmentBuildWidget(
+            all_protocols(self.settings.protocols_dir()),
+            self.settings.assessments_dir(),
+            **self._assessment_build_kwargs(),
         )
 
     def new_assessment_from_recordings(self) -> None:
