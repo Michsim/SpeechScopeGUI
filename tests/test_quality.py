@@ -95,7 +95,7 @@ def test_vlastni_soubor_prahu_ma_prednost(tmp_path: Path) -> None:
         quality.assess({"acoustic.recording.duration.total": 8}, "phonation", checks)[0].level
         == quality.WARN
     )
-    assert quality.load_checks(tmp_path / "neni.yaml") == []
+    assert quality.load_checks(tmp_path / "neni.yaml") == quality.default_checks()
 
 
 def test_feature_kvality_pro_beh() -> None:
@@ -131,3 +131,45 @@ def test_protokol_s_domenou_prida_feature_kvality_pres_vzor(tmp_path: Path) -> N
         [tmp_path / "a.wav"], out=tmp_path / "f.csv", work_dir=tmp_path, config_path=None
     )
     assert plain.features == ["acoustic.pitch.f0"]
+
+
+def test_upravy_prahu_se_ukladaji_jako_odchylky(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    path = tmp_path / "quality.yaml"
+    quality.use_user_file(path)
+    checks = quality.load_checks()
+    assert checks == quality.default_checks()
+    changed = [replace(c, warn=4.0) if c.key == "phonation_voiced" else c for c in checks]
+    changed = [replace(c, enabled=False) if c.key == "clipping" else c for c in changed]
+    assert quality.save_checks(changed) == path
+    text = path.read_text(encoding="utf-8")
+    assert "phonation_voiced" in text and "clipping" in text and "snr" not in text
+    quality.use_user_file(path)  # nové načtení
+    loaded = {c.key: c for c in quality.load_checks()}
+    assert loaded["phonation_voiced"].warn == 4.0 and not loaded["clipping"].enabled
+    # vypnutá kontrola se nehlásí, upravený práh platí
+    row = {
+        "acoustic.recording.duration.voiced": 4.5,
+        "acoustic.recording.clipping.fraction": 5.0,
+    }
+    assert quality.assess(row, "phonation") == []
+    # bez odchylek se soubor smaže a platí přibalené
+    assert quality.save_checks(quality.default_checks()) is None and not path.exists()
+    assert quality.load_checks() == quality.default_checks()
+
+
+def test_validace_prahu() -> None:
+    from dataclasses import replace
+
+    voiced = next(c for c in quality.default_checks() if c.key == "phonation_voiced")
+    assert quality.validate(voiced) == ""
+    assert "nejvýš" in quality.validate(replace(voiced, bad=6))
+    clip = next(c for c in quality.default_checks() if c.key == "clipping")
+    assert "aspoň" in quality.validate(replace(clip, bad=0.05))
+
+
+def test_vadny_soubor_prahu_da_vychozi(tmp_path: Path) -> None:
+    path = tmp_path / "quality.yaml"
+    path.write_text("overrides: [nesmysl", encoding="utf-8")
+    assert quality.load_checks(path) == quality.default_checks()

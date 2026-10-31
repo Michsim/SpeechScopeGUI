@@ -76,12 +76,27 @@ class SettingsDialog(QDialog):
         self.font_scale.setToolTip(tr("Platí hned po uložení, bez restartu."))
         form.addRow(tr("Velikost písma"), self.font_scale)
 
+        # prahy kontroly kvality: vlastní dialog, uloží se hned (nezávisle na OK/Storno)
+        self.quality_edited = False
+        self.quality_btn = QPushButton(tr("Upravit prahy…"))
+        self.quality_btn.setToolTip(
+            tr("Od kdy je nahrávka podezřelá nebo nepoužitelná (délka, šum, přebuzení).")
+        )
+        self.quality_btn.clicked.connect(lambda: self._edit_quality())
+        form.addRow(tr("Kontrola kvality"), self.quality_btn)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
+
+    def _edit_quality(self) -> None:
+        from .quality_dialog import QualityThresholdsDialog
+
+        if QualityThresholdsDialog(self).exec():
+            self.quality_edited = True
 
     def _browse_library(self) -> None:
         chosen, _ = QFileDialog.getOpenFileName(

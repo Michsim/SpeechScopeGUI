@@ -25,6 +25,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +39,8 @@ from .history import read_run
 from .manifest import Manifest, find_manifest, read_manifest
 from .norms import NORM_FILE, Norm, NormInfo, build_norm
 from .protocol import Protocol
+
+logger = logging.getLogger(__name__)
 
 PLAN_FILE = "plan.json"
 PLAN_VERSION = 1
@@ -351,6 +354,20 @@ def finish_plan(plan: NormPlan, library_version: str = "") -> Norm:
     if library_version:
         plan.info.library_version = library_version
     norm = build_norm(frames, plan.info)
+    if (plan.folder / NORM_FILE).is_file():  # přepočet: ručně vyřazené nahrávky zůstávají
+        try:
+            previous = Norm.load(plan.folder)
+        except (OSError, ValueError, KeyError) as exc:
+            logger.warning("%s: previous norm unreadable (%s)", plan.folder, exc)
+        else:
+            present = set(
+                zip(
+                    norm.controls[meta.SUBJECT].astype(str),
+                    norm.controls["task"].astype(str),
+                    strict=True,
+                )
+            )
+            norm.set_excluded([e for e in previous.info.excluded if e.key in present])
     norm.save(plan.folder)
     if plan.recomputing:
         plan.recomputing = False  # nová norma je zapsaná, přepočet skončil

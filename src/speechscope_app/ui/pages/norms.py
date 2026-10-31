@@ -18,6 +18,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QRectF, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QPainter
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -36,7 +37,7 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
-from ...backend import tasks
+from ...backend import quality, tasks
 from ...backend.library import Library, LibraryError
 from ...backend.norm_build import (
     CANCELLED,
@@ -59,11 +60,13 @@ from ...backend.norms import (
     norm_problems,
     norm_slug,
     outdated_features,
+    quality_problems,
     task_summaries,
     trash_norm,
 )
 from ...i18n import N_, tr
 from .. import theme
+from ..norm_quality_dialog import NormQualityDialog
 from ..widgets.elided_label import ElidedLabel
 from ..widgets.status_header import StatusHeader
 
@@ -170,6 +173,16 @@ class NormCard(QFrame):
         self.pill.setObjectName("pill")
         theme.set_role(self.pill, role)
         head.addWidget(self.pill, 0, Qt.AlignmentFlag.AlignTop)
+        # kontrola kvality kontrol: kolik nahrávek neprošlo a není vyřazených
+        open_problems = [c for c in quality_problems(norm) if not c.excluded]
+        self.quality_pill = QLabel(tr("kvalita: {n}").format(n=len(open_problems)))
+        self.quality_pill.setObjectName("pill")
+        theme.set_role(self.quality_pill, "warn")
+        self.quality_pill.setToolTip(
+            tr("Nahrávky kontrol, které neprošly kontrolou kvality a nejsou vyřazené.")
+        )
+        self.quality_pill.setVisible(bool(open_problems))
+        head.addWidget(self.quality_pill, 0, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(head)
         lines = [norm_overview(norm)]
         if norm.info.created:
@@ -270,7 +283,8 @@ class AgeHistogram(QWidget):
 
 
 class NormsPage(QWidget):
-    norms_changed = Signal()  # import nebo smazání: Hodnocení si normy načte znovu
+    norms_changed = Signal()  # import, smazání, vyřazení: Hodnocení si normy načte znovu
+    thresholds_requested = Signal()  # Prahy kvality… z dialogu Kontroly a kvalita
     new_norm_requested = Signal()  # průvodce Nová norma (otevírá hlavní okno)
     build_requested = Signal(object)  # složka plánu: sestavit z hotových dávek
     resume_requested = Signal(object)  # složka plánu: dopočítat zbývající dávky
@@ -373,6 +387,21 @@ class NormsPage(QWidget):
         self.problems.setContentsMargins(12, 8, 12, 8)
         right_layout.addWidget(self.problems)
 
+        # kontrola kvality nahrávek kontrol (mockup https://claude.ai/artifact/ALTCFxkegtMF7zTpGrxb15)
+        self.quality_box = QFrame()
+        self.quality_box.setObjectName("card")
+        theme.set_role(self.quality_box, "warn")
+        quality_layout = QHBoxLayout(self.quality_box)
+        quality_layout.setContentsMargins(12, 8, 12, 8)
+        quality_layout.setSpacing(10)
+        self.quality_text = QLabel("")
+        self.quality_text.setWordWrap(True)
+        quality_layout.addWidget(self.quality_text, 1)
+        self.quality_btn = QPushButton(tr("Kontroly a kvalita…"))
+        self.quality_btn.clicked.connect(lambda: self.edit_quality())
+        quality_layout.addWidget(self.quality_btn, 0, Qt.AlignmentFlag.AlignTop)
+        right_layout.addWidget(self.quality_box)
+
         table_card = QFrame()
         table_card.setObjectName("card")
         table_layout = QVBoxLayout(table_card)
@@ -382,9 +411,16 @@ class NormsPage(QWidget):
         table_title.setObjectName("card_title")
         table_layout.addWidget(table_title)
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
+        self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(
-            [tr("úloha"), tr("kontrol"), tr("ženy / muži"), tr("věk"), tr("sloupců")]
+            [
+                tr("úloha"),
+                tr("kontrol"),
+                tr("ženy / muži"),
+                tr("věk"),
+                tr("sloupců"),
+                tr("vyřazeno"),
+            ]
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
@@ -393,7 +429,7 @@ class NormsPage(QWidget):
         header = self.table.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in range(1, 5):
+        for col in range(1, 6):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         table_layout.addWidget(self.table)
         right_layout.addWidget(table_card)
@@ -723,10 +759,72 @@ class NormsPage(QWidget):
         problems = norm_problems(norm) + outdated_text(norm, self.current_versions())
         self.problems.setVisible(bool(problems))
         self.problems.setText("\n".join(problems))
-        self.header.set_role("warn" if problems else "neutral")
+        self._show_quality(norm)
+        self.header.set_role("warn" if problems or not self.quality_box.isHidden() else "neutral")
         self._fill_table(task_summaries(norm))
         self.histogram.set_bins(age_histogram(norm))
         self.about.setText(self._about_text(norm))
+
+    def _show_quality(self, norm: Norm) -> None:
+        """Varování o kvalitě nahrávek kontrol s tlačítkem Kontroly a kvalita…."""
+        found = quality_problems(norm)
+        excluded = len(norm.info.excluded)
+        if not found and not excluded:
+            self.quality_box.hide()
+            return
+        open_found = [c for c in found if not c.excluded]
+        bad = sum(1 for c in open_found if c.level == quality.BAD)
+        lines = []
+        if open_found:
+            lines.append(
+                tr(
+                    "{n} nahrávek kontrol neprošlo kontrolou kvality ({bad} nepoužitelných, "
+                    "{warn} podezřelých) a v normě se počítají."
+                ).format(n=len(open_found), bad=bad, warn=len(open_found) - bad)
+            )
+            details = [
+                f"{tasks.label(c.task)}: {c.subject} {quality.summary(c.issues)}"
+                for c in open_found[:4]
+            ]
+            if len(open_found) > 4:
+                details.append("…")
+            lines.append(" · ".join(details))
+        if excluded:
+            lines.append(tr("Vyřazeno z normy: {n} nahrávek.").format(n=excluded))
+        self.quality_text.setText("\n".join(lines))
+        theme.set_role(self.quality_box, "warn" if open_found else "neutral")
+        self.quality_box.show()
+
+    def make_quality_dialog(self, norm: Norm | None = None) -> NormQualityDialog | None:
+        norm = norm or self.current()
+        if norm is None:
+            return None
+        dialog = NormQualityDialog(norm, self)
+        dialog.thresholds_requested.connect(self.thresholds_requested)
+        return dialog
+
+    def edit_quality(self) -> None:
+        """Kontroly a kvalita…: vyřazení se uloží do norm.yaml, normy se načtou znovu."""
+        dialog = self.make_quality_dialog()
+        if dialog is None:
+            return
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.editable:
+            self.save_excluded(dialog.norm, dialog.excluded())
+
+    def save_excluded(self, norm: Norm, excluded: list) -> None:  # noqa: ANN001
+        if norm.path is None:
+            return
+        if {e.key for e in excluded} == {e.key for e in norm.info.excluded}:
+            return
+        norm.set_excluded(excluded)
+        norm.save(norm.path)
+        self.notice.emit(
+            tr("Norma {name}: vyřazeno {n} nahrávek.").format(
+                name=norm.info.display_name, n=len(excluded)
+            )
+        )
+        self.reload(select=norm.path)
+        self.norms_changed.emit()
 
     @staticmethod
     def _task_label(summary: TaskSummary) -> str:
@@ -741,6 +839,7 @@ class NormsPage(QWidget):
                 f"{s.female} / {s.male}",
                 format_age_range(s.age_range),
                 str(s.columns),
+                str(s.excluded) if s.excluded else "–",
             ]
             for col, text in enumerate(cells):
                 item = QTableWidgetItem(text)

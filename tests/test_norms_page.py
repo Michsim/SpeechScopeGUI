@@ -314,3 +314,112 @@ def test_recompute_norm_reruns_batches_and_overwrites(
     page.reload()
     assert page.select(settings.norms_dir() / "import")
     assert not page.recompute_btn.isEnabled() and "uložené zdroje" in page.recompute_btn.toolTip()
+
+
+def _quality_norm(folder: Path) -> Path:
+    """Vlastní norma s plánem a sloupci kvality; HC000 fonace nepoužitelná, HC001 podezřelá."""
+    from test_norms import controls_frame as frame_of
+
+    frame = frame_of()
+    frame["acoustic.recording.duration.total"] = frame["task"].map(
+        {"phonation": 8.0, "reading": 40.0}
+    )
+    frame.loc[0, "acoustic.recording.duration.total"] = 1.5
+    frame.loc[2, "acoustic.recording.duration.total"] = 3.0
+    path = folder / "kontroly-q"
+    Norm(NormInfo(name="Kontroly Q"), norms_mod.normalize_controls(frame)).save(path)
+    (path / "plan.json").write_text("{}", encoding="utf-8")  # vlastní, přepočitatelná
+    return path
+
+
+def test_norm_quality_warning_dialog_and_exclusion(qtbot: QtBot, settings: AppSettings) -> None:
+    """Normy: varování o kvalitě kontrol, dialog vyřadí jen nepoužitelné, nic samo."""
+    path = _quality_norm(settings.norms_dir())
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.norms_page
+    assert page.select(path)
+    card = page.card(page.list.currentRow())
+    assert not card.quality_pill.isHidden() and card.quality_pill.text() == "kvalita: 2"
+    assert not page.quality_box.isHidden()
+    assert "2 nahrávek kontrol neprošlo" in page.quality_text.text()
+    assert "HC000" in page.quality_text.text()
+
+    dialog = page.make_quality_dialog()
+    qtbot.addWidget(dialog)
+    assert dialog.editable and dialog.table.rowCount() == 2  # jen problémové
+    assert dialog.excluded() == []  # nic samo
+    assert dialog.exclude_bad() == 1
+    assert [e.key for e in dialog.excluded()] == [("HC000", "phonation")]
+    assert "délka nahrávky 1.5 s < 2 s" in dialog.excluded()[0].reason
+    dialog.all_rows.click()
+    assert dialog.table.rowCount() == 120
+    page.save_excluded(dialog.norm, dialog.excluded())
+
+    norm = page.current()
+    assert [e.key for e in norm.info.excluded] == [("HC000", "phonation")]
+    assert Norm.load(path).info.excluded[0].subject == "HC000"
+    card = page.card(page.list.currentRow())
+    assert card.quality_pill.text() == "kvalita: 1"
+    assert "Vyřazeno z normy: 1 nahrávek." in page.quality_text.text()
+    assert page.table.item(0, 5).text() == "1"  # fonace: vyřazeno 1
+    # vrátit zpět
+    dialog = page.make_quality_dialog()
+    qtbot.addWidget(dialog)
+    assert dialog.table.rowCount() == 2  # vyřazená zůstává vidět
+    dialog.set_use(("HC000", "phonation"), True)
+    page.save_excluded(dialog.norm, dialog.excluded())
+    assert page.current().info.excluded == []
+
+
+def test_imported_norm_quality_is_read_only(qtbot: QtBot, settings: AppSettings) -> None:
+    path = _quality_norm(settings.norms_dir())
+    (path / "plan.json").unlink()  # jako importovaná: bez plánu
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.norms_page
+    assert page.select(path)
+    dialog = page.make_quality_dialog()
+    qtbot.addWidget(dialog)
+    assert not dialog.editable and not dialog.exclude_bad_btn.isVisibleTo(dialog)
+    dialog.set_use(("HC000", "phonation"), False)
+    assert dialog.excluded() == []
+
+
+def test_quality_thresholds_dialog_saves_and_refreshes(qtbot: QtBot, settings: AppSettings) -> None:
+    """Prahy kvality: změna se uloží jako odchylka a Normy hned počítají podle ní."""
+    from speechscope_app.backend import quality
+
+    path = _quality_norm(settings.norms_dir())
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.norms_page
+    assert page.select(path)
+    dialog = window.make_quality_dialog()
+    qtbot.addWidget(dialog)
+    assert dialog.changes() == 0 and not dialog.reset_btn.isEnabled()
+    dialog.set_values("phonation_total", warn=2.5)  # 3 s už není podezřelých
+    assert dialog.changes() == 1 and dialog.note_text("phonation_total") == "výchozí 5"
+    field = dialog._spin("phonation_total", dialog.COL_WARN)
+    assert field.text() == "2.5" and field.unit.text() == "s"  # tečka, jednotka uvnitř
+    field.set_text("abc")  # nečitelné: hodnota zůstane, pole se vrátí
+    assert field.value() == 2.5 and field.text() == "2.5"
+    dialog.reset_check("phonation_total")
+    assert dialog.changes() == 0 and dialog.note_text("phonation_total") == ""
+    dialog.set_values("phonation_total", warn=2.5)
+    dialog.set_values("phonation_total", bad=3.0)
+    assert dialog.problems()  # červený práh nad žlutým
+    dialog.set_values("phonation_total", bad=1.0)
+    assert not dialog.problems()
+    dialog.accept()
+    assert settings.quality_file().is_file()
+    window.quality_changed()
+    card = page.card(page.list.currentRow())
+    assert card.quality_pill.text() == "kvalita: 1"  # zbyla jen 1,5 s (pod 2,5)
+    assert {c.key: c.warn for c in quality.load_checks()}["phonation_total"] == 2.5
+
+    dialog = window.make_quality_dialog()
+    qtbot.addWidget(dialog)
+    dialog.reset_defaults()
+    dialog.accept()
+    assert not settings.quality_file().exists()

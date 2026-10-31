@@ -59,6 +59,25 @@ def is_feature_column(name: str) -> bool:
 # --- popis normy --------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class Excluded:
+    """Nahrávka kontroly vyřazená z normy (kontrola × úloha), řádky v controls.csv zůstávají."""
+
+    subject: str
+    task: str
+    reason: str = ""
+
+    @property
+    def key(self) -> tuple[str, str]:
+        return (self.subject, self.task)
+
+    def to_dict(self) -> dict[str, str]:
+        data = {"subject": self.subject, "task": self.task}
+        if self.reason:
+            data["reason"] = self.reason
+        return data
+
+
 @dataclass(slots=True)
 class NormInfo:
     name: str
@@ -76,6 +95,8 @@ class NormInfo:
     custom_tasks: list[tasks.CustomTask] = field(default_factory=list)
     names: dict[str, str] = field(default_factory=dict)
     descriptions: dict[str, str] = field(default_factory=dict)
+    # nahrávky kontrol vyřazené ručně (kontrola kvality); do výběru kontrol nejdou
+    excluded: list[Excluded] = field(default_factory=list)
 
     @property
     def display_name(self) -> str:
@@ -105,6 +126,8 @@ class NormInfo:
             data["feature_versions"] = {t: dict(v) for t, v in self.feature_versions.items()}
         if self.custom_tasks:
             data["custom_tasks"] = [t.to_dict() for t in self.custom_tasks]
+        if self.excluded:
+            data["excluded"] = [e.to_dict() for e in self.excluded]
         return data
 
     @classmethod
@@ -144,6 +167,15 @@ class NormInfo:
                 for k, v in data.items()
                 if k.startswith("description_") and isinstance(v, str)
             },
+            excluded=[
+                Excluded(
+                    str(item["subject"]),
+                    contract.canonical_task(str(item["task"])),
+                    str(item.get("reason", "")),
+                )
+                for item in data.get("excluded") or []
+                if isinstance(item, dict) and item.get("subject") and item.get("task")
+            ],
         )
 
 
@@ -312,9 +344,37 @@ class Selection:
 @dataclass(slots=True)
 class Norm:
     info: NormInfo
-    controls: pd.DataFrame  # subject, task, age, sex + sloupce feature
+    controls: pd.DataFrame  # subject, task, age, sex + sloupce feature, včetně vyřazených
     path: Path | None = None
     builtin: bool = False
+    _active: pd.DataFrame | None = field(default=None, repr=False)
+
+    @property
+    def active(self) -> pd.DataFrame:
+        """Kontroly bez ručně vyřazených nahrávek; z nich se vybírá a počítá."""
+        if self._active is None:
+            excluded = {e.key for e in self.info.excluded}
+            if not excluded or meta.SUBJECT not in self.controls or "task" not in self.controls:
+                self._active = self.controls
+            else:
+                keys = list(
+                    zip(
+                        self.controls[meta.SUBJECT].astype(str),
+                        self.controls["task"].astype(str),
+                        strict=True,
+                    )
+                )
+                self._active = self.controls[[k not in excluded for k in keys]]
+        return self._active
+
+    def set_excluded(self, excluded: list[Excluded]) -> None:
+        self.info.excluded = list(excluded)
+        self._active = None
+
+    @property
+    def editable(self) -> bool:
+        """Vlastní norma s plánem (`plan.json`): jde přepočítat i měnit vyřazení."""
+        return not self.builtin and self.path is not None and (self.path / "plan.json").is_file()
 
     @property
     def tasks(self) -> list[str]:
@@ -331,9 +391,9 @@ class Norm:
         return [c for c in self.controls.columns if is_feature_column(c)]
 
     def has_column(self, task: str, column: str) -> bool:
-        if column not in self.controls or "task" not in self.controls:
+        if column not in self.active or "task" not in self.active:
             return False
-        rows = self.controls[self.controls["task"] == task]
+        rows = self.active[self.active["task"] == task]
         return bool(pd.to_numeric(rows[column], errors="coerce").notna().any())
 
     def select(
@@ -352,11 +412,8 @@ class Norm:
         pacienta, jen když je známé; když by pak kontrol bylo málo, pohlaví
         se pustí dřív než věk.
         """
-        rows = (
-            self.controls[self.controls["task"] == task]
-            if "task" in self.controls
-            else self.controls.iloc[0:0]
-        )
+        controls = self.active
+        rows = controls[controls["task"] == task] if "task" in controls else controls.iloc[0:0]
         want_sex = same_sex and sex in (meta.FEMALE, meta.MALE) and meta.SEX in rows
         for use_sex in (True, False) if want_sex else (False,):
             pool = rows[rows[meta.SEX] == sex] if use_sex else rows
@@ -459,7 +516,7 @@ def norm_problems(norm: Norm) -> list[str]:
     """Co klinik má vědět, než normu použije: málo kontrol, chybí věk nebo pohlaví."""
     problems: list[str] = []
     for task in norm.tasks:
-        rows = norm.controls[norm.controls["task"] == task]
+        rows = norm.active[norm.active["task"] == task]
         n = int(rows[meta.SUBJECT].nunique())
         if n < RECOMMENDED_CONTROLS:
             problems.append(
@@ -570,13 +627,14 @@ class TaskSummary:
     male: int
     age_range: tuple[float, float] | None
     columns: int  # sloupce feature s aspoň jednou hodnotou
+    excluded: int = 0  # ručně vyřazené nahrávky úlohy
 
 
 def task_summaries(norm: Norm) -> list[TaskSummary]:
     """Přehled po úlohách v pořadí úloh knihovny, vlastní za nimi; osoby se počítají jednou."""
     out: list[TaskSummary] = []
     for task in sorted(norm.tasks, key=lambda t: (tasks.task_order(t), t)):
-        rows = norm.controls[norm.controls["task"] == task]
+        rows = norm.active[norm.active["task"] == task]
         people = rows.drop_duplicates(meta.SUBJECT)
         sexes = people[meta.SEX] if meta.SEX in people else pd.Series(dtype=str)
         ages = (
@@ -595,9 +653,70 @@ def task_summaries(norm: Norm) -> list[TaskSummary]:
                 male=int((sexes == meta.MALE).sum()),
                 age_range=(float(ages.min()), float(ages.max())) if not ages.empty else None,
                 columns=len(filled),
+                excluded=sum(1 for e in norm.info.excluded if e.task == task),
             )
         )
     return out
+
+
+@dataclass(slots=True)
+class ControlQuality:
+    """Kontrola kvality jedné nahrávky kontroly normy."""
+
+    subject: str
+    task: str
+    age: float | None
+    sex: str
+    issues: list  # list[quality.Issue]
+    excluded: bool
+
+    @property
+    def level(self) -> str:
+        from . import quality
+
+        return quality.level_of(self.issues)
+
+    @property
+    def key(self) -> tuple[str, str]:
+        return (self.subject, self.task)
+
+
+def has_quality_data(norm: Norm) -> bool:
+    """Má norma sloupce kontroly kvality (spočítaná knihovnou s acoustic.recording.*)?"""
+    from . import quality
+
+    return quality.COLUMN_TOTAL in norm.controls.columns
+
+
+def control_quality(norm: Norm) -> list[ControlQuality]:
+    """Všechny nahrávky kontrol s kontrolou kvality, problémové a horší napřed."""
+    from . import quality
+
+    if meta.SUBJECT not in norm.controls or "task" not in norm.controls:
+        return []
+    excluded = {e.key for e in norm.info.excluded}
+    out: list[ControlQuality] = []
+    for row in norm.controls.to_dict("records"):
+        subject, task = str(row[meta.SUBJECT]), str(row["task"])
+        age = row.get(meta.AGE)
+        out.append(
+            ControlQuality(
+                subject=subject,
+                task=task,
+                age=None if age is None or pd.isna(age) else float(age),
+                sex=str(row.get(meta.SEX) or ""),
+                issues=quality.assess(row, task),
+                excluded=(subject, task) in excluded,
+            )
+        )
+    order = {quality.BAD: 0, quality.WARN: 1, "": 2}
+    out.sort(key=lambda c: (order[c.level], tasks.task_order(c.task), c.subject))
+    return out
+
+
+def quality_problems(norm: Norm) -> list[ControlQuality]:
+    """Nahrávky kontrol, které neprošly kontrolou kvality (i vyřazené)."""
+    return [c for c in control_quality(norm) if c.level]
 
 
 def age_histogram(norm: Norm, step: int = 10) -> list[tuple[int, int]]:

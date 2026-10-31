@@ -24,6 +24,14 @@ def no_history_catalog() -> None:
 
 
 @pytest.fixture(autouse=True)
+def default_quality_thresholds() -> None:
+    """Prahy kvality: hlavní okno nastaví soubor uživatele globálně; test začíná s přibalenými."""
+    from speechscope_app.backend import quality
+
+    quality.use_user_file(None)
+
+
+@pytest.fixture(autouse=True)
 def fast_fake(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SPEECHSCOPE_FAKE_DELAY", "0")
     monkeypatch.delenv("SPEECHSCOPE_FAKE_DOCTOR", raising=False)

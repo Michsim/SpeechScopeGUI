@@ -86,6 +86,7 @@ from .pages.protocols import ProtocolsPage
 from .pages.results import ResultsPage
 from .pages.run import RunPage
 from .pages.runs import RunsPage
+from .quality_dialog import QualityThresholdsDialog
 from .settings_dialog import SettingsDialog
 from .widgets.sidebar_nav import SidebarNav, parse_progress
 
@@ -218,6 +219,8 @@ class MainWindow(QMainWindow):
         menu.addAction(tr("Stáhnout modely…"), self.download_models)
         menu.addAction(tr("Nainstalovat modely ze souboru…"), self.install_models)
         menu.addSeparator()
+        menu.addAction(tr("Prahy kontroly kvality…"), lambda: self.edit_quality_thresholds())
+        menu.addSeparator()
         menu.addAction(tr("Smazat všechny běhy…"), self.delete_all_runs)
         menu.addSeparator()
         menu.addAction(tr("Konec"), self.close)
@@ -294,6 +297,7 @@ class MainWindow(QMainWindow):
         self.norms_page.resume_requested.connect(self.resume_norm)
         self.norms_page.discard_requested.connect(self.discard_norm)
         self.norms_page.recompute_requested.connect(self.recompute_norm)
+        self.norms_page.thresholds_requested.connect(lambda: self.edit_quality_thresholds())
         self.assessment_page.new_from_recordings_requested.connect(
             self.new_assessment_from_recordings
         )
@@ -626,11 +630,32 @@ class MainWindow(QMainWindow):
         else:
             self.nav.set_environment("warn", tr("V prostředí něco chybí"))
 
+    def make_quality_dialog(self) -> QualityThresholdsDialog:
+        return QualityThresholdsDialog(self)
+
+    def edit_quality_thresholds(self) -> bool:
+        """Prahy kontroly kvality…: po uložení se stránky překreslí, nic se nepřepočítává."""
+        if self.make_quality_dialog().exec() != QDialog.DialogCode.Accepted:
+            return False
+        self.quality_changed()
+        return True
+
+    def quality_changed(self) -> None:
+        """Nové prahy: Výsledky, Pacienti, Normy a varování na Analýze znovu podle nich."""
+        if self.results_page._frame is not None:
+            self.results_page._refresh()
+        self.assessment_page.refresh()
+        self.norms_page.reload(select=self.norms_page._current_path())
+        self.batch_page._update_short_warning()
+
     def _open_settings(self) -> None:
         language_before = self.settings.ui_language
         scale_before = self.settings.font_scale
         dialog = SettingsDialog(self.settings, self)
-        if dialog.exec():
+        accepted = dialog.exec()
+        if dialog.quality_edited:
+            self.quality_changed()  # prahy se uložily hned, i když se Nastavení zrušilo
+        if accepted:
             self._apply_settings()
             if self.settings.font_scale != scale_before:
                 app = QApplication.instance()

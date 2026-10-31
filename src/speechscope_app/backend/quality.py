@@ -3,7 +3,8 @@
 Knihovna nahrávku jen měří (`acoustic.recording.duration|snr|clipping`,
 `acoustic.ddk.count`, `acoustic.timing.speech_rate.word_count`); jestli je
 výsledek podezřelý, rozhoduje tenhle modul podle `assets/quality.yaml`
-(kopie v datech aplikace má přednost, `settings.quality_file()`). Dvě úrovně:
+(úpravy uživatele v datech aplikace, `settings.quality_file()`, jsou jen odchylky
+od přibalených: práh a vypnutí podle klíče kontroly). Dvě úrovně:
 `warn` = upozornění (žlutá), `bad` = nahrávka nejspíš nepoužitelná (červená).
 Nikdy nic nevyřazuje, jen označí; rozhodnutí je na uživateli.
 
@@ -16,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,7 @@ class Check:
     name: str
     name_en: str = ""
     unit: str = ""
+    enabled: bool = True
 
     @property
     def display_name(self) -> str:
@@ -135,41 +137,126 @@ def parse_checks(data: Mapping[str, Any]) -> list[Check]:
     return checks
 
 
+def apply_overrides(checks: list[Check], overrides: Mapping[str, Any]) -> list[Check]:
+    """Přibalené kontroly s odchylkami uživatele (`klíč: {warn, bad, enabled}`)."""
+    out: list[Check] = []
+    for check in checks:
+        raw = overrides.get(check.key)
+        if not isinstance(raw, Mapping):
+            out.append(check)
+            continue
+        out.append(
+            replace(
+                check,
+                warn=float(raw.get("warn", check.warn)),
+                bad=float(raw.get("bad", check.bad)),
+                enabled=bool(raw.get("enabled", check.enabled)),
+            )
+        )
+    return out
+
+
 _cache: dict[str, list[Check]] = {}
 _user_file: Path | None = None
 
 
 def use_user_file(path: Path | None) -> None:
-    """Soubor s vlastními prahy (`settings.quality_file()`); existuje-li, nahradí přibalené."""
+    """Soubor s úpravami prahů (`settings.quality_file()`), platí pro celou aplikaci."""
     global _user_file
     _user_file = path
     _cache.clear()
 
 
-def load_checks(path: Path | None = None) -> list[Check]:
-    """Kontroly z `path`, jinak z vlastního souboru uživatele, jinak přibalené."""
-    if path is None and _user_file is not None and _user_file.is_file():
-        path = _user_file
-    key = str(path) if path else ""
-    cached = _cache.get(key)
-    if cached is not None:
-        return cached
-    text: str | None = None
-    if path is not None and path.is_file():
-        text = path.read_text(encoding="utf-8")
-    elif path is None:
+def user_file() -> Path | None:
+    return _user_file
+
+
+def default_checks() -> list[Check]:
+    """Přibalené prahy z `assets/quality.yaml`."""
+    cached = _cache.get("")
+    if cached is None:
         text = (resources.files("speechscope_app") / "assets" / "quality.yaml").read_text(
             encoding="utf-8"
         )
-    if text is None:
-        return []
+        cached = parse_checks(yaml.safe_load(text) or {})
+        _cache[""] = cached
+    return cached
+
+
+def load_checks(path: Path | None = None) -> list[Check]:
+    """Platné kontroly: přibalené s úpravami ze souboru `path` (jinak uživatele).
+
+    Soubor má `overrides` (odchylky podle klíče); starší ruční kopie s celým
+    seznamem `checks` ho nahradí celý. Chybějící nebo vadný soubor = přibalené.
+    """
+    if path is None:
+        path = _user_file
+    if path is None or not path.is_file():
+        return default_checks()
+    key = str(path)
+    cached = _cache.get(key)
+    if cached is not None:
+        return cached
     try:
-        checks = parse_checks(yaml.safe_load(text) or {})
-    except (ValueError, KeyError, TypeError, yaml.YAMLError) as exc:
-        logger.warning("quality.yaml: %s", exc)
-        checks = []
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if data.get("checks"):
+            checks = parse_checks(data)
+        else:
+            checks = apply_overrides(default_checks(), data.get("overrides") or {})
+    except (ValueError, KeyError, TypeError, AttributeError, OSError, yaml.YAMLError) as exc:
+        logger.warning("%s: %s", path, exc)
+        checks = default_checks()
     _cache[key] = checks
     return checks
+
+
+def save_checks(checks: list[Check], path: Path | None = None) -> Path | None:
+    """Uloží odchylky od přibalených prahů; žádná odchylka = soubor se smaže.
+
+    Vrátí cestu k souboru, nebo None, když platí přibalené.
+    """
+    path = path or _user_file
+    if path is None:
+        raise ValueError("chybí soubor s prahy kvality")
+    defaults = {c.key: c for c in default_checks()}
+    overrides: dict[str, dict[str, Any]] = {}
+    for check in checks:
+        base = defaults.get(check.key)
+        if base is None:
+            continue
+        diff: dict[str, Any] = {}
+        if check.warn != base.warn:
+            diff["warn"] = check.warn
+        if check.bad != base.bad:
+            diff["bad"] = check.bad
+        if check.enabled != base.enabled:
+            diff["enabled"] = check.enabled
+        if diff:
+            overrides[check.key] = diff
+    _cache.pop(str(path), None)
+    if not overrides:
+        path.unlink(missing_ok=True)
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "# Úpravy prahů kontroly kvality proti přibaleným (assets/quality.yaml).\n"
+        + yaml.safe_dump({"format": 1, "overrides": overrides}, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return path
+
+
+def validate(check: Check) -> str:
+    """Prázdné = v pořádku, jinak proč práh nedává smysl."""
+    if check.kind == "min" and check.bad > check.warn:
+        return tr("{name}: práh „nepoužitelná“ musí být nejvýš práh „podezřelá“.").format(
+            name=check.display_name
+        )
+    if check.kind == "max" and check.bad < check.warn:
+        return tr("{name}: práh „nepoužitelná“ musí být aspoň práh „podezřelá“.").format(
+            name=check.display_name
+        )
+    return ""
 
 
 def reset_cache() -> None:
@@ -191,7 +278,7 @@ def assess(row: Mapping[str, Any], task: str, checks: list[Check] | None = None)
     base = _library_task(task)
     issues: list[Issue] = []
     for check in load_checks() if checks is None else checks:
-        if base not in check.tasks:
+        if base not in check.tasks or not check.enabled:
             continue
         value = _float(row.get(check.column))
         if value is None:
@@ -220,7 +307,12 @@ def min_duration(task: str, checks: list[Check] | None = None) -> float | None:
     """Práh délky nahrávky pro úlohu (sekundy), ke kontrole už z hlavičky souboru."""
     base = _library_task(task)
     for check in load_checks() if checks is None else checks:
-        if check.column == COLUMN_TOTAL and check.kind == "min" and base in check.tasks:
+        if (
+            check.column == COLUMN_TOTAL
+            and check.kind == "min"
+            and base in check.tasks
+            and check.enabled
+        ):
             return check.warn
     return None
 

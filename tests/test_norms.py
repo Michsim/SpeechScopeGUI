@@ -244,3 +244,43 @@ def test_feature_versions_roundtrip_outdated_and_changes() -> None:
     assert outdated_features(n, {"acoustic.quality.cpp": "1.2"}) == []
     assert outdated_features(n, {}) == []  # bez katalogu se nic nehlásí
     assert version_changes({"a": "1.3", "b": "1"}, {"a": "1.2", "c": "2"}) == {"a": ("1.3", "1.2")}
+
+
+def test_vyrazene_nahravky_kontrol_se_nevybiraji(tmp_path: Path) -> None:
+    """Vyřazení nahrávky (kontrola × úloha) přežije uložení i export, řádek zůstává."""
+    from speechscope_app.backend.norms import Excluded, control_quality, quality_problems
+
+    frame = controls_frame()
+    frame["acoustic.recording.duration.total"] = frame["task"].map(
+        {"phonation": 8.0, "reading": 40.0}
+    )
+    frame.loc[0, "acoustic.recording.duration.total"] = 1.5  # HC000 fonace nepoužitelná
+    frame.loc[2, "acoustic.recording.duration.total"] = 3.0  # HC001 fonace podezřelá
+    norm = Norm(NormInfo(name="Q"), norms_mod.normalize_controls(frame))
+    problems = quality_problems(norm)
+    assert [(c.subject, c.task, c.level) for c in problems] == [
+        ("HC000", "phonation", "bad"),
+        ("HC001", "phonation", "warn"),
+    ]
+    assert len(control_quality(norm)) == len(frame)
+    before = norm.select("phonation").frame
+    assert "HC000" in set(before["subject"])
+
+    norm.set_excluded([Excluded("HC000", "phonation", "délka 1.5 s")])
+    after = norm.select("phonation").frame
+    assert "HC000" not in set(after["subject"]) and len(after) == len(before) - 1
+    assert "HC000" in set(norm.select("reading").frame["subject"])  # jen ta nahrávka
+    assert len(norm.controls) == len(frame)  # řádek v normě zůstává
+    summary = {s.task: s for s in norms_mod.task_summaries(norm)}
+    assert summary["phonation"].excluded == 1 and summary["reading"].excluded == 0
+    assert summary["phonation"].subjects == 59
+    assert quality_problems(norm)[0].excluded
+
+    norm.save(tmp_path / "q")
+    loaded = Norm.load(tmp_path / "q")
+    assert [e.key for e in loaded.info.excluded] == [("HC000", "phonation")]
+    assert loaded.info.excluded[0].reason == "délka 1.5 s"
+    assert "HC000" not in set(loaded.select("phonation").frame["subject"])
+    exported = norms_mod.read_norm_file(norms_mod.export_norm(loaded, tmp_path / "q.ssnorm"))
+    assert [e.key for e in exported.info.excluded] == [("HC000", "phonation")]
+    assert not norms_mod.has_quality_data(Norm(NormInfo(name="x"), controls_frame()))
