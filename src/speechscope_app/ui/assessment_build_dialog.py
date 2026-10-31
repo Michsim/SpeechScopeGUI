@@ -298,33 +298,22 @@ class AssessmentBuildWidget(QWidget):
         layout.addWidget(self.people_box, 1)
         self.people_box.hide()
 
-        grid_box = QFrame()
-        grid_box.setObjectName("card")
-        grid = QGridLayout(grid_box)
-        grid.setContentsMargins(12, 10, 12, 10)
-        grid.setHorizontalSpacing(10)
-        for col, text in enumerate(
-            [tr("úloha"), tr("složka s nahrávkami"), "", tr("protokol"), tr("nahrávek")]
-        ):
-            head = QLabel(text)
-            head.setObjectName("muted")
-            grid.addWidget(head, 0, col)
+        # řádky úloh jako na Analýze (widgets/task_rows.py), pod sebou
+        rows_box = QWidget()
+        rows_layout = QVBoxLayout(rows_box)
+        rows_layout.setContentsMargins(0, 0, 0, 0)
+        rows_layout.setSpacing(6)
         self.rows: dict[str, TaskRow] = {}
         # úlohy knihovny a za nimi vlastní úlohy z registru (z norem a nastavení)
         customs = {t.key: t for t in tasks.registry().custom}
-        for r, task in enumerate(tasks.registry().keys(), start=1):
+        for task in tasks.registry().keys():
             row = TaskRow(task, protocols, advanced, custom=customs.get(task))
             row.remove.hide()
             row.folder.editingFinished.connect(lambda row=row: self._rescan(row))
             row.browse.clicked.connect(lambda _=False, row=row: self._browse(row))
-            grid.addWidget(row.name_box, r, 0)
-            grid.addWidget(row.folder, r, 1)
-            grid.addWidget(row.browse, r, 2)
-            grid.addWidget(row.protocol, r, 3)
-            grid.addWidget(row.count, r, 4)
+            rows_layout.addWidget(row.widget)
             self.rows[task] = row
-        grid.setColumnStretch(1, 1)
-        layout.addWidget(grid_box)
+        layout.addWidget(rows_box)
         options = QHBoxLayout()
         self.recursive = QCheckBox(tr("včetně podsložek"))
         self.recursive.toggled.connect(self._rescan_all)
@@ -382,6 +371,7 @@ class AssessmentBuildWidget(QWidget):
         if not text:
             row.scan = FolderScan([])
             row.count.setText("–")
+            row.refresh_look()
             self._update_buttons()
             return
         split = split_by_task(Path(text), row.task, recursive=self.recursive.isChecked())
@@ -404,6 +394,7 @@ class AssessmentBuildWidget(QWidget):
     def _show_count(self, row: TaskRow) -> None:
         n = len(row.scan.recordings)
         row.count.setText(f"{n} ✓" if n else tr("žádné"))
+        row.refresh_look()
 
     def _rescan_all(self) -> None:
         for row in self.rows.values():

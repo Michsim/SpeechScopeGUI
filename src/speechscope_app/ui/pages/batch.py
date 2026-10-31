@@ -50,7 +50,18 @@ from ..protocol_detail import ProtocolDetailDialog
 from ..widgets.elided_label import ElidedLabel
 from ..widgets.meta_table import GROUP_FOLDER, MetaRow, MetaTable
 from ..widgets.protocol_editor import ProtocolEditorDialog
-from ..widgets.protocol_list import ProtocolCardInfo, ProtocolList
+from ..widgets.task_rows import SHARE_COLORS, SummaryBar, TaskRowWidget
+
+TASK = "task"  # sloupec úlohy v tabulce nahrávek (z manifestu nebo doplněný)
+
+
+def runs_text(n: int) -> str:
+    """„1 běh“, „3 běhy“, „5 běhů“ (texty zvlášť kvůli překladu)."""
+    if n == 1:
+        return tr("1 běh")
+    if 2 <= n <= 4:
+        return tr("{n} běhy").format(n=n)
+    return tr("{n} běhů").format(n=n)
 
 
 def _step(number: int, title: str, hint: str = "") -> tuple[QHBoxLayout, QLabel]:
@@ -139,13 +150,15 @@ class BatchPage(QWidget):
     save_requested = Signal(object)  # Protocol k uložení (úprava, kopie, nový)
     # "segments" | "transcript", Protocol, cesty, volby z dialogu (model, cut_audio, language)
     prepare_requested = Signal(str, object, list, dict)
+    # víc úloh najednou (manifest se sloupcem task): druh běhu, [(Protocol, cesty)], volby
+    runs_requested = Signal(str, list, dict)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._library: Library | None = None
         self._protocols: list[Protocol] = []
         self._recordings: list[Recording] = []  # nalezené minus odebrané ze seznamu
-        self._run_after_doctor: Protocol | None = None  # Spustit čeká na kontrolu prostředí
+        self._run_after_doctor = False  # Spustit čeká na kontrolu prostředí
         self._doctor_wait: QProgressDialog | None = None
         self._check_requested: Callable[[], None] = lambda: None
         self._mode = "extract"  # extract | segments | transcript; po startu vždy výpočet
@@ -157,7 +170,21 @@ class BatchPage(QWidget):
         self._doctor_known = False  # True po první zprávě doctor (i neúspěšné)
         self._advanced = False
         self._manifest_auto = True  # manifest nalezený ve složce, ne vybraný ručně
-        self._only_missing = False  # dlaždice „bez údajů“: jen neúplné řádky
+        self._shown_task = ""  # úloha bez manifestu, kterou ukazuje sloupec úloha šedě
+        # seznam k doplnění: "" | "missing" (bez údajů) | "task" (bez úlohy)
+        self._fix_mode = ""
+        self._task_cache: dict[Path, str] | None = None  # klíč nahrávky -> úloha z tabulky
+        # řádky úloh v kroku 2 (31. 10. 2026): bez úloh v manifestu jeden řádek s výběrem
+        # úlohy (`_single_task`), jinak řádek na úlohu manifestu; nahrávky bez úlohy jdou
+        # do `_unassigned_task` („počítat jako“). Vybraný protokol si pamatuje úloha.
+        self._single_task = contract.TASKS[0]
+        self._unassigned_task = ""
+        self._unassigned_auto = True
+        self._row_choice: dict[str, str] = {}  # základní úloha -> jméno protokolu
+        self._task_rows: dict[str, TaskRowWidget] = {}
+        self._rows_key: tuple = ()
+        self._current_task = ""
+        self._syncing = False
         self._seconds_per_file: Callable[[str], float | None] = lambda _slug: None
         self._seconds_per_audio_minute: Callable[[str], float | None] = lambda _slug: None
 
@@ -276,6 +303,7 @@ class BatchPage(QWidget):
         meta_row.addWidget(self.remove_btn)
         meta_row.addWidget(self.restore_btn)
         meta_row.addWidget(self.edits_btn)
+        # „Doplnit v kroku 1“ z kroku 2: jen nahrávky bez úlohy, ✕ filtr zruší
         meta_row.addStretch(1)
         self.search = QLineEdit()
         self.search.setPlaceholderText(tr("hledat nahrávku"))
@@ -300,6 +328,9 @@ class BatchPage(QWidget):
             )
         )
         self.column_menu = QMenu(self.column_btn)
+        task_action = self.column_menu.addAction(tr("úloha (task)"))
+        task_action.setToolTip(tr("Úloha každé nahrávky; víc úloh = víc samostatných běhů."))
+        task_action.triggered.connect(lambda: self.add_meta_column(TASK))
         for column in meta.META_COLUMNS:
             action = self.column_menu.addAction(f"{meta.label(column)} ({column})")
             action.triggered.connect(lambda _c=False, col=column: self.add_meta_column(col))
@@ -326,12 +357,39 @@ class BatchPage(QWidget):
         # jsou „povinné“ jen vzhledem: prázdné žlutě, když sloupec v tabulce je.
         self.files = MetaTable([tr("nahrávka"), tr("délka")], labels=True, right_columns=(1,))
         self.files.set_required({meta.SUBJECT, meta.AGE, meta.SEX})
+        # Úloha je sloupec s nabídkou (31. 10. 2026): dvojklik = rozbalovací seznam úloh,
+        # prázdná buňka šedě „jako …“ podle „počítat jako“ z kroku 2; nic neblokuje.
+        self.files.set_choices(
+            TASK, [(t, tasks.label(t)) for t in contract.TASKS], header=tr("úloha")
+        )
         self.files.edited.connect(self._meta_edited)
         self.files.cellDoubleClicked.connect(self.open_recording)
         self.files.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.files.customContextMenuRequested.connect(self._files_menu)
         self.files.itemSelectionChanged.connect(self._selection_changed)
         QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.files, self.remove_selected)
+        # Pruh seznamu k doplnění nad tabulkou: kolik hotovo, Hotovo, po doplnění všeho
+        # nabídka zapsat manifest (údaje platí hned pro běh, proto „Hotovo“, ne „Uložit“).
+        self.fix_banner = QFrame()
+        self.fix_banner.setObjectName("card")
+        fix_layout = QHBoxLayout(self.fix_banner)
+        fix_layout.setContentsMargins(14, 8, 14, 8)
+        fix_layout.setSpacing(10)
+        self.fix_label = QLabel("")
+        fix_layout.addWidget(self.fix_label, 1)
+        self.fix_save_btn = QPushButton(tr("Uložit do manifestu…"))
+        self.fix_save_btn.setToolTip(
+            tr("Zapíše údaje do manifest.csv, příště se ke složce načtou samy.")
+        )
+        self.fix_save_btn.clicked.connect(lambda: self.save_manifest())
+        fix_layout.addWidget(self.fix_save_btn)
+        self.fix_done_btn = QPushButton(tr("Hotovo"))
+        theme.set_role(self.fix_done_btn, "primary")
+        self.fix_done_btn.setToolTip(tr("Zpět na celou tabulku; doplněné údaje zůstávají."))
+        self.fix_done_btn.clicked.connect(lambda: self.end_fixing())
+        fix_layout.addWidget(self.fix_done_btn)
+        self.fix_banner.hide()
+        left_layout.addWidget(self.fix_banner)
         left_layout.addWidget(self.files, 1)
         self.manifest_label = QLabel("")
         self.manifest_label.setObjectName("muted")
@@ -389,16 +447,14 @@ class BatchPage(QWidget):
         task_card.setObjectName("card")
         task_layout = QVBoxLayout(task_card)
         task_layout.setContentsMargins(16, 14, 16, 14)
-        task_layout.setSpacing(8)
-        step2, self.step2_hint = _step(2, tr("Úloha a jazyk"), "")
-        task_layout.addLayout(step2)
-        self.protocols = ProtocolList(task_columns=len(contract.TASKS))
-        self.protocols.current_changed.connect(self._protocol_changed)
-        self.protocols.details_requested.connect(self.show_protocol_detail)
-        self.protocols.edit_requested.connect(self.edit_protocol)
-        task_row = QHBoxLayout()
-        task_row.setSpacing(12)
-        task_row.addWidget(self.protocols.task_bar, 1)
+        task_layout.setSpacing(10)
+        # Krok 2 jako řádky úloh (mockup podoba 1, 31. 10. 2026): řádek na úlohu s vlastním
+        # protokolem; víc úloh v manifestu = víc samostatných běhů. Jazyk platí pro všechny.
+        head = QHBoxLayout()
+        head.setSpacing(12)
+        step2, self.step2_hint = _step(2, tr("Úloha a protokol"), "")
+        self.step2_title: QLabel = step2.itemAt(1).widget()
+        head.addLayout(step2, 1)
         self.language = QComboBox()
         self.language.setToolTip(
             tr(
@@ -409,17 +465,10 @@ class BatchPage(QWidget):
         self.language.currentIndexChanged.connect(self._language_changed)
         self.set_languages(list(contract.DEFAULT_LANGUAGES))
         self.language.setMinimumWidth(160)
-        task_row.addWidget(QLabel(tr("Jazyk nahrávek:")))
-        task_row.addWidget(self.language)
-        task_layout.addLayout(task_row)
-        # Kontrola kvality z hlavičky souboru: nahrávky kratší než práh úlohy
-        # (`assets/quality.yaml`), ještě před výpočtem. Zbytek až z výsledků.
-        self.short_warning = QLabel("")
-        self.short_warning.setWordWrap(True)
-        self.short_warning.setStyleSheet(f"color: {theme.WARN};")
-        self.short_warning.hide()
-        task_layout.addWidget(self.short_warning)
-        # Rozšířený režim: co spustit. Přepínače jako úlohy, ať nejsou schované dole.
+        head.addWidget(QLabel(tr("Jazyk nahrávek:")))
+        head.addWidget(self.language)
+        task_layout.addLayout(head)
+        # Rozšířený režim: co spustit. Přepínače nad úlohami, ať nejsou schované dole.
         self.mode_row = QWidget()
         mode_layout = QHBoxLayout(self.mode_row)
         mode_layout.setContentsMargins(0, 0, 0, 0)
@@ -451,24 +500,67 @@ class BatchPage(QWidget):
         mode_layout.addStretch(1)
         self.mode_row.hide()
         task_layout.addWidget(self.mode_row)
-        page2_layout.addWidget(task_card)
 
-        right = QFrame()
-        right.setObjectName("card")
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(16, 14, 16, 14)
-        right_layout.setSpacing(8)
-        page2_layout.addWidget(right, 1)
-        step3, self.step3_hint = _step(3, tr("Protokol"), tr("Co se má z nahrávek spočítat."))
-        self.step3_title: QLabel = step3.itemAt(1).widget()
-        right_layout.addLayout(step3)
-        right_layout.addWidget(self.protocols, 1)
+        self.rows_box = QWidget()
+        self.rows_layout = QVBoxLayout(self.rows_box)
+        self.rows_layout.setContentsMargins(0, 0, 0, 0)
+        self.rows_layout.setSpacing(6)
 
-        # Jen segmentace / Jen přepis: místo karet protokolů volby mezivýsledku.
+        # Nahrávky bez úlohy (mockup varianta B, 31. 10. 2026): žlutý pruh nad úlohami,
+        # „počítat jako“ v normální velikosti a cesta zpět do kroku 1 je doplnit.
+        self.unassigned_row = QFrame()
+        self.unassigned_row.setObjectName("card")
+        self.unassigned_row.setStyleSheet(
+            f"QFrame#card {{ background: {theme.WARN_SOFT}; border: 1px solid #fcd34d; }}"
+        )
+        un_layout = QHBoxLayout(self.unassigned_row)
+        un_layout.setContentsMargins(14, 10, 14, 10)
+        un_layout.setSpacing(10)
+        icon = QLabel("⚠")
+        icon.setStyleSheet(f"color: {theme.WARN}; font-weight: 600;")
+        un_layout.addWidget(icon)
+        self.unassigned_label = QLabel("")
+        self.unassigned_label.setStyleSheet("color: #92400e; font-weight: 600;")
+        un_layout.addWidget(self.unassigned_label)
+        un_layout.addSpacing(8)
+        as_label = QLabel(tr("Počítat jako"))
+        as_label.setStyleSheet("color: #92400e;")
+        un_layout.addWidget(as_label)
+        self.unassigned_combo = QComboBox()
+        self.unassigned_combo.setMinimumWidth(170)
+        for task in contract.TASKS:
+            self.unassigned_combo.addItem(tasks.label(task), task)
+        self.unassigned_combo.currentIndexChanged.connect(self._unassigned_changed)
+        un_layout.addWidget(self.unassigned_combo)
+        un_layout.addStretch(1)
+        self.fill_tasks_link = QLabel(
+            f"<a href='#' style='color:{theme.ACCENT}'>{tr('nebo doplnit v kroku 1 ›')}</a>"
+        )
+        self.fill_tasks_link.setToolTip(
+            tr("Zpět na nahrávky, ukážou se jen ty bez úlohy; úloha se vybere dvojklikem.")
+        )
+        self.fill_tasks_link.linkActivated.connect(lambda _h: self.show_without_task(True))
+        un_layout.addWidget(self.fill_tasks_link)
+        self.unassigned_row.hide()
+        task_layout.addWidget(self.unassigned_row)
+        task_layout.addWidget(self.rows_box)
+
+        # Kontrola kvality z hlavičky souboru: nahrávky kratší než práh své úlohy
+        # (`assets/quality.yaml`), ještě před výpočtem. Zbytek až z výsledků.
+        self.short_warning = QLabel("")
+        self.short_warning.setWordWrap(True)
+        self.short_warning.setStyleSheet(f"color: {theme.WARN};")
+        self.short_warning.hide()
+        task_layout.addWidget(self.short_warning)
+
+        # Jen segmentace / Jen přepis: pod úlohami volby mezivýsledku.
         self.prepare_box = QWidget()
         prepare_layout = QVBoxLayout(self.prepare_box)
         prepare_layout.setContentsMargins(0, 4, 0, 0)
         prepare_layout.setSpacing(8)
+        step3, self.step3_hint = _step(3, tr("Segmentace"), "")
+        self.step3_title: QLabel = step3.itemAt(1).widget()
+        prepare_layout.addLayout(step3)
         self.segment_opts = QWidget()
         seg_form = QFormLayout(self.segment_opts)
         seg_form.setContentsMargins(0, 0, 0, 0)
@@ -508,9 +600,12 @@ class BatchPage(QWidget):
         tr_note.setWordWrap(True)
         tr_form.addRow("", tr_note)
         prepare_layout.addWidget(self.transcribe_opts)
-        prepare_layout.addStretch(1)
         self.prepare_box.hide()
-        right_layout.addWidget(self.prepare_box, 1)
+        task_layout.addWidget(self.prepare_box)
+
+        self.summary = SummaryBar()
+        task_layout.addWidget(self.summary)
+        page2_layout.addWidget(task_card)
 
         # rozšířený režim: souhrn výběru; úpravy jdou přes Upravit… na kartě
         # a Nový protokol…, každá změna se uloží do protokolu
@@ -532,6 +627,7 @@ class BatchPage(QWidget):
         adv_buttons.addWidget(self.new_btn)
         adv.addLayout(adv_buttons)
         page2_layout.addWidget(self.advanced_box)
+        page2_layout.addStretch(1)
 
         bottom = QHBoxLayout()
         self.back_btn = QPushButton(tr("← Nahrávky"))
@@ -557,7 +653,7 @@ class BatchPage(QWidget):
         """Krok 1 (nahrávky) nebo 2 (úloha a protokol); stránka si ho pamatuje."""
         self.steps.setCurrentIndex(0 if step == 1 else 1)
         self.step_label.setText(
-            tr("krok 1 ze 2 · Nahrávky") if step == 1 else tr("krok 2 ze 2 · Úloha a protokol")
+            tr("krok 1 ze 2 · Nahrávky") if step == 1 else tr("krok 2 ze 2 · Úlohy a protokoly")
         )
 
     def run_label(self) -> str:
@@ -607,10 +703,10 @@ class BatchPage(QWidget):
         self._doctor = report
         self._doctor_known = True
         self.editor.set_doctor(report)
-        if self._run_after_doctor is not None:
-            proto, self._run_after_doctor = self._run_after_doctor, None
+        if self._run_after_doctor:
+            self._run_after_doctor = False
             self._close_doctor_wait()
-            self._run_checked(proto)
+            self._run_checked()
         stanza = ((report or {}).get("models") or {}).get("stanza") or {}
         languages = [str(code) for code in stanza.get("languages") or []]
         if languages:
@@ -655,16 +751,21 @@ class BatchPage(QWidget):
         known = {rec.path: rec.duration for rec in self._recordings}
         return [known.get(p) for p in paths]
 
-    def expected_seconds(self, proto: Protocol | None = None) -> float | None:
-        """Odhad celé dávky: podle minut zvuku, kde jsou známé, jinak na nahrávku."""
+    def expected_seconds(
+        self, proto: Protocol | None = None, recordings: list[Recording] | None = None
+    ) -> float | None:
+        """Odhad dávky: podle minut zvuku, kde jsou známé, jinak na nahrávku.
+
+        Bez `recordings` celá dávka (všechny nahrávky kroku 1)."""
         proto = proto or self.current_protocol()
-        if proto is None or not self._recordings:
+        recs = self._recordings if recordings is None else recordings
+        if proto is None or not recs:
             return None
         slug = proto.slug()
         rate = self._seconds_per_audio_minute(slug)
         per_file = self._seconds_per_file(slug)
-        known = [rec.duration for rec in self._recordings if rec.duration]
-        unknown = len(self._recordings) - len(known)
+        known = [rec.duration for rec in recs if rec.duration]
+        unknown = len(recs) - len(known)
         total = 0.0
         if rate and known:
             total += rate / 60 * sum(known)
@@ -730,19 +831,22 @@ class BatchPage(QWidget):
             self.step1_hint.setText(self._count_text())
 
     def refresh_summary(self) -> None:
-        """Po běhu: nová doba na nahrávku do karet i do souhrnu editoru."""
+        """Po běhu: nová doba na nahrávku do řádků úloh i do souhrnu editoru."""
         self.editor.refresh_summary()
-        self.protocols.set_protocols(
-            self._protocols, self._card_infos(), current=self.protocols.current_name()
-        )
+        self._sync_rows()
 
     def set_protocols(self, protocols: list[Protocol], *, current: str = "") -> None:
         self._protocols = protocols
-        self.protocols.set_protocols(protocols, self._card_infos(), current=current)
-        if self.protocols.current() is None:
-            self._protocol_changed(None)
+        chosen = next((p for p in protocols if p.name == current), None)
+        self._rows_key = ()  # protokoly se změnily: řádky znovu
+        # vybraný protokol (naposledy použitý, nově uložený) i s jeho úlohou
+        if chosen is not None and self.select_protocol(chosen.name):
+            return
+        self._sync_rows()
+        self._protocol_changed(self.current_protocol())
 
-    def _card_infos(self) -> dict[str, ProtocolCardInfo]:
+    def _card_infos(self) -> dict[str, tuple[list[str], str]]:
+        """Protokol → (providery, nápověda ceny) pro druhý řádek výběru a stav."""
         if self._library is None:
             return {}
         try:
@@ -751,10 +855,28 @@ class BatchPage(QWidget):
         except LibraryError:
             return {}
         raw = card_infos(self._protocols, catalog, providers, self._seconds_per_file)
-        return {name: ProtocolCardInfo(list(p), hint) for name, (p, hint) in raw.items()}
+        return {name: (list(p), hint) for name, (p, hint) in raw.items()}
 
     def select_protocol(self, name: str) -> bool:
-        return self.protocols.select(name)
+        """Vybere protokol v řádku jeho úlohy; bez úloh v manifestu přepne i úlohu."""
+        proto = next((p for p in self._protocols if p.name == name), None)
+        if proto is None:
+            return False
+        self._row_choice[proto.task] = proto.name
+        if not self._multi():
+            if self._single_task != proto.task:
+                self._single_task = proto.task
+                self._rows_key = ()
+        self._sync_rows()
+        row_task = next((t for t in self._task_rows if tasks.base_task(t) == proto.task), None)
+        if row_task is None:
+            return False
+        row = self._task_rows[row_task]
+        if not row.protocol.select_name(proto.name):
+            return False
+        self._current_task = row_task
+        self._protocol_changed(proto)
+        return True
 
     def make_protocol_detail(self, proto: Protocol) -> ProtocolDetailDialog:
         """Okno „co protokol počítá“ z katalogu knihovny; bez knihovny prázdné."""
@@ -800,7 +922,7 @@ class BatchPage(QWidget):
         if not advanced:
             self.set_mode("extract")  # základní režim umí jen výpočet feature
         self.advanced_box.setVisible(advanced and self._mode == "extract")
-        self.protocols.set_advanced(advanced)
+        self._sync_rows()
         self._fill_files()
 
     # --- režim běhu (rozšířený režim) -------------------------------------------------
@@ -819,7 +941,6 @@ class BatchPage(QWidget):
         btn = self.mode_buttons[mode]
         if not btn.isChecked():
             btn.setChecked(True)
-        self.protocols.setVisible(mode == "extract")
         self.prepare_box.setVisible(mode != "extract")
         self.segment_opts.setVisible(mode == "segments")
         self.transcribe_opts.setVisible(mode == "transcript")
@@ -831,16 +952,25 @@ class BatchPage(QWidget):
                 "transcript": tr("Přepis (Whisper)"),
             }[mode]
         )
+        self._rows_key = ()  # stav řádků podle režimu (DDK nemá mezivýsledek)
         self._update_run_state()
 
-    def _mode_allowed(self, mode: str) -> bool:
-        """Přepis jen u souvislé řeči, segmentace ne u DDK; bez protokolu vše."""
-        proto = self.current_protocol()
-        if proto is None or mode == "extract":
-            return True
+    @staticmethod
+    def _task_allows(task: str, mode: str) -> bool:
+        """Přepis jen u souvislé řeči, segmentace ne u DDK."""
+        base = tasks.base_task(task)
         if mode == "transcript":
-            return proto.task in contract.TRANSCRIPT_TASKS
-        return proto.task in contract.SEGMENT_TASKS
+            return base in contract.TRANSCRIPT_TASKS
+        if mode == "segments":
+            return base in contract.SEGMENT_TASKS
+        return True
+
+    def _mode_allowed(self, mode: str) -> bool:
+        """Režim jde, když ho umí aspoň jedna úloha; bez úloh vše."""
+        if mode == "extract":
+            return True
+        groups = [t for t, recs in self._task_groups().items() if recs] or [self._single_task]
+        return any(self._task_allows(t, mode) for t in groups)
 
     def _sync_mode_to_protocol(self) -> None:
         """Po změně protokolu: nepovolené režimy vypnout, výchozí modely z protokolu."""
@@ -863,9 +993,6 @@ class BatchPage(QWidget):
         self.folder.setText(str(folder))
         self.rescan()
 
-    def current_protocol(self) -> Protocol | None:
-        return self.protocols.current()
-
     # --- složka ---------------------------------------------------------------
 
     def _browse(self) -> None:
@@ -884,6 +1011,8 @@ class BatchPage(QWidget):
             self._excluded.clear()
             self.files.reset()  # úpravy metadat patří složce; jiná složka = od začátku
             self._scanned_folder = text
+            self._fix_mode = ""  # seznam k doplnění patří složce
+            self.files.freeze(None)
         self._found = (
             find_recordings(Path(text), recursive=self.recursive.isChecked()) if text else []
         )
@@ -952,15 +1081,16 @@ class BatchPage(QWidget):
         base = self.base_manifest()
         if base is None and not self.files.has_changes():
             return None
-        columns = list(self.files.columns)
+        columns = [c for c in self.files.columns if c != TASK]
         folder = self.folder.text().strip()
         merged = Manifest(
             path=base.path if base else Path(folder or ".") / "manifest.csv",
             columns=columns,
-            tasks=dict(base.tasks) if base else {},
         )
         for key, row in self.files.rows_merged().items():
-            if any(row.values()):
+            if row.get(TASK):
+                merged.tasks[key] = row[TASK]  # úloha z manifestu nebo doplněná v tabulce
+            if any(row.get(c) for c in columns):
                 merged.rows[key] = {c: row.get(c, "") for c in columns}
         return merged
 
@@ -1025,16 +1155,35 @@ class BatchPage(QWidget):
         if not rows:
             return
         choices = list(self.files.columns)
-        for column in meta.META_COLUMNS:
+        for column in (TASK, *meta.META_COLUMNS):
             if column not in choices:
                 choices.append(column)
-        labels = [f"{meta.label(c)} ({c})" if c in meta.META_COLUMNS else c for c in choices]
+
+        def column_label(c: str) -> str:
+            if c == TASK:
+                return tr("úloha (task)")
+            return f"{meta.label(c)} ({c})" if c in meta.META_COLUMNS else c
+
+        labels = [column_label(c) for c in choices]
         label, ok = QInputDialog.getItem(
             self, tr("Vyplnit vybrané"), tr("Sloupec:"), labels, 0, False
         )
         if not ok:
             return
         column = choices[labels.index(label)]
+        if column == TASK:
+            names = [tasks.label(t) for t in contract.TASKS]
+            name, ok = QInputDialog.getItem(
+                self,
+                tr("Vyplnit vybrané"),
+                tr("Úloha pro {n} vybraných nahrávek:").format(n=len(rows)),
+                names,
+                0,
+                False,
+            )
+            if ok:
+                self.fill_selected(TASK, contract.TASKS[names.index(name)])
+            return
         value, ok = QInputDialog.getText(
             self,
             tr("Vyplnit vybrané"),
@@ -1046,6 +1195,7 @@ class BatchPage(QWidget):
             self.fill_selected(column, value)
 
     def _meta_edited(self) -> None:
+        self._task_cache = None  # úloha mohla přibýt nebo se změnit
         self._update_group_choices()
         self._update_meta_label()
         self._update_run_state()
@@ -1085,14 +1235,17 @@ class BatchPage(QWidget):
         self._apply_filter()
 
     def _toggle_missing(self) -> None:
-        self._only_missing = not self._only_missing
-        self._apply_filter()
+        """Dlaždice „bez údajů“: seznam k doplnění, druhý klik = Hotovo."""
+        if self._fix_mode == "missing":
+            self.end_fixing()
+        else:
+            self.start_fixing("missing")
 
     def _apply_filter(self) -> None:
-        if not self.files.missing_indices():
-            self._only_missing = False
-        self.files.set_filter(self.search.text(), self._only_missing)
-        self.missing_tile.set_active(self._only_missing)
+        self.files.set_filter(self.search.text())
+        self.files.refresh_done()
+        self.missing_tile.set_active(self._fix_mode == "missing")
+        self._update_fix_banner()
         self._update_tiles()
 
     def _update_tiles(self) -> None:
@@ -1122,8 +1275,8 @@ class BatchPage(QWidget):
         if missing:
             labels = ", ".join(meta.label(c) for c in self.files.missing_columns())
             caption = tr("bez údajů: {columns}").format(columns=labels)
-            if self._only_missing:
-                caption += " · " + tr("zobrazeny jen tyto")
+            if self._fix_mode == "missing":
+                caption += " · " + tr("doplňuješ")
             self.missing_tile.set_text(str(len(missing)), caption)
         self.missing_tile.setVisible(bool(missing))
         if hasattr(self, "short_warning"):  # seznam nahrávek se změnil, varování kroku 2 taky
@@ -1167,16 +1320,23 @@ class BatchPage(QWidget):
         if manifest is None and self._manifest is not None:
             manifest = self._manifest  # rozbitý soubor: sloupce ukázat, hodnoty šedě
         columns = list(manifest.columns) if manifest else []
+        if manifest is not None and manifest.tasks:
+            columns.insert(0, TASK)  # úloha z manifestu jako první sloupec metadat
         # Ruční vstupy (labely, přepis vedle nahrávky) zajímají výzkumníka,
         # klinik je nikdy nemá; v základním režimu se sloupec neukazuje.
         headers = [tr("nahrávka"), tr("délka")]
         if self._advanced:
             headers.append(tr("ruční vstupy"))
         self.files.set_leading_headers(headers)
+        self._task_cache = None
         root = Path(self.folder.text().strip()) if self.folder.text().strip() else None
         rows: list[MetaRow] = []
         for rec in self._recordings:
             row_meta = manifest.meta_for(rec.path) if manifest else None
+            base = dict(row_meta or {})
+            own = manifest.tasks.get(key_for(rec.path), "") if manifest else ""
+            if own:
+                base[TASK] = own
             leading = [rec.name, format_duration(rec.duration)]
             if self._advanced:
                 manual = [tr("labely")] * rec.has_labels + [tr("přepis")] * rec.has_transcript
@@ -1185,13 +1345,14 @@ class BatchPage(QWidget):
                 MetaRow(
                     key_for(rec.path),
                     leading,
-                    dict(row_meta or {}),
+                    base,
                     tooltip=tr("{path}\nDvojklik přehraje.").format(path=rec.path),
                     muted=row_meta is None,
                     seconds=rec.duration,
                     folder=_subfolder(rec.path, root),
                 )
             )
+        self._update_task_hint(refill=False)
         self.files.set_rows(rows, columns)
         self._update_group_choices()
         self._update_meta_label()
@@ -1265,7 +1426,7 @@ class BatchPage(QWidget):
         """Nový protokol…: prázdný pro aktuální úlohu, se všemi feature k ní."""
         if not self.editor.has_catalog():
             return None
-        task = self.protocols.current_task() or contract.TASKS[0]
+        task = tasks.base_task(self._current_task or self.default_task())
         result = self.editor_dialog.edit(
             Protocol(name="", task=task), mode="new", taken=self.protocol_names()
         )
@@ -1284,23 +1445,431 @@ class BatchPage(QWidget):
 
     # --- spuštění -------------------------------------------------------------
 
+    # --- úloha nahrávek ---------------------------------------------------------------
+
+    def default_task(self) -> str:
+        """Úloha nahrávek bez úlohy v manifestu: „počítat jako“, bez manifestu zvolená úloha."""
+        return self._unassigned_task if self._multi() else self._single_task
+
+    def manifest_task(self, path: Path) -> str:
+        """Úloha nahrávky z tabulky (manifest nebo doplněná); prázdné = „počítat jako“."""
+        if self._task_cache is None:
+            self._task_cache = (
+                {k: row.get(TASK, "") for k, row in self.files.rows_merged().items()}
+                if TASK in self.files.columns
+                else {}
+            )
+        return self._task_cache.get(key_for(path), "")
+
+    def task_of(self, path: Path) -> str:
+        """Úloha, jako kterou se nahrávka spočítá (manifest má přednost)."""
+        return self.manifest_task(path) or self.default_task()
+
+    def _task_column(self) -> bool:
+        """Sloupec úloha v tabulce (z manifestu nebo přidaný); jinak všude zvolená úloha."""
+        return TASK in self.files.columns
+
+    def _multi(self) -> bool:
+        """Úlohy z manifestu: řádek na úlohu, jinak jeden řádek s výběrem úlohy."""
+        return self._task_column()
+
+    def _task_groups(self) -> dict[str, list[Recording]]:
+        """Úloha → nahrávky dávky, v pořadí úloh; bez manifestu jedna skupina."""
+        if not self._multi():
+            return {self._single_task: list(self._recordings)}
+        groups: dict[str, list[Recording]] = {}
+        for rec in self._recordings:
+            groups.setdefault(self.task_of(rec.path), []).append(rec)
+        return dict(sorted(groups.items(), key=lambda kv: tasks.task_order(kv[0])))
+
+    def task_rows(self) -> dict[str, TaskRowWidget]:
+        """Řádky úloh kroku 2 podle úlohy (pro testy a hlavní okno)."""
+        return dict(self._task_rows)
+
+    def _auto_unassigned(self) -> str:
+        """Výchozí „počítat jako“: první úloha, kterou tabulka nemá, jinak fonace."""
+        present = {self.manifest_task(rec.path) for rec in self._recordings}
+        return next((t for t in contract.TASKS if t not in present), contract.TASKS[0])
+
+    def _update_task_hint(self, *, refill: bool = True) -> None:
+        """Šedé „jako …“ v prázdných buňkách úlohy podle „počítat jako“."""
+        task = self.default_task()
+        self._shown_task = task
+        self.files.set_hint(TASK, tr("jako {task}").format(task=tasks.label(task)) if task else "")
+        if refill and self._task_column():
+            self.files.refill()
+            self._apply_filter()
+
+    def show_without_task(self, only: bool = True) -> None:
+        """Krok 1 se seznamem nahrávek bez úlohy (z kroku 2 „Doplnit v kroku 1“), nebo konec."""
+        if not only:
+            self.end_fixing()
+            return
+        if self._task_column():
+            self.go_to_step(1)
+            self.start_fixing("task")
+
+    # --- seznam k doplnění ----------------------------------------------------------------
+
+    def _row_done(self, key: Path) -> bool:
+        """Řádek seznamu k doplnění je hotový: úloha vyplněná, nebo povinné údaje."""
+        merged = self.files.merged(key)
+        if self._fix_mode == "task":
+            return bool(merged.get(TASK))
+        required = [c for c in (meta.SUBJECT, meta.AGE, meta.SEX) if c in merged]
+        return all(merged.get(c) for c in required)
+
+    def start_fixing(self, mode: str) -> None:
+        """Zamrazí neúplné řádky („missing“) nebo řádky bez úlohy („task“) do seznamu."""
+        if mode == "missing":
+            keys = {self.files.keys()[i] for i in self.files.missing_indices()}
+        else:
+            keys = {
+                key_for(rec.path) for rec in self._recordings if not self.manifest_task(rec.path)
+            }
+        if not keys:
+            self.end_fixing()
+            return
+        self._fix_mode = mode
+        self.files.set_done_check(self._row_done)
+        self.files.freeze(keys)
+        self._apply_filter()
+
+    def end_fixing(self) -> None:
+        """Hotovo: zpět na celou tabulku, doplněné údaje zůstávají."""
+        self._fix_mode = ""
+        self.files.freeze(None)
+        self._apply_filter()
+
+    def fixing(self) -> str:
+        return self._fix_mode
+
+    def _update_fix_banner(self) -> None:
+        keys = self.files.frozen_keys()
+        if not self._fix_mode or keys is None:
+            self.fix_banner.hide()
+            return
+        done = sum(1 for k in keys if self._row_done(k))
+        total = len(keys)
+        what = tr("úlohy") if self._fix_mode == "task" else tr("údaje")
+        if done < total:
+            self.fix_label.setText(
+                tr("Doplňuješ {what} · hotovo {done} z {total} · zbývá {left}").format(
+                    what=what, done=done, total=total, left=total - done
+                )
+            )
+            self.fix_banner.setStyleSheet(
+                "QFrame#card { background: #eff6ff; border: 1px solid #bfdbfe; }"
+            )
+            self.fix_label.setStyleSheet("color: #1d4ed8; font-weight: 600;")
+        else:
+            self.fix_label.setText(tr("✓ Vše doplněno ({n} nahrávek)").format(n=total))
+            self.fix_banner.setStyleSheet(
+                f"QFrame#card {{ background: {theme.OK_SOFT}; border: 1px solid #86efac; }}"
+            )
+            self.fix_label.setStyleSheet("color: #166534; font-weight: 600;")
+        self.fix_save_btn.setVisible(done == total)
+        self.fix_banner.show()
+
+    def set_unassigned_task(self, task: str) -> None:
+        """Jako jakou úlohu počítat nahrávky bez úlohy v manifestu."""
+        idx = self.unassigned_combo.findData(task)
+        if idx >= 0:
+            self._unassigned_auto = False
+            self.unassigned_combo.setCurrentIndex(idx)
+            self._unassigned_changed()
+
+    def _unassigned_changed(self, _idx: int = 0) -> None:
+        if self._syncing:
+            return
+        task = str(self.unassigned_combo.currentData() or "")
+        if task and task != self._unassigned_task:
+            self._unassigned_auto = False
+            self._unassigned_task = task
+            self._update_task_hint()
+            self._update_run_state()
+
+    def _protocols_for(self, task: str) -> list[Protocol]:
+        base = tasks.base_task(task)
+        return [p for p in self._protocols if p.task == base]
+
+    def _choice_for(self, task: str) -> str:
+        """Protokol řádku: naposledy vybraný pro úlohu, jinak přibalený výchozí."""
+        base = tasks.base_task(task)
+        names = [p.name for p in self._protocols_for(task)]
+        chosen = self._row_choice.get(base, "")
+        if chosen in names:
+            return chosen
+        builtin = [p for p in self._protocols_for(task) if p.builtin]
+        return (builtin or self._protocols_for(task) or [Protocol(name="", task=base)])[0].name
+
+    def _sync_rows(self) -> None:
+        """Řádky úloh podle nahrávek a manifestu; stavba jen při změně sady úloh."""
+        if self._syncing:
+            return
+        self._syncing = True
+        try:
+            if self._multi():
+                if self._unassigned_auto or not self._unassigned_task:
+                    self._unassigned_task = self._auto_unassigned()
+                idx = self.unassigned_combo.findData(self._unassigned_task)
+                self.unassigned_combo.setCurrentIndex(max(idx, 0))
+            groups = self._task_groups()
+            key = (self._multi(), tuple(groups), tuple(p.name for p in self._protocols))
+            if key != self._rows_key:
+                self._build_rows(list(groups))
+                self._rows_key = key
+            if self._current_task not in self._task_rows:
+                self._current_task = next(iter(self._task_rows), "")
+            for task, row in self._task_rows.items():
+                self._refresh_row(task, row, groups.get(task, []))
+            unassigned = [
+                rec
+                for rec in self._recordings
+                if self._multi() and not self.manifest_task(rec.path)
+            ]
+            self.unassigned_label.setText(tr("{n} nahrávek nemá úlohu.").format(n=len(unassigned)))
+            self.unassigned_row.setVisible(bool(unassigned))
+            if self._task_column() and self.default_task() != self._shown_task:
+                self._update_task_hint()  # šedé „jako …“ v tabulce podle „počítat jako“
+        finally:
+            self._syncing = False
+
+    def _build_rows(self, task_keys: list[str]) -> None:
+        for row in self._task_rows.values():
+            self.rows_layout.removeWidget(row)
+            row.hide()
+            row.deleteLater()
+        self._task_rows = {}
+        multi = self._multi()
+        for task in task_keys:
+            row = TaskRowWidget(
+                task,
+                switch=multi,
+                task_choices=None if multi else list(contract.TASKS),
+            )
+            row.protocol.set_protocols(self._protocols_for(task), current=self._choice_for(task))
+            row.protocol.currentIndexChanged.connect(
+                lambda _i, t=task: self._row_protocol_changed(t)
+            )
+            row.toggled.connect(lambda _on: self._update_run_state())
+            row.clicked.connect(lambda t=task: self._row_clicked(t))
+            row.details_requested.connect(
+                lambda t=task: self.show_protocol_detail(self._row_protocol(t))
+            )
+            row.edit_requested.connect(lambda t=task: self.edit_protocol(self._row_protocol(t)))
+            if row.task_combo is not None:
+                row.task_combo.currentIndexChanged.connect(
+                    lambda _i, r=row: self._single_task_changed(r)
+                )
+            self.rows_layout.addWidget(row)
+            self._task_rows[task] = row
+
+    def _row_protocol(self, task: str) -> Protocol | None:
+        row = self._task_rows.get(task)
+        return row.protocol.current_protocol() if row is not None else None
+
+    def _row_clicked(self, task: str) -> None:
+        if task != self._current_task:
+            self._current_task = task
+            self._protocol_changed(self.current_protocol())
+
+    def _row_protocol_changed(self, task: str) -> None:
+        if self._syncing:
+            return
+        proto = self._row_protocol(task)
+        if proto is not None:
+            self._row_choice[proto.task] = proto.name
+        self._current_task = task
+        self._protocol_changed(proto)
+
+    def _single_task_changed(self, row: TaskRowWidget) -> None:
+        if self._syncing or row.task_combo is None:
+            return
+        task = str(row.task_combo.currentData() or "")
+        if not task or task == self._single_task:
+            return
+        self._single_task = task
+        self._rows_key = ()
+        self._sync_rows()
+        self._protocol_changed(self.current_protocol())
+
+    def _row_sub(self, proto: Protocol, infos: dict[str, tuple[list[str], str]]) -> str:
+        """Druhý řádek výběru protokolu: počet sloupců a cena."""
+        hint = infos.get(proto.name, ([], ""))[1]
+        columns = 0
+        if self._library is not None:
+            try:
+                catalog = self._library.features(proto.task)
+                providers = self._library.providers()
+                columns = summarize(
+                    proto.select([f.name for f in catalog]), catalog, providers
+                ).columns
+            except LibraryError:
+                columns = 0
+        parts = [tr("{n} sloupců").format(n=columns)] if columns else []
+        if hint:
+            parts.append(hint)
+        return " · ".join(parts)
+
+    def _refresh_row(self, task: str, row: TaskRowWidget, recs: list[Recording]) -> None:
+        infos = self._card_infos()
+        protocols = self._protocols_for(task)
+        row.protocol.blockSignals(True)
+        current = row.protocol.current_protocol()
+        row.protocol.set_protocols(
+            protocols,
+            current=current.name if current is not None else self._choice_for(task),
+            subs={p.name: self._row_sub(p, infos) for p in protocols},
+        )
+        row.protocol.blockSignals(False)
+        if row.task_combo is not None:
+            idx = row.task_combo.findData(task)
+            row.task_combo.blockSignals(True)
+            row.task_combo.setCurrentIndex(max(idx, 0))
+            row.task_combo.blockSignals(False)
+        audio = sum(r.duration or 0 for r in recs)
+        sub = tr("{n} nahrávek · {audio}").format(n=len(recs), audio=format_duration(audio))
+        if self._multi():
+            loose = sum(1 for r in recs if not self.manifest_task(r.path))
+            if loose:
+                sub += (
+                    f" · <span style='color:#92400e; background:{theme.WARN_SOFT};"
+                    f" font-weight:600'>&nbsp;"
+                    + tr("+{n} bez úlohy").format(n=loose)
+                    + "&nbsp;</span>"
+                )
+        row.sub.setText(sub)
+        row.sub.setTextFormat(Qt.TextFormat.RichText)
+        allowed = self._task_allows(task, self._mode)
+        row.set_off_look(not row.is_on() or not recs or not allowed)
+        if row.switch is not None:
+            row.switch.setEnabled(allowed and bool(recs))
+        proto = row.protocol.current_protocol()
+        extract = self._mode == "extract"
+        row.edit_btn.setVisible(self._advanced and extract)
+        row.details.setVisible(extract)
+        row.protocol.setEnabled(extract or self._mode == "transcript")
+        if not allowed:
+            row.set_status(
+                "none",
+                tr("bez mezivýsledku") if self._mode == "segments" else tr("bez přepisu"),
+            )
+            row.set_count("–")
+            return
+        if proto is None:
+            row.set_status("warn", tr("žádný protokol"))
+            row.set_count("–")
+            return
+        if not extract:
+            row.set_status("info", contract.RUN_MODE_LABELS[self._mode].lower())
+        else:
+            missing = self.missing_providers(proto)
+            providers = self._card_infos().get(proto.name, ([], ""))[0]
+            if missing:
+                names = ", ".join(contract.PROVIDER_SHORT.get(m, m) for m in missing)
+                row.set_status(
+                    "warn",
+                    tr("chybí: {names}").format(names=names),
+                    tr("Feature, které to potřebují, zůstanou prázdné. Řeší se na Prostředí."),
+                )
+            elif providers:
+                row.set_status(
+                    "info", ", ".join(contract.PROVIDER_SHORT.get(p, p) for p in providers)
+                )
+            else:
+                row.set_status("ok", tr("bez modelů"))
+        seconds = self.expected_seconds(proto, recs) if extract else None
+        if seconds is None or not recs:
+            row.set_count("–" if recs else "")
+        else:
+            row.set_count(
+                "~" + format_seconds(seconds),
+                tr("{s} / nahr.").format(s=format_seconds(seconds / len(recs))),
+            )
+
+    def planned_runs(self) -> list[tuple[str, Protocol, list[Path]]]:
+        """Běhy, které Spustit zařadí: zapnuté úlohy s nahrávkami, protokol s jazykem."""
+        runs: list[tuple[str, Protocol, list[Path]]] = []
+        for task, recs in self._task_groups().items():
+            row = self._task_rows.get(task)
+            if row is None or not recs or not row.is_on():
+                continue
+            if not self._task_allows(task, self._mode):
+                continue
+            proto = row.protocol.current_protocol()
+            if proto is None:
+                continue
+            runs.append((task, self._with_language(proto), [r.path for r in recs]))
+        return runs
+
+    def _update_summary(self, runs: list[tuple[str, Protocol, list[Path]]]) -> None:
+        """Souhrnný pruh: běhy a nahrávky, zvuk, odhad a podíl úloh."""
+        durations = {rec.path: rec.duration for rec in self._recordings}
+        n_files = sum(len(paths) for _t, _p, paths in runs)
+        audio = sum(durations.get(path) or 0 for _t, _p, paths in runs for path in paths)
+        estimates: list[tuple[str, float]] = []
+        unknown = False
+        for task, proto, paths in runs:
+            recs = [r for r in self._recordings if r.path in set(paths)]
+            seconds = self.expected_seconds(proto, recs) if self._mode == "extract" else None
+            if seconds is None:
+                unknown = True
+            else:
+                estimates.append((task, seconds))
+        first = (
+            runs_text(len(runs)),
+            tr("{n} nahrávek").format(n=n_files),
+        )
+        figures = [first, (format_duration(audio), tr("zvuku"))] if runs else []
+        if estimates and not unknown:
+            total = sum(s for _t, s in estimates)
+            figures.append(("~" + format_seconds(total), tr("odhad výpočtu")))
+        self.summary.set_figures(figures)
+        self.summary.share.set_parts(
+            [(s, SHARE_COLORS[i % len(SHARE_COLORS)]) for i, (_t, s) in enumerate(estimates)]
+            if len(estimates) > 1
+            else []
+        )
+        if len(estimates) > 1:
+            longest = max(estimates, key=lambda e: e[1])[0]
+            self.summary.set_hint(tr("nejdéle {task}").format(task=tasks.label(longest)))
+        else:
+            self.summary.set_hint("")
+        self.summary.setVisible(bool(runs))
+
     def short_recordings(self, task: str | None = None) -> list[Recording]:
-        """Nahrávky kratší než práh délky pro úlohu (podle hlavičky souboru)."""
-        if task is None:
-            proto = self.current_protocol()
-            task = proto.task if proto is not None else ""
-        limit = quality.min_duration(task) if task else None
-        if limit is None:
-            return []
-        return [r for r in self._recordings if r.duration and r.duration < limit]
+        """Nahrávky kratší než práh délky své úlohy (podle hlavičky souboru).
+
+        Úloha z manifestu má přednost, jinak `task`, jinak úloha z kroku 2."""
+        default = task if task is not None else self.default_task()
+        out: list[Recording] = []
+        for rec in self._recordings:
+            own = self.manifest_task(rec.path) or default
+            limit = quality.min_duration(own) if own else None
+            if limit is not None and rec.duration and rec.duration < limit:
+                out.append(rec)
+        return out
 
     def _update_short_warning(self) -> None:
         proto = self.current_protocol()
-        short = self.short_recordings(proto.task if proto is not None else "")
+        short = self.short_recordings()
         if not short or proto is None:
             self.short_warning.hide()
             return
         limit = quality.min_duration(proto.task) or 0
+        if len(self._task_groups()) > 1:  # víc úloh: každá má vlastní práh
+            self.short_warning.setText(
+                tr(
+                    "⚠ {n} nahrávek je kratších než práh své úlohy: {names}. Spočítají se, "
+                    "ale ve výsledcích budou označené."
+                ).format(
+                    n=len(short),
+                    names=", ".join(r.name for r in short[:3]) + (" …" if len(short) > 3 else ""),
+                )
+            )
+            self.short_warning.show()
+            return
         self.short_warning.setText(
             tr(
                 "⚠ {n} nahrávek je kratších než {s} s ({task}): {names}. Spočítají se, "
@@ -1315,19 +1884,34 @@ class BatchPage(QWidget):
         self.short_warning.show()
 
     def _update_run_state(self) -> None:
+        self._sync_rows()
         proto = self.current_protocol()
-        ok = bool(self._recordings) and proto is not None and self._library is not None
+        runs = self.planned_runs()
+        ok = bool(runs) and self._library is not None
         self.run_btn.setEnabled(ok)
+        self.run_btn.setText(
+            tr("Spustit · {runs}").format(runs=runs_text(len(runs)))
+            if len(runs) > 1
+            else tr("Spustit")
+        )
+        self._update_summary(runs)
         self._update_short_warning()
         self.new_btn.setEnabled(self.editor.has_catalog())
         self._update_editor_summary()
         self._update_step1_hint()
-        self.step2_hint.setText(
-            f"{contract.TASK_LABELS.get(proto.task, proto.task)} · "
-            f"{contract.language_label(self.language_code())}"
-            if proto is not None
-            else ""
-        )
+        multi = self._multi()
+        self.step2_title.setText(tr("Úlohy a protokoly") if multi else tr("Úloha a protokol"))
+        if multi:
+            self.step2_hint.setText(
+                tr("úloh: {n} · každá se spustí jako samostatný běh").format(n=len(self._task_rows))
+            )
+        else:
+            self.step2_hint.setText(
+                f"{contract.TASK_LABELS.get(proto.task, proto.task)} · "
+                f"{contract.language_label(self.language_code())}"
+                if proto is not None
+                else ""
+            )
         work_hint = tr("do mezivýsledků (work)")
         if self._mode == "segments":
             self.step3_hint.setText(work_hint)
@@ -1362,17 +1946,32 @@ class BatchPage(QWidget):
                     f"{contract.language_label(self.language_code())} · "
                     + self.transcribe_model.text()
                 )
+            elif len(runs) > 1:
+                self.status.setText(
+                    self._count_text()
+                    + " · "
+                    + runs_text(len(runs))
+                    + f" · {contract.language_label(self.language_code())}"
+                )
             else:
                 self.status.setText(
                     self._count_text() + f" · {contract.TASK_LABELS[proto.task]} · "
                     f"{contract.language_label(self.language_code())} · {proto.display_name}"
                 )
 
+    def current_protocol(self) -> Protocol | None:
+        """Protokol řádku, se kterým se naposledy pracovalo (bez manifestu jediný řádek)."""
+        proto = self._row_protocol(self._current_task)
+        if proto is None and self._task_rows:
+            proto = self._row_protocol(next(iter(self._task_rows)))
+        return proto
+
     def effective_protocol(self) -> Protocol | None:
         """Protokol pro běh: vybraný protokol tak, jak je uložený, plus jazyk z lišty."""
         base = self.current_protocol()
-        if base is None:
-            return None
+        return self._with_language(base) if base is not None else None
+
+    def _with_language(self, base: Protocol) -> Protocol:
         proto = Protocol(
             name=base.name,
             task=base.task,
@@ -1408,8 +2007,7 @@ class BatchPage(QWidget):
         return [p for p in summary.providers if p in state and not state[p].get("ready")]
 
     def _run(self) -> None:
-        proto = self.effective_protocol()
-        if proto is None:
+        if not self.planned_runs():
             return
         if self._mode != "extract":
             self._prepare(self._mode)
@@ -1417,7 +2015,7 @@ class BatchPage(QWidget):
         if self._library is not None and not self._doctor_known:
             # Zpráva doctor ještě nedorazila (klik hned po startu): počkat na pozadí,
             # ať klinik nespustí hodinový běh s prázdnými sloupci. Storno = nespouštět.
-            self._run_after_doctor = proto
+            self._run_after_doctor = True
             self._check_requested()
             dialog = QProgressDialog(tr("Kontroluji prostředí…"), tr("Storno"), 0, 0, self)
             dialog.setWindowTitle(tr("SpeechScope"))
@@ -1427,10 +2025,10 @@ class BatchPage(QWidget):
             self._doctor_wait = dialog
             dialog.setValue(0)  # od teď běží odpočet do zobrazení
             return
-        self._run_checked(proto)
+        self._run_checked()
 
     def _cancel_doctor_wait(self) -> None:
-        self._run_after_doctor = None
+        self._run_after_doctor = False
         self._close_doctor_wait()
 
     def _close_doctor_wait(self) -> None:
@@ -1440,8 +2038,14 @@ class BatchPage(QWidget):
             dialog.close()
             dialog.deleteLater()
 
-    def _run_checked(self, proto: Protocol) -> None:
-        missing = self.missing_providers(proto)
+    def _run_checked(self) -> None:
+        runs = self.planned_runs()
+        if not runs:
+            return
+        proto = runs[0][1]
+        missing: list[str] = []
+        for _task, run_proto, _paths in runs:
+            missing += [m for m in self.missing_providers(run_proto) if m not in missing]
         if missing:
             names = ", ".join(contract.PROVIDER_LABELS.get(p, p) for p in missing)
             answer = QMessageBox.question(
@@ -1458,9 +2062,9 @@ class BatchPage(QWidget):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
-        short = self.short_recordings(proto.task)
+        short = self.short_recordings()
         if short:
-            limit = quality.min_duration(proto.task) or 0
+            limit = quality.min_duration(self.task_of(short[0].path)) or 0
             answer = QMessageBox.question(
                 self,
                 tr("Krátké nahrávky"),
@@ -1471,7 +2075,7 @@ class BatchPage(QWidget):
                 ).format(
                     n=len(short),
                     s=f"{limit:g}",
-                    task=tasks.label(proto.task),
+                    task=tasks.label(self.task_of(short[0].path)),
                     name=short[0].name,
                 ),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1479,7 +2083,10 @@ class BatchPage(QWidget):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
-        self.run_requested.emit(proto, [r.path for r in self._recordings])
+        if len(runs) == 1:
+            self.run_requested.emit(proto, list(runs[0][2]))
+        else:
+            self.runs_requested.emit("extract", [(p, list(paths)) for _t, p, paths in runs], {})
 
     def prepare_options(self) -> dict[str, object]:
         """Volby mezivýsledku z kroku 3 (model segmentace, vyříznutá řeč, jazyk přepisu)."""
@@ -1492,9 +2099,13 @@ class BatchPage(QWidget):
 
     def _prepare(self, kind: str) -> None:
         """Jen segmentace nebo jen přepis; volby jsou přímo na stránce, bez dialogu."""
-        proto = self.effective_protocol()
-        if proto is None:
+        runs = self.planned_runs()
+        if not runs:
             return
-        self.prepare_requested.emit(
-            kind, proto, [r.path for r in self._recordings], self.prepare_options()
+        if len(runs) == 1:
+            _task, proto, paths = runs[0]
+            self.prepare_requested.emit(kind, proto, list(paths), self.prepare_options())
+            return
+        self.runs_requested.emit(
+            kind, [(p, list(paths)) for _t, p, paths in runs], self.prepare_options()
         )

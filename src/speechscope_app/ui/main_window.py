@@ -284,6 +284,7 @@ class MainWindow(QMainWindow):
         self.protocols_page.protocols_changed.connect(self.reload_protocols)
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.prepare_requested.connect(self._start_prepare)
+        self.batch_page.runs_requested.connect(self._start_runs)
         self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
         for page in (
@@ -764,7 +765,9 @@ class MainWindow(QMainWindow):
         """Znovu načte protokoly z disku do stránek Data i Protokoly."""
         folder = self.settings.protocols_dir()
         protocols = all_protocols(folder)
-        current = current or self.batch_page.protocols.current_name()
+        if not current:
+            chosen = self.batch_page.current_protocol()
+            current = chosen.name if chosen is not None else ""
         self.batch_page.set_protocols(protocols, current=current)
         self.protocols_page.set_protocols(
             protocols, folder, current=self.protocols_page.current_name()
@@ -828,6 +831,48 @@ class MainWindow(QMainWindow):
                 label=self.batch_page.run_label(),
             )
         )
+
+    def _start_runs(self, kind: str, runs: list, options: dict) -> None:
+        """Víc úloh z Analýzy (manifest se sloupcem task): samostatný běh na úlohu.
+
+        Rozhodnuto 31. 10. 2026: běhy bez skupiny, s názvem „název · úloha“; bez
+        názvu se jmenují podle protokolu jako jindy. Jedna otázka na frontu."""
+        if self.library is None:
+            QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
+            return
+        page = self.batch_page
+        label = page.run_label()
+        language = page.language_code()
+        manifest = page.manifest() if kind == "extract" else None
+        jobs: list[Job] = []
+        for proto, inputs in runs:
+            paths = list(inputs)
+            jobs.append(
+                Job(
+                    kind=kind,
+                    proto=proto,
+                    inputs=paths,
+                    options=dict(options),
+                    manifest=manifest,
+                    language=language,
+                    durations=page.durations_for(paths) if kind == "extract" else [],
+                    label=tr("{label} · {task}").format(label=label, task=tasks.label(proto.task))
+                    if label
+                    else "",
+                )
+            )
+        if not jobs:
+            return
+        self.settings.last_language = language
+        if kind == "extract":
+            self.settings.last_protocol = jobs[0].proto.name
+        if jobs[0].inputs:
+            self.settings.last_input_dir = jobs[0].inputs[0].parent
+        queued = len(self._queue)
+        running = self.run_page.runner.running
+        self._submit_all(jobs)
+        if not running or len(self._queue) > queued:  # spuštěno nebo zařazeno, ne Ne
+            page.clear_run_label()
 
     def rerun_failed(self, run_dir: Path, paths: list[Path]) -> bool:
         """Stejný protokol jen nad nahrávkami s chybou; výsledek se vloží do původní tabulky."""

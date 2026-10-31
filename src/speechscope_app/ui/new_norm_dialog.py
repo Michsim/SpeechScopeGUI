@@ -30,7 +30,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -50,6 +49,7 @@ from .. import contract
 from ..backend import meta
 from ..backend import tasks as tasks_mod
 from ..backend.assessments import patient_key
+from ..backend.audio import format_duration as audio_duration
 from ..backend.history import KIND_ASSESSMENT, RunInfo
 from ..backend.norm_build import (
     SUBJECT_RULES,
@@ -88,6 +88,7 @@ from .widgets.clean_table import (
 )
 from .widgets.inputs import Segmented
 from .widgets.status_header import Pill
+from .widgets.task_rows import TaskRowWidget
 
 FOLDERS, RUNS = "folders", "runs"  # zdroj normy v kroku 1
 ALL_ROWS = ""  # filtr skupiny vypnutý
@@ -125,6 +126,8 @@ def _run_title(run: RunInfo) -> str:
 class TaskRow:
     """Řádek kroku 1: úloha, složka, protokol, počet nahrávek.
 
+    Vzhled je sdílený řádek úlohy (`widgets/task_rows.py`, podoba 1 z mockupu
+    31. 10. 2026, stejně jako krok 2 Analýzy); `widget` jde do rozvržení průvodce.
     Vlastní úloha (`custom`) má pod názvem, jako která úloha knihovny se počítá,
     protokoly základní úlohy a výchozí protokol z vlastní úlohy; jde ji odebrat.
     """
@@ -139,45 +142,58 @@ class TaskRow:
         self.task = task
         self.custom = custom
         base = custom.base if custom is not None else task
-        self.label = QLabel(tasks_mod.label(task) if custom is None else custom.name)
-        self.name_box = QWidget()
-        name_layout = QVBoxLayout(self.name_box)
-        name_layout.setContentsMargins(0, 0, 0, 0)
-        name_layout.setSpacing(0)
-        name_layout.addWidget(self.label)
-        self.sub = QLabel(
+        self.widget = TaskRowWidget(
+            task,
+            title=tasks_mod.label(task) if custom is None else custom.name,
+            folder=True,
+            removable=custom is not None,
+        )
+        self.label = self.widget.label
+        self.name_box = self.widget.name_box
+        self.sub = self.widget.sub
+        self._custom_sub = (
             tr("vlastní · jako {task}").format(task=contract.TASK_SHORT.get(base, base))
             if custom is not None
             else ""
         )
-        self.sub.setObjectName("muted")
-        self.sub.setVisible(custom is not None)
-        name_layout.addWidget(self.sub)
-        self.folder = QLineEdit()
-        self.folder.setPlaceholderText(tr("nevybráno, úloha se vynechá"))
-        self.browse = QPushButton(tr("Vybrat…"))
-        self.remove = QPushButton("✕")
-        self.remove.setFixedSize(36, 34)
-        self.remove.setToolTip(tr("Odebrat vlastní úlohu z normy"))
-        self.remove.setVisible(custom is not None)
-        self.protocol = QComboBox()
+        self.sub.setText(self._custom_sub)
+        assert self.widget.folder is not None and self.widget.browse is not None
+        self.folder = self.widget.folder
+        self.browse = self.widget.browse
+        self.remove = self.widget.remove
+        self.protocol = self.widget.protocol
         choices = [p for p in protocols if p.task == base and (p.builtin or advanced)]
         default = default_protocol(base, protocols)
         if custom is not None and custom.protocol:
             default = next((p for p in protocols if p.name == custom.protocol), default)
-        for proto in sorted(choices, key=lambda p: (not p.builtin, p.display_name)):
-            suffix = tr(" (přibalený)") if proto.builtin else tr(" (vlastní)")
-            self.protocol.addItem(proto.display_name + suffix, proto)
-            if default is not None and proto.name == default.name:
-                self.protocol.setCurrentIndex(self.protocol.count() - 1)
+        self.protocol.set_protocols(
+            choices,
+            current=default.name if default is not None else "",
+            subs={p.name: tr("přibalený") if p.builtin else tr("vlastní") for p in choices},
+        )
         self.protocol.setEnabled(advanced and self.protocol.count() > 1)
-        self.count = QLabel("–")
-        self.count.setObjectName("muted")
+        self.count = self.widget.count
+        self.count.setText("–")
         self.scan = FolderScan([])
+        self.refresh_look()
 
     def current_protocol(self) -> Protocol | None:
         data = self.protocol.currentData()
         return data if isinstance(data, Protocol) else None
+
+    def refresh_look(self) -> None:
+        """Pod názvem počet a délka nahrávek; bez složky šedý řádek (úloha se vynechá)."""
+        n = len(self.scan.recordings)
+        if n:
+            text = tr("{n} nahrávek · {audio}").format(
+                n=n, audio=audio_duration(self.scan.audio_seconds)
+            )
+        elif self.folder.text().strip():
+            text = tr("žádné nahrávky")
+        else:
+            text = tr("bez složky")
+        self.sub.setText(f"{self._custom_sub} · {text}" if self._custom_sub else text)
+        self.widget.set_off_look(not n)
 
 
 class NewNormDialog(QDialog):
@@ -331,25 +347,17 @@ class NewNormDialog(QDialog):
         folders_layout = QVBoxLayout(self.folders_box)
         folders_layout.setContentsMargins(0, 0, 0, 0)
         folders_layout.setSpacing(12)
-        grid_box = QFrame()
-        grid_box.setObjectName("card")
-        grid = QGridLayout(grid_box)
-        grid.setContentsMargins(12, 10, 12, 10)
-        grid.setHorizontalSpacing(10)
-        for col, text in enumerate(
-            [tr("úloha"), tr("složka s nahrávkami"), "", tr("protokol"), tr("nahrávek")]
-        ):
-            head = QLabel(text)
-            head.setObjectName("muted")
-            grid.addWidget(head, 0, col)
-        self.task_grid = grid
+        # řádky úloh jako na Analýze (widgets/task_rows.py), pod sebou
+        rows_box = QWidget()
+        self.task_rows_layout = QVBoxLayout(rows_box)
+        self.task_rows_layout.setContentsMargins(0, 0, 0, 0)
+        self.task_rows_layout.setSpacing(6)
         self._protocols = protocols
         self._advanced = advanced
         self.rows: dict[str, TaskRow] = {}
         for task in contract.TASKS:
             self._add_row(TaskRow(task, protocols, advanced))
-        grid.setColumnStretch(1, 1)
-        folders_layout.addWidget(grid_box)
+        folders_layout.addWidget(rows_box)
         options = QHBoxLayout()
         self.recursive = QCheckBox(tr("včetně podsložek"))
         self.recursive.toggled.connect(self._rescan_all)
@@ -602,17 +610,10 @@ class NewNormDialog(QDialog):
         self.runs_warning.setVisible(bool(problems))
 
     def _add_row(self, row: TaskRow) -> None:
-        r = len(self.rows) + 1
         row.folder.editingFinished.connect(lambda row=row: self._rescan(row))
         row.browse.clicked.connect(lambda _=False, row=row: self._browse(row))
         row.remove.clicked.connect(lambda _=False, row=row: self.remove_custom_task(row.task))
-        grid = self.task_grid
-        grid.addWidget(row.name_box, r, 0)
-        grid.addWidget(row.folder, r, 1)
-        grid.addWidget(row.browse, r, 2)
-        grid.addWidget(row.protocol, r, 3)
-        grid.addWidget(row.count, r, 4)
-        grid.addWidget(row.remove, r, 5)
+        self.task_rows_layout.addWidget(row.widget)
         self.rows[row.task] = row
 
     def _ask_custom_task(self) -> None:
@@ -633,10 +634,9 @@ class NewNormDialog(QDialog):
         row = self.rows.get(key)
         if row is None or row.custom is None:
             return
-        for widget in (row.name_box, row.folder, row.browse, row.protocol, row.count, row.remove):
-            self.task_grid.removeWidget(widget)
-            widget.hide()
-            widget.deleteLater()
+        self.task_rows_layout.removeWidget(row.widget)
+        row.widget.hide()
+        row.widget.deleteLater()
         del self.rows[key]
         self._update_buttons()
 
@@ -678,6 +678,7 @@ class NewNormDialog(QDialog):
             row.count.setText(f"{n} ✓")
         else:
             row.count.setText(tr("žádné"))
+        row.refresh_look()
         self._update_buttons()
 
     def _rescan_all(self) -> None:

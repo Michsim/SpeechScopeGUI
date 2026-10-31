@@ -204,7 +204,7 @@ def test_new_norm_wizard_with_custom_task(
     assert dialog.rows["popis-obrazku"] is row and row.remove.isVisibleTo(dialog)
     extra = dialog.add_custom_task(tasks.CustomTask("zpev", "Zpěv", "reading"))
     dialog.remove_custom_task("zpev")
-    assert "zpev" not in dialog.rows and extra.folder.isHidden()
+    assert "zpev" not in dialog.rows and extra.widget.isHidden()
     dialog.set_folder("popis-obrazku", data / "obrazek")
     assert "úloh: 2" in dialog.hint.text()
     dialog.go_next()

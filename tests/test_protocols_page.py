@@ -47,7 +47,7 @@ def test_copy_edit_export_import_delete(
     assert proto.name == "Spontánní řeč, akustika (kopie)"
     assert proto.path is not None and proto.path.parent == settings.protocols_dir()
     assert not page.edit_btn.isHidden() and page.delete_btn.isEnabled()
-    assert "Spontánní řeč, akustika (kopie)" in window.batch_page.protocols.names()
+    assert "Spontánní řeč, akustika (kopie)" in window.batch_page.protocol_names()
 
     # úprava: přejmenovat, odškrtnout feature, uložit
     page.name_edit.setText("Moje pohádka")
@@ -85,7 +85,7 @@ def test_copy_edit_export_import_delete(
     path = page.current().path
     page.delete_current()
     assert path is not None and not path.exists()
-    assert "Moje pohádka (2)" not in window.batch_page.protocols.names()
+    assert "Moje pohádka (2)" not in window.batch_page.protocol_names()
 
 
 def test_basic_mode_shows_summary_only(qtbot: QtBot, settings: AppSettings) -> None:

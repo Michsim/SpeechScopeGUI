@@ -56,7 +56,8 @@ def test_window_runs_batch_end_to_end(
     assert window.batch_page.run_btn.isEnabled()
 
     assert window.batch_page.select_protocol("Fonace, základní")
-    assert window.batch_page.protocols.task_buttons["phonation"].isChecked()
+    (row,) = window.batch_page.task_rows().values()  # bez manifestu jeden řádek úlohy
+    assert row.task_combo is not None and row.task_combo.currentData() == "phonation"
     assert window.batch_page.editor.has_catalog()
     assert window.batch_page.new_btn.isEnabled()
     assert not window.batch_page.editor.picker.warning.text()  # doctor: všechno připravené
@@ -164,8 +165,8 @@ def test_edit_builtin_saves_copy_and_edit_own_overwrites(
     qtbot.addWidget(window)
     page = window.batch_page
     assert page.select_protocol("Fonace, základní")
-    card = page.protocols._cards["Fonace, základní"]
-    assert card.edit_btn.isVisibleTo(card) and page.new_btn.isEnabled()
+    row = page.task_rows()["phonation"]
+    assert row.edit_btn.isVisibleTo(row) and page.new_btn.isEnabled()
     dialog = page.editor_dialog
 
     def edit_and_accept(self):  # uživatel odškrtne první feature a uloží
@@ -181,7 +182,7 @@ def test_edit_builtin_saves_copy_and_edit_own_overwrites(
     saved = page.current_protocol()
     assert saved.name == "Fonace, základní (kopie)" and saved.path is not None
     assert saved.path.parent == settings.protocols_dir() and dialog._removed not in saved.features
-    assert page.protocols.task_buttons["phonation"].isChecked()
+    assert list(page.task_rows()) == ["phonation"]
 
     # vlastní: úprava přepíše stejný soubor, i s novým jménem
     def rename_and_accept(self):
@@ -233,7 +234,7 @@ def test_new_protocol_from_analysis(
     assert result is not None and result.task == "reading" and result.features
     created = page.current_protocol()
     assert created.name == "Moje čtení" and created.task == "reading"
-    assert page.protocols.task_buttons["reading"].isChecked()
+    assert list(page.task_rows()) == ["reading"]  # úloha řádku přepnutá na nový protokol
     assert created.path is not None and created.path.parent == settings.protocols_dir()
 
     # jméno, které už existuje, okno nepustí
@@ -495,7 +496,7 @@ def test_transcribe_only_writes_work_dir(
 
     page.set_mode("transcript")
     assert page.mode == "transcript" and page.mode_buttons["transcript"].isChecked()
-    assert page.protocols.isHidden() and not page.prepare_box.isHidden()
+    assert not page.prepare_box.isHidden()
     assert page.advanced_box.isHidden() and page.step3_title.text() == "Přepis (Whisper)"
     assert page.transcribe_model.text() == "large-v3"
     assert "Jen přepis · angličtina · large-v3" in page.status.text()
@@ -573,7 +574,7 @@ def test_transcribe_only_writes_work_dir(
     assert not page.mode_buttons["transcript"].isEnabled() and page.mode == "segments"
     page.set_mode("transcript")
     assert page.mode == "extract"  # nepovolený režim spadne na výpočet feature
-    assert not page.protocols.isHidden() and page.step3_title.text() == "Protokol"
+    assert page.prepare_box.isHidden() and page.step3_title.text() == "Protokol"
     page.set_mode("segments")
     # DDK: slabiky hledá ddk_events, segmentace ani přepis nedávají smysl
     assert page.select_protocol("DDK, základní")
@@ -797,10 +798,10 @@ def test_run_asks_when_provider_not_ready(
     monkeypatch.setattr(QMessageBox, "question", staticmethod(say_no))
     # Spustit před zprávou doctor: čeká na kontrolu z pozadí (dialog se Storno), neblokuje
     page.run_btn.click()
-    assert page._run_after_doctor is not None and page._doctor_wait is not None
+    assert page._run_after_doctor and page._doctor_wait is not None
     assert not asked
     page._doctor_wait.canceled.emit()  # Storno = nespouštět
-    assert page._run_after_doctor is None and page._doctor_wait is None
+    assert not page._run_after_doctor and page._doctor_wait is None
     page.run_btn.click()
     with qtbot.waitSignal(window.env_page.report_changed, timeout=15000):
         pass
@@ -1191,7 +1192,8 @@ def test_analysis_two_steps(qtbot: QtBot, settings: AppSettings, recordings: Pat
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
         page.run_btn.click()
     assert page.current_step() == 2
-    assert len(page.protocols.task_buttons) == 4  # úlohy v jedné řadě
+    (row,) = page.task_rows().values()  # bez manifestu jeden řádek s výběrem ze 4 úloh
+    assert row.task_combo is not None and row.task_combo.count() == 4
 
 
 def test_home_cards_running_strip_and_norm_warning(
@@ -1271,8 +1273,30 @@ def test_recordings_table_grouping_search_and_missing(
         "p03_short.wav",
         "p04.flac",
     ]
+    assert page.fixing() == "missing" and "hotovo 0 z 2" in page.fix_label.text()
+    # doplněný řádek nezmizí (seznam k doplnění je zamrazený), dostane fajfku
+    from speechscope_app.ui.widgets.meta_table import DONE_ROLE
+
+    page.set_meta(recordings / "p03_short.wav", "age", "70")
+    assert [page._recordings[i].name for i in files.visible_indices()] == [
+        "p03_short.wav",
+        "p04.flac",
+    ]
+    row = files.table_row(
+        next(i for i, r in enumerate(page._recordings) if r.name == "p03_short.wav")
+    )
+    assert files.item(row, 0).data(DONE_ROLE)
+    assert "hotovo 1 z 2" in page.fix_label.text() and page.fix_save_btn.isHidden()
+    page.set_meta(recordings / "sub" / "p04.flac", "subject", "X9")
+    page.set_meta(recordings / "sub" / "p04.flac", "age", "50")
+    assert "Vše doplněno" in page.fix_label.text() and not page.fix_save_btn.isHidden()
+    page.fix_done_btn.click()  # Hotovo: celá tabulka, dlaždice zmizí
+    assert page.fixing() == "" and page.fix_banner.isHidden()
+    assert len(files.visible_indices()) == 4 and page.missing_tile.isHidden()
+    files.discard()
     page.missing_tile.clicked.emit()
-    assert len(files.visible_indices()) == 4
+    page.missing_tile.clicked.emit()  # druhý klik na dlaždici = Hotovo
+    assert page.fixing() == "" and len(files.visible_indices()) == 4
 
     # seskupení podle pacienta: nadpisy skupin, prázdný pacient na konci
     assert page.set_group_by("subject")
@@ -1386,6 +1410,134 @@ def test_analysis_warns_about_short_recordings(
     assert len(started) == 1
 
 
+def test_analysis_manifest_with_other_tasks(
+    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Manifest s víc úlohami: sloupec úloha, řádek na úlohu a samostatný běh na úlohu."""
+    from PySide6.QtWidgets import QMessageBox
+
+    (recordings / "manifest.csv").write_text(
+        "path;task;subject\np01.wav;phonation;P01\np02_bad.wav;reading;P01\np03_short.wav;;P02\n",
+        encoding="utf-8",
+    )
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    wait_doctor(qtbot, window)
+    page = window.batch_page
+    page.recursive.setChecked(False)
+    page.set_folder(recordings)
+    table = page.files
+    headers = [table.horizontalHeaderItem(c).text().lower() for c in range(table.columnCount())]
+    col = headers.index("úloha")
+    texts = {table.item(r, 0).text(): table.item(r, col).text() for r in range(table.rowCount())}
+    assert texts["p01.wav"] == "Fonace" and texts["p02_bad.wav"] == "Čtení"
+    # bez úlohy v manifestu: prázdná buňka se šedým „jako DDK“ (první úloha, kterou nemá)
+    from speechscope_app.ui.widgets.meta_table import HINT_ROLE
+
+    def short_cell():
+        row = next(r for r in range(table.rowCount()) if table.item(r, 0).text() == "p03_short.wav")
+        return table.item(row, col)
+
+    assert texts["p03_short.wav"] == "" and short_cell().data(HINT_ROLE) == "jako DDK"
+    assert list(page.task_rows()) == ["phonation", "ddk", "reading"]
+    assert not page.unassigned_row.isHidden() and "1 nahrávek nemá úlohu" in (
+        page.unassigned_label.text()
+    )
+    assert "+1 bez úlohy" in page.task_rows()["ddk"].sub.text()
+
+    page.set_unassigned_task("phonation")  # „počítat jako“ Fonace
+    assert list(page.task_rows()) == ["phonation", "reading"]
+    assert page.task_of(recordings / "p03_short.wav") == "phonation"
+    assert short_cell().data(HINT_ROLE) == "jako Fonace"
+
+    # „nebo doplnit v kroku 1“: zpět na nahrávky, jen ty bez úlohy
+    page.go_to_step(2)
+    page.show_without_task(True)
+    assert page.current_step() == 1 and page.fixing() == "task"
+    assert not page.fix_banner.isHidden() and "úlohy" in page.fix_label.text()
+    visible = [table.item(r, 0).text() for r in range(table.rowCount()) if not table.isRowHidden(r)]
+    assert visible == ["p03_short.wav"]
+    page.set_meta(recordings / "p03_short.wav", "task", "reading")
+    visible = [table.item(r, 0).text() for r in range(table.rowCount()) if not table.isRowHidden(r)]
+    assert visible == ["p03_short.wav"]  # zůstává, dokud nedám Hotovo
+    assert "Vše doplněno" in page.fix_label.text()
+    page.show_without_task(False)
+    assert page.fix_banner.isHidden()
+    page.set_meta(recordings / "p03_short.wav", "task", "")
+    runs = page.planned_runs()
+    assert [(t, p.task, [x.name for x in paths]) for t, p, paths in runs] == [
+        ("phonation", "phonation", ["p01.wav", "p03_short.wav"]),
+        ("reading", "reading", ["p02_bad.wav"]),
+    ]
+    assert page.run_btn.text() == "Spustit · 2 běhy"
+    assert page.summary.figures()[0] == "2 běhy"
+
+    # vypnutá úloha se nespustí
+    page.task_rows()["reading"].switch.setChecked(False)
+    assert [t for t, _p, _x in page.planned_runs()] == ["phonation"]
+    assert page.run_btn.text() == "Spustit"
+    page.task_rows()["reading"].switch.setChecked(True)
+
+    # Spustit = dvě dávky do fronty s názvem „název · úloha“
+    monkeypatch.setattr(
+        "speechscope_app.ui.pages.batch.QMessageBox.question",
+        lambda *a, **k: QMessageBox.StandardButton.Yes,
+    )
+    launched: list = []
+    monkeypatch.setattr(window, "_submit_all", lambda jobs: launched.extend(jobs))
+    page.run_label_edit.setText("kontrola")
+    page.run_btn.click()
+    assert [(j.proto.task, j.label, len(j.inputs)) for j in launched] == [
+        ("phonation", "kontrola · Fonace", 2),
+        ("reading", "kontrola · Čtení", 1),
+    ]
+    assert page.run_label() == ""
+
+
+def test_analysis_task_edited_in_table(
+    qtbot: QtBot, settings: AppSettings, recordings: Path
+) -> None:
+    """Úloha bez manifestu: + Sloupec úloha, dvojklik/Vyplnit vybrané, víc úloh = víc běhů."""
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.recursive.setChecked(False)
+    page.set_folder(recordings)
+    assert len(page.task_rows()) == 1 and page.unassigned_row.isHidden()
+    assert page.add_meta_column("task") == "task"  # nabídka + Sloupec… › úloha
+    assert page.set_meta(recordings / "p01.wav", "task", "ddk") == "ddk"
+    table = page.files
+    headers = [table.horizontalHeaderItem(c).text().lower() for c in range(table.columnCount())]
+    col = headers.index("úloha")
+    row = next(r for r in range(table.rowCount()) if table.item(r, 0).text() == "p01.wav")
+    assert table.item(row, col).text() == "DDK"  # popisek, uložená je hodnota ddk
+    # zbylé dvě nahrávky bez úlohy jdou do „počítat jako“ (první úloha, která chybí: fonace)
+    assert list(page.task_rows()) == ["phonation", "ddk"]
+    assert not page.unassigned_row.isHidden()
+    table.selectAll()
+    assert page.fill_selected("task", "reading") == 3
+    assert list(page.task_rows()) == ["reading"]
+    manifest = page.manifest()
+    assert manifest is not None and set(manifest.tasks.values()) == {"reading"}
+    assert "task" not in manifest.columns  # úloha jde do tasks, ne mezi metadata
+    assert page.unassigned_row.isHidden()
+
+
+def test_analysis_without_task_column_has_no_task_column(
+    qtbot: QtBot, settings: AppSettings, recordings: Path
+) -> None:
+    """Bez sloupce task v manifestu tabulka úlohu neukazuje (platí lišta pro všechny)."""
+    (recordings / "manifest.csv").write_text("path;subject\np01.wav;P01\n", encoding="utf-8")
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    table = page.files
+    headers = [table.horizontalHeaderItem(c).text().lower() for c in range(table.columnCount())]
+    assert "úloha" not in headers and len(page.task_rows()) == 1
+    assert page.unassigned_row.isHidden()
+
+
 def test_progress_replayed_only_on_progress_tab(
     qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1470,8 +1622,9 @@ def test_meta_table_edit_does_not_rebuild(qtbot: QtBot) -> None:
 
     table = MetaTable(["nahrávka"])
     qtbot.addWidget(table)
-    rows = [MetaRow(Path(f"C:/d/{i}.wav"), [f"{i}.wav"], {"group": "PD"}) for i in range(50)]
-    table.set_rows(rows, ["group"])
+    table.set_choices("task", [("phonation", "Fonace"), ("reading", "Čtení")], header="úloha")
+    rows = [MetaRow(Path(f"C:/d/{i}.wav"), [f"{i}.wav"], {"task": "phonation"}) for i in range(50)]
+    table.set_rows(rows, ["task"])
     header = table.horizontalHeader()
     assert all(
         header.sectionResizeMode(c) == QHeaderView.ResizeMode.Interactive
@@ -1479,5 +1632,6 @@ def test_meta_table_edit_does_not_rebuild(qtbot: QtBot) -> None:
     )
     rebuilt: list[int] = []
     table._refill_now = lambda: rebuilt.append(1)  # type: ignore[method-assign]
-    table.item(3, 1).setText("HC")
-    assert not rebuilt and table.merged(Path("C:/d/3.wav"))["group"] == "HC"
+    table.item(3, 1).setText("Čtení")
+    assert not rebuilt and table.item(3, 1).text() == "Čtení"
+    assert table.merged(Path("C:/d/3.wav"))["task"] == "reading"

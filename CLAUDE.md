@@ -189,9 +189,39 @@ přehrává (`open_recording` před `files.meta_from`); `set_meta`, `add_meta_co
 `fill_selected`, `discard_meta_edits` i pro testy. Výběr více řádků a Odebrat
 (tlačítko, Delete, pravé tlačítko: nahrávka zůstane na disku, jen vypadne
 z dávky; `_excluded` přežije přeskenování téže složky, jiná složka ho
-zahodí; Vrátit odebrané (k); počty ukazují „(k odebráno)“) a Pokračovat; 2 úloha a jazyk
-nahoře v jedné řadě, karty protokolů pod tím, vlevo dole ← Nahrávky, vpravo
-Spustit; stránka si krok pamatuje (`go_to_step`, `current_step`); na začátku
+zahodí; Vrátit odebrané (k); počty ukazují „(k odebráno)“) a Pokračovat; 2 jazyk nahoře,
+řádky úloh pod ním (viz dál), vlevo dole ← Nahrávky, vpravo
+Spustit; stránka si krok pamatuje (`go_to_step`, `current_step`); **krok 2 = řádky úloh**
+(31. 10. 2026, mockup https://claude.ai/artifact/Nuh6L6PrsVcY5xAizg113o podoba 1 modernější,
+`docs/mockups/analyza-ulohy/` mimo git): lišta úloh a karty protokolů (`ProtocolList`) na
+Analýze zmizely; `widgets/task_rows.py` `TaskRowWidget` = vypínač, ikona úlohy (QPainter,
+`TASK_ICONS`), název s počtem a délkou zvuku, `ProtocolCombo` (QComboBox kreslený na dva
+řádky: název, pod ním `SUB_ROLE` = sloupce a cena), stav tečkou (`set_status`), odhad
+(`set_count`), co se počítá, Upravit… (rozšířený režim); pod řádky `SummaryBar` (běhy
+a nahrávky, zvuk, odhad, `ShareBar` podíl úloh). Bez sloupce `task` v manifestu jeden řádek
+s výběrem úlohy (`_single_task`); se sloupcem úloha řádek na úlohu, nahrávky bez
+úlohy „počítat jako“ ve žlutém pruhu nad úlohami (`unassigned_row`, `unassigned_combo`, výchozí
+první úloha, která v tabulce chybí, `set_unassigned_task`; odkaz „nebo doplnit v kroku 1 ›“ =
+`show_without_task`: krok 1 se seznamem k doplnění úloh, viz níže; cílový
+řádek má štítek „+n bez úlohy“) a **každá zapnutá úloha = samostatný běh** (rozhodnuto: bez skupiny,
+název „název běhu · úloha“): `planned_runs`, jeden běh dál `run_requested`/`prepare_requested`,
+víc `runs_requested(kind, [(Protocol, cesty)], volby)` → `MainWindow._start_runs` →
+`_submit_all`. Protokol si pamatuje úloha (`_row_choice`), `current_protocol` = řádek, se kterým
+se naposledy pracovalo; `select_protocol` přepne i úlohu. **Úloha je sloupec metadat
+`task`** (`batch.TASK`): z manifestu, nebo přidaný přes + Sloupec… › úloha; `MetaTable.set_choices`
+= dvojklik otevře rozbalovací seznam úloh, buňka ukazuje popisek (`display`), prázdná buňka šedě
+kurzívou „jako …“ (`set_hint`, `HINT_ROLE`); úpravy, Vyplnit vybrané… (u úlohy výběr ze seznamu)
+a Uložit manifest… fungují jako u ostatních metadat; `manifest()` dá úlohu do `tasks`, ne mezi
+sloupce; `task_of`, `manifest_task` (z tabulky, cache `_task_cache`). Prázdná úloha nic
+neblokuje (rozhodnuto 31. 10. 2026); **seznam k doplnění** (31. 10. 2026, varianta A): dlaždice
+„bez údajů“ i „doplnit v kroku 1“ zamrazí právě neúplné řádky (`start_fixing("missing"|"task")`,
+`MetaTable.freeze`, `frozen_keys`), vyplněný řádek nezmizí, dostane zelenou fajfku u názvu
+(`set_done_check`, `refresh_done`, `DONE_ROLE`), nad tabulkou modrý pruh „Doplňuješ údaje ·
+hotovo x z n“ (`fix_banner`), po doplnění všeho zelený s Uložit do manifestu…; Hotovo
+(`end_fixing`, i druhý klik na dlaždici) vrátí celou tabulku, jiná složka seznam zruší; práh krátkých nahrávek podle úlohy řádku. `write_normalized` píše
+knihovně vždy základní úlohu (`tasks.base_task`). Tentýž řádek mají průvodci Hodnocení
+z nahrávek a Nová norma (`TaskRow.widget` se složkou, `refresh_look`: pod názvem počet a délka,
+bez složky šedě); na začátku
 kroku 2 pole Název běhu (prázdné, jen nápověda; `run_label()`), ukládá se do
 `run.json` jako `label` (`RunInfo.display_name`) a slug názvu je místo slugu
 protokolu v názvu složky (`<datum>_<čas>_<slug>`, `unique_run_dir`); historie
@@ -823,6 +853,14 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   si běh zapamatuje a `set_tab(PROGRESS)` ho přehraje (`_show_pending_recorded`). Štítek
   výsledku v tabulce Průběhu kreslí `clean_table.PillDelegate` z textu a `PILL_ROLE`, ne
   widget v buňce. Kliknutí na běh s 500 nahrávkami: 0,7–1,3 s → 0,15–0,3 s.
+- **Přechod na krok 2 Analýzy** (31. 10. 2026): pole složky spouští `rescan` jen při změně
+  textu (`_folder_edited`), `editingFinished` přišel i při ztrátě zaměření na Pokračovat a celá
+  složka se prohledávala znovu; `manifest._key` (`resolve()`) má `lru_cache`, bylo 8 volání na
+  nahrávku; `MetaTable` hledá řádek přes `_index`. 260 nahrávek: 0,64 s → 0,04 s.
+  `MetaTable` při přestavbě neměří šířky průběžně (sloupce Interactive, `resizeColumnToContents`
+  jednou na konci; s ResizeToContents 1,35 milionu měření) a změna buňky přepíše jen ji
+  (popisek úlohy přes `display`, `_mark`), ne celou tabulku: změna úlohy u 260 nahrávek
+  10,6 s → 0,07 s, Vyplnit vybrané 0,15 s.
 - **Okamžitá odezva kliknutí** (31. 10. 2026, varianta A bez vláken): `RunsPage.open_row`
   (klik, Enter, ‹ ›) hned přepne na detail s `ResultsPage.show_loading` („Načítám…“)
   a běh otevře až v dalším kroku smyčky (`QTimer.singleShot(0)` → `_finish_open`);

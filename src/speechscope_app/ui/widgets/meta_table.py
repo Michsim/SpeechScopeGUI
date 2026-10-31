@@ -24,12 +24,14 @@ není index řádku dat: stránky převádějí přes `data_index`, `table_row`,
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
+    QComboBox,
     QFrame,
     QHeaderView,
     QStyle,
@@ -62,6 +64,8 @@ ROW_HEIGHT = 36
 GROUP_FOLDER = "\x00folder"  # seskupení podle podsložky místo sloupce metadat
 EDITED_ROLE = Qt.ItemDataRole.UserRole + 11
 PLACEHOLDER_ROLE = Qt.ItemDataRole.UserRole + 12
+HINT_ROLE = Qt.ItemDataRole.UserRole + 13  # šedá nápověda v prázdné buňce (úloha z kroku 2)
+DONE_ROLE = Qt.ItemDataRole.UserRole + 14  # zelená fajfka: řádek seznamu k doplnění hotový
 WARN_TEXT = "#92400e"  # tmavě oranžový text na žlutém podkladu (kontrast nad 4.5:1)
 PAD = 10  # odsazení textu v buňce (padding-left ze stylu + okraj)
 SELECTED_BG = "#eff6ff"  # výběr světlejší než upravená buňka (ACCENT_SOFT)
@@ -81,6 +85,18 @@ class _CellDelegate(QStyledItemDelegate):
                 painter.fillRect(rect, color)
         super().paint(painter, option, index)
         text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        if index.data(DONE_ROLE):
+            painter.save()
+            font = QFont(option.font)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.setPen(QColor(theme.OK))
+            painter.drawText(
+                rect.adjusted(0, 0, -8, 0),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+                "✓",
+            )
+            painter.restore()
         if index.data(EDITED_ROLE):
             x = rect.left() + PAD + option.fontMetrics.horizontalAdvance(str(text)) + 8
             painter.save()
@@ -98,12 +114,61 @@ class _CellDelegate(QStyledItemDelegate):
                 str(index.data(PLACEHOLDER_ROLE)),
             )
             painter.restore()
+        elif index.data(HINT_ROLE) and not text:
+            painter.save()
+            font = QFont(option.font)
+            font.setItalic(True)
+            painter.setFont(font)
+            painter.setPen(QColor(theme.MUTED))
+            painter.drawText(
+                rect.adjusted(PAD, 0, -4, 0),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                str(index.data(HINT_ROLE)),
+            )
+            painter.restore()
+
+    def _choices(self, index) -> list[tuple[str, str]]:  # noqa: ANN001
+        table = self.parent()
+        if not isinstance(table, MetaTable):
+            return []
+        return table.choices_at(index.row(), index.column())
+
+    def createEditor(self, parent, option, index):  # noqa: ANN001, ANN201, N802
+        choices = self._choices(index)
+        if not choices:
+            return super().createEditor(parent, option, index)
+        combo = QComboBox(parent)
+        combo.addItem(tr("(nevyplněno)"), "")
+        for value, label in choices:
+            combo.addItem(label, value)
+        # vybraná hodnota se uloží hned, ne až po opuštění buňky
+        combo.activated.connect(lambda _i, c=combo: self.commitData.emit(c))
+        combo.activated.connect(lambda _i, c=combo: self.closeEditor.emit(c))
+        return combo
+
+    def setEditorData(self, editor, index) -> None:  # noqa: ANN001, N802
+        if isinstance(editor, QComboBox):
+            text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
+            found = editor.findText(text) if text else 0
+            editor.setCurrentIndex(max(found, 0))
+            editor.showPopup()
+            return
+        super().setEditorData(editor, index)
+
+    def setModelData(self, editor, model, index) -> None:  # noqa: ANN001, N802
+        if isinstance(editor, QComboBox):
+            label = editor.currentText() if editor.currentData() else ""
+            model.setData(index, label, Qt.ItemDataRole.EditRole)
+            return
+        super().setModelData(editor, model, index)
 
     def sizeHint(self, option, index):  # noqa: ANN001, ANN201, N802
         hint = super().sizeHint(option, index)
         extra = ""
         if index.data(PLACEHOLDER_ROLE) and not index.data(Qt.ItemDataRole.DisplayRole):
             extra = str(index.data(PLACEHOLDER_ROLE))
+        elif index.data(HINT_ROLE) and not index.data(Qt.ItemDataRole.DisplayRole):
+            extra = str(index.data(HINT_ROLE))
         elif index.data(EDITED_ROLE):
             extra = str(index.data(Qt.ItemDataRole.DisplayRole)) + "   "
         if extra:
@@ -132,6 +197,15 @@ class MetaTable(QTableWidget):
         self._extra: list[str] = []  # sloupce přidané uživatelem
         self._edits: dict[Path, dict[str, str]] = {}
         self._required: set[str] = set()
+        # sloupce s nabídkou hodnot (úloha): hodnota -> popisek v buňce, záhlaví
+        self._choices: dict[str, list[tuple[str, str]]] = {}
+        self._choice_headers: dict[str, str] = {}
+        self._hints: dict[str, str] = {}  # sloupec -> šedá nápověda v prázdné buňce
+        self._only_empty = ""  # filtr: jen řádky s prázdným sloupcem
+        # Seznam k doplnění (31. 10. 2026): řádky, které filtr ukázal při zapnutí, zůstanou
+        # vidět i po vyplnění (dřív zmizely pod rukou); hotové mají fajfku podle `_done`.
+        self._frozen: set[Path] | None = None
+        self._done: Callable[[Path], bool] | None = None
         self._group_by = ""
         self._view: list[int | None] = []  # řádek tabulky -> index řádku dat, None = nadpis
         self._groups: dict[int, list[int]] = {}  # řádek nadpisu -> indexy řádků dat
@@ -192,6 +266,67 @@ class MetaTable(QTableWidget):
 
     def set_required(self, columns: set[str]) -> None:
         self._required = set(columns)
+
+    def set_choices(self, column: str, choices: list[tuple[str, str]], header: str = "") -> None:
+        """Sloupec s nabídkou (hodnota, popisek): dvojklik otevře rozbalovací seznam,
+        buňka ukazuje popisek, uloží se hodnota. Jde přidat i přes `add_column`."""
+        self._choices[column] = list(choices)
+        if header:
+            self._choice_headers[column] = header
+
+    def freeze(self, keys: set[Path] | None) -> None:
+        """Zamrazí viditelné řádky na `keys` (seznam k doplnění); None = zase filtr."""
+        self._frozen = set(keys) if keys is not None else None
+        self.refresh_done()
+        self._apply_filter()
+
+    def frozen_keys(self) -> set[Path] | None:
+        return set(self._frozen) if self._frozen is not None else None
+
+    def set_done_check(self, check: Callable[[Path], bool] | None) -> None:
+        """Kdy je řádek seznamu k doplnění hotový (fajfka u názvu)."""
+        self._done = check
+
+    def refresh_done(self) -> None:
+        """Fajfky u řádků zamrazeného seznamu podle `_done` (po každé úpravě)."""
+        for r, i in enumerate(self._view):
+            if i is None:
+                continue
+            item = self.item(r, 0)
+            if item is None:
+                continue
+            key = self._rows[i].key
+            done = (
+                self._frozen is not None
+                and key in self._frozen
+                and self._done is not None
+                and self._done(key)
+            )
+            item.setData(DONE_ROLE, True if done else None)
+
+    def set_hint(self, column: str, text: str) -> None:
+        """Šedá nápověda v prázdných buňkách sloupce (třeba „jako Fonace“); bez překreslení."""
+        self._hints[column] = text
+
+    def display(self, column: str, value: str) -> str:
+        """Text buňky: u sloupce s nabídkou popisek, jinak hodnota."""
+        if column in self._choices and value:
+            return next((label for v, label in self._choices[column] if v == value), value)
+        return value
+
+    def _value_of(self, column: str, text: str) -> str:
+        """Opak `display`: z popisku hodnota (u sloupce bez nabídky text)."""
+        if column in self._choices and text:
+            return next((v for v, label in self._choices[column] if label == text), text)
+        return text
+
+    def choices_at(self, table_row: int, table_column: int) -> list[tuple[str, str]]:
+        """Nabídka pro buňku tabulky (prázdná = obyčejné textové pole)."""
+        c = table_column - self.meta_from
+        columns = self.columns
+        if self.data_index(table_row) is None or not (0 <= c < len(columns)):
+            return []
+        return list(self._choices.get(columns[c], []))
 
     def set_rows(self, rows: list[MetaRow], columns: list[str]) -> None:
         """Nový seznam řádků a sloupce základu; úpravy řádků, které zůstaly, platí dál."""
@@ -300,10 +435,12 @@ class MetaTable(QTableWidget):
         self._group_by = column
         self.refill()
 
-    def set_filter(self, text: str = "", only_missing: bool = False) -> None:
-        """Schová řádky, které neobsahují `text`, nebo (only_missing) jsou úplné."""
+    def set_filter(self, text: str = "", only_missing: bool = False, only_empty: str = "") -> None:
+        """Schová řádky, které neobsahují `text`, nebo (only_missing) jsou úplné,
+        nebo (only_empty) mají sloupec `only_empty` vyplněný."""
         self._search = text.strip().casefold()
         self._only_missing = only_missing
+        self._only_empty = only_empty
         self._apply_filter()
 
     def visible_indices(self) -> list[int]:
@@ -316,10 +453,15 @@ class MetaTable(QTableWidget):
             if i is None:
                 continue
             row = self._rows[i]
-            show = missing is None or i in missing
+            if self._frozen is not None:
+                show = row.key in self._frozen
+            else:
+                show = missing is None or i in missing
+                if show and self._only_empty and self._only_empty in columns:
+                    show = not self._row_merged(row, columns)[self._only_empty]
             if show and self._search:
                 merged = self._row_merged(row, columns)
-                text = " ".join([*row.leading, *merged.values()])
+                text = " ".join([*row.leading, *(self.display(c, v) for c, v in merged.items())])
                 show = self._search in text.casefold()
             self.setRowHidden(r, not show)
         for r, members in self._groups.items():
@@ -331,7 +473,7 @@ class MetaTable(QTableWidget):
     def add_column(self, name: str) -> str:
         """Přidá sloupec metadat (kanonický název); vrátí klíč, u nepoužitelného prázdno."""
         column = meta.canonical_column(name.strip()) if name.strip() else ""
-        if not column or column in ("path", "task"):
+        if not column or column == "path" or (column == "task" and column not in self._choices):
             return ""
         if column not in self.columns:
             self._extra.append(column)
@@ -412,15 +554,17 @@ class MetaTable(QTableWidget):
         if i is None or not (0 <= c < len(columns)):
             return
         row, column = self._rows[i], columns[c]
-        stored = self._store(row.key, column, item.text())
+        stored = self._store(row.key, column, self._value_of(column, item.text()))
         if self._group_by and (column == self._group_by or self._groups):
             # změna mění skupinu nebo její nadpis (shodné údaje): překreslit celé
             self.refill()
             self._reselect([row.key])
         else:
+            # jen tahle buňka: popisek místo hodnoty (úloha), podbarvení, nápověda; celá
+            # přestavba tabulky kvůli jedné buňce sekala (31. 10. 2026)
             self._filling = True
             try:
-                item.setText(stored)
+                item.setText(self.display(column, stored))
                 self._mark(item, row, column)
             finally:
                 self._filling = False
@@ -447,6 +591,8 @@ class MetaTable(QTableWidget):
             self._filling = False
 
     def _header_text(self, column: str) -> str:
+        if column in self._choice_headers:
+            return self._choice_headers[column]
         return meta.label(column) if self._labels and column in meta.META_COLUMNS else column
 
     def _build_view(self, columns: list[str]) -> list[tuple[str, list[int]] | int]:
@@ -467,7 +613,7 @@ class MetaTable(QTableWidget):
         if self._group_by == GROUP_FOLDER:
             name = value or tr("(hlavní složka)")
         else:
-            name = value or tr("bez hodnoty")
+            name = self.display(self._group_by, value) or tr("bez hodnoty")
         parts = [name]
         shared: list[str] = []
         merged = [self._row_merged(self._rows[i], columns) for i in members]
@@ -478,6 +624,7 @@ class MetaTable(QTableWidget):
             if len(values) == 1 and (only := values.pop()):
                 if column == meta.SEX:
                     only = {"f": tr("žena"), "m": tr("muž")}.get(only, only)
+                only = self.display(column, only)
                 shared.append(only)
         if shared:
             parts.append(" · ".join(shared))
@@ -495,7 +642,7 @@ class MetaTable(QTableWidget):
         ]
         # Šířky se během plnění nepřepočítávají (31. 10. 2026): s ResizeToContents Qt po každé
         # vložené buňce přeměřil celý sloupec, u 260 nahrávek 1,35 milionu měření a 10 s na
-        # jednu přestavbu. Měří se jednou na konci.
+        # jednu změnu úlohy. Měří se jednou na konci (`_fit_columns`).
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.clearSpans()
         self.setColumnCount(len(headers))
@@ -541,7 +688,7 @@ class MetaTable(QTableWidget):
                 continue
             row = self._rows[i]
             merged = self._row_merged(row, columns)
-            values = list(row.leading) + [merged[c] for c in columns]
+            values = list(row.leading) + [self.display(c, merged[c]) for c in columns]
             for c, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 if row.tooltip:
@@ -571,12 +718,14 @@ class MetaTable(QTableWidget):
             head_width = bold_metrics.horizontalAdvance(headers[0]) + 24
             self.setColumnWidth(0, min(NAME_MAX, max(head_width, name_width + 28)))
         header.setStretchLastSection(True)
+        self.refresh_done()
         self._apply_filter()
 
     def _mark(self, item: QTableWidgetItem, row: MetaRow, column: str) -> None:
         edits = self._edits.get(row.key, {})
         item.setData(EDITED_ROLE, None)
         item.setData(PLACEHOLDER_ROLE, None)
+        item.setData(HINT_ROLE, self._hints.get(column) or None)
         if column in edits:
             item.setBackground(QColor(theme.ACCENT_SOFT))
             item.setData(EDITED_ROLE, True)
@@ -591,7 +740,7 @@ class MetaTable(QTableWidget):
             item.setToolTip(tr("chybí v manifestu, dopište dvojklikem"))
         else:
             item.setBackground(QColor(Qt.GlobalColor.transparent))
-            if column in meta.META_COLUMNS:
+            if column in meta.META_COLUMNS or column in self._choices:
                 item.setToolTip(tr("Dvojklik upraví hodnotu, jen pro tento běh."))
 
 

@@ -143,5 +143,6 @@ def write_normalized(
         for rec in recordings:
             meta = manifest.meta_for(rec) if manifest else None
             row_task = (manifest.tasks.get(_key(rec)) if manifest else None) or task
+            row_task = tasks.base_task(row_task)  # knihovna zná jen své úlohy, ne vlastní
             writer.writerow([str(rec), row_task, *[(meta or {}).get(c, "") for c in columns]])
     return target

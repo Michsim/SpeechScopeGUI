@@ -93,6 +93,17 @@ QFrame#card QTableView#frozen {{
     background: {CARD}; border-right: 1px solid {BORDER};
 }}
 QListWidget#cards {{ background: transparent; border: none; }}
+/* řádek úlohy (widgets/task_rows.py) a souhrnný pruh pod úlohami */
+QFrame#taskrow {{
+    background: {CARD}; border: 1px solid {BORDER}; border-radius: 10px;
+}}
+QFrame#taskrow:hover {{ border-color: #c7d2fe; }}
+QFrame#taskrow[state="off"] {{ background: #f9fafb; }}
+QFrame#taskrow QLabel {{ background: transparent; border: none; }}
+QFrame#summarybar {{
+    background: #f8fafc; border: 1px solid {BORDER}; border-radius: 10px;
+}}
+QFrame#summarybar QLabel {{ background: transparent; border: none; }}
 
 /* štítky stavu */
 QLabel#pill {{ padding: 2px 9px; border-radius: 9px; font-size: {small}pt; font-weight: 600; }}
