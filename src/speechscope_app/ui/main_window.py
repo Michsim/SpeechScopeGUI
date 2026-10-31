@@ -1595,15 +1595,15 @@ class MainWindow(QMainWindow):
             config_path.write_text(proto.config_yaml(), encoding="utf-8")
         log_file = run_dir / "speechscope.log"
 
+        # Nahrávky jdou knihovně vždy přes manifest ve složce běhu, ne na příkazové řádce:
+        # Windows ji omezují na 32 767 znaků a dávka se stovkami nahrávek v hlubší složce
+        # se pak vůbec nespustila (QProcess -1, 31. 10. 2026). Jako cesta jde jen složka
+        # běhu (knihovna od ní počítá relativní cesty, v manifestu jsou absolutní).
+        manifest_path = write_normalized(run_dir / "manifest.csv", inputs, proto.task, job.manifest)
         if job.kind == "extract":
             proto.save(run_dir / "protocol.yaml")  # co přesně se spustilo
-            manifest_path: Path | None = None
-            if job.manifest is not None:
-                manifest_path = write_normalized(
-                    run_dir / "manifest.csv", inputs, proto.task, job.manifest
-                )
             req = proto.to_request(
-                inputs,
+                [run_dir],
                 out=run_dir / "features.csv",
                 work_dir=work_dir,
                 config_path=config_path,
@@ -1622,7 +1622,11 @@ class MainWindow(QMainWindow):
             expected_total = self._expected_total(slug, job.durations, expected)
         else:
             preq = PrepareRequest(
-                inputs=inputs, work_dir=work_dir, config=config_path, log_file=log_file
+                inputs=[run_dir],
+                work_dir=work_dir,
+                manifest=manifest_path,
+                config=config_path,
+                log_file=log_file,
             )
             if job.kind == "segments":
                 args = segment_args(
