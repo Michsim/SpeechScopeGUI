@@ -203,7 +203,8 @@ def test_manual_assessment_create_score_edit_and_delete(
     assert "Slovní zásoba: potřebuje úlohu Spontánní řeč" in page.missing_label.text()
     assert page.tree.topLevelItemCount() == 8
     voice = page.tree.topLevelItem(0)
-    assert voice.text(0) == "Kvalita hlasu" and voice.childCount() == 2 and voice.isExpanded()
+    assert voice.text(0) == "Kvalita hlasu" and voice.childCount() == 2
+    assert not voice.isExpanded()  # ve výchozím stavu je vše sbalené
     hnr = voice.child(0)  # HNR a CPP z fonace; CPP ze spontánní řeči tu není
     assert hnr.text(1) == "Fonace" and hnr.text(2).startswith("12,0")
     assert "Fonace: " in page.selection_label.text() and "jen muži" in page.selection_label.text()
@@ -859,3 +860,48 @@ def test_window_and_sex_are_per_patient(qtbot: QtBot, settings: AppSettings) -> 
     assert page.has_override("P-018")
     page.window_combo.setCurrentIndex(3)
     assert not page.has_override("P-018")
+
+
+def test_patient_overview_and_detail(qtbot: QtBot, settings: AppSettings) -> None:
+    """Varianta B: přehled pacientů tabulkou, dvojklik = detail, šipky, Esc zpět, filtr."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    save_norm(settings.norms_dir())
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.assessment_page
+    a = page.save_from(page.make_dialog(initial=recording(page, "P-017_fonace.wav")))
+    b = page.save_from(page.make_dialog(initial=recording(page, "P-018_fonace.wav")))
+    assert a is not None and b is not None
+    assert page.in_detail()  # nově uložené hodnocení: rovnou pacient
+    page.show_overview()
+    assert not page.in_detail() and page.list_panel.isHidden()
+    overview = page.overview
+    assert overview.count() == 2
+    page.flush_badges()
+    names = {overview.row(i).name: i for i in range(2)}
+    assert set(names) == {"P-017", "P-018"}
+    row17 = names["P-017"]
+    r = overview.row(row17)
+    assert (r.sex, r.age, r.status, r.visits) == ("muž", "64", "mimo normu", "1")
+    assert r.tasks == "Fonace" and r.person() == "muž · 64 let · 1 vyšetření"
+    # řazení podle jména a zpět; pořadí v seznamu nemění index karty
+    overview.set_sort("name")
+    assert [overview.row(i).name for i in overview.order()] == ["P-017", "P-018"]
+    overview.set_sort("last")
+    # filtr mimo normu nechá jen P-017
+    page.overview.set_filter("abnormal")
+    assert page.overview.visible_rows() == [row17]
+    page.overview.set_filter("all")
+    # dvojklik otevře detail, šipka na dalšího, Esc zpět
+    page.overview.open_requested.emit(row17)
+    assert page.in_detail() and page.current_assessment().subject == "P-017"
+    assert page.crumb.text() == "P-017" and page.position.text().endswith("z 2")
+    order = page.overview.visible_rows()  # šipky jdou v pořadí seznamu, ne indexů karet
+    page.step(1 if order.index(row17) == 0 else -1)
+    assert page.current_assessment().subject == "P-018"
+    page.show_overview()
+    assert not page.in_detail()
+    # hledání v přehledu filtruje seznam stránky
+    page.overview.search.setText("018")
+    assert page.overview.count() == 1

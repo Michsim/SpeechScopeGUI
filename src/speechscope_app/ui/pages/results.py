@@ -20,13 +20,14 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -36,6 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ... import contract
 from ...backend import tasks
 from ...backend.history import RunGroup, RunInfo, read_run
 from ...backend.library import FeatureInfo, Library, LibraryError
@@ -43,53 +45,31 @@ from ...backend.results import failed_paths
 from ...backend.work import CUT_DIR, PREPARE_OUTPUTS
 from ...i18n import tr
 from ..file_actions import file_menu
-from ..recording_detail import RecordingDetailDialog, column_descriptions
+from ..recording_detail import RecordingDetailDialog, column_index
 from ..widgets.frozen_table import FrozenTableView
 from ..widgets.run_history import STATUS_ROLES, RunHistory
 from ..widgets.status_header import StatusHeader
+from ..widgets.values_table import (
+    STATUS,
+    TABLE_STYLE,
+    BandHeader,
+    ColumnCard,
+    ErrorSpanDelegate,
+    FooterBar,
+    StatusDelegate,
+    ValuesModel,
+    column_stats,
+    decimals_for,
+    format_mean_sd,
+    group_short,
+    problem_mask,
+)
 
 PROBLEM_COLUMNS = ("notes", "error")
+NAME_MAX = 360  # nejširší sloupec s názvem nahrávky v px
 
 
-class FrameModel(QAbstractTableModel):
-    def __init__(self, frame: pd.DataFrame, descriptions: dict[str, str] | None = None) -> None:
-        super().__init__()
-        self.frame = frame
-        self.descriptions = descriptions or {}
-
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: B008
-        return 0 if parent.isValid() else len(self.frame)
-
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: B008
-        return 0 if parent.isValid() else len(self.frame.columns)
-
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
-        if not index.isValid():
-            return None
-        if role == Qt.ItemDataRole.DisplayRole:
-            value = self.frame.iat[index.row(), index.column()]
-            if isinstance(value, float):
-                return "" if pd.isna(value) else f"{value:.4g}"
-            return "" if pd.isna(value) else str(value)
-        if role == Qt.ItemDataRole.BackgroundRole:
-            row = self.frame.iloc[index.row()]
-            if "error" in self.frame.columns and pd.notna(row.get("error")) and row.get("error"):
-                return QColor(254, 226, 226)
-            if "notes" in self.frame.columns and pd.notna(row.get("notes")) and row.get("notes"):
-                return QColor(254, 243, 199)
-        return None
-
-    def headerData(
-        self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole
-    ) -> Any:
-        if orientation != Qt.Orientation.Horizontal:
-            return str(section + 1) if role == Qt.ItemDataRole.DisplayRole else None
-        column = str(self.frame.columns[section])
-        if role == Qt.ItemDataRole.DisplayRole:
-            return column
-        if role == Qt.ItemDataRole.ToolTipRole:
-            return self.descriptions.get(column, column)
-        return None
+FrameModel = ValuesModel  # dřívější jméno modelu tabulky
 
 
 class ResultsPage(QWidget):
@@ -97,6 +77,7 @@ class ResultsPage(QWidget):
     notice = Signal(str)  # krátká hláška do stavového řádku hlavního okna
     assess_requested = Signal(object, int)  # složka běhu, řádek ve features.csv → Hodnocení
     open_assessment_requested = Signal(str)  # id hodnocení: Otevřít v Hodnocení
+    task_shown = Signal(object)  # RunInfo: zvolená úloha vyšetření (Průběh ji ukáže taky)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -106,13 +87,17 @@ class ResultsPage(QWidget):
         self._library: Library | None = None
         self._catalog: list[FeatureInfo] | None = None
         self._group: RunGroup | None = None  # vyšetření, jehož běh je otevřený
+        self.prefer_running = False  # vyšetření: výchozí úloha ta běžící (vložená stránka)
+        self._feature_group = ""  # filtr skupiny sloupců (FeatureInfo.group), prázdno = vše
+        self._card_key = ""  # sloupec s otevřenou kartou
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(10)
-        title = QLabel(tr("Výsledky"))
-        title.setObjectName("page_title")
-        layout.addWidget(title)
+        self.page_title = QLabel(tr("Výsledky"))
+        self.page_title.setObjectName("page_title")
+        layout.addWidget(self.page_title)
+        self._outer = layout
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(self.splitter, 1)
@@ -197,6 +182,15 @@ class ResultsPage(QWidget):
         self.rerun_btn.hide()
         self.rerun_btn.clicked.connect(self._rerun_failed)
         tools.addWidget(self.search)
+        # skupiny sloupců (vše + skupiny feature v tabulce), naplní `_fill_group_bar`
+        self.group_bar = QWidget()
+        self.group_layout = QHBoxLayout(self.group_bar)
+        self.group_layout.setContentsMargins(0, 0, 0, 0)
+        self.group_layout.setSpacing(4)
+        self.group_buttons: dict[str, QPushButton] = {}
+        self.group_choice = QButtonGroup(self)
+        self.group_choice.setExclusive(True)
+        tools.addWidget(self.group_bar)
         tools.addWidget(self.problems_only)
         tools.addStretch(1)
         right_layout.addLayout(tools)
@@ -208,12 +202,27 @@ class ResultsPage(QWidget):
         self.table_card.setObjectName("card")
         card_layout = QVBoxLayout(self.table_card)
         card_layout.setContentsMargins(8, 6, 8, 6)
+        # Podoba „A + karta sloupce“ (mockup https://claude.ai/artifact/3zTRx5diHQquy8ZjSMU6WW):
+        # záhlaví ve dvou patrech, nahrávka · stav · pacient vlevo, průměr ± SD dole,
+        # klik na záhlaví číselného sloupce = karta se statistikou nad tabulkou.
         self.table = FrozenTableView()
-        self.table.setAlternatingRowColors(True)
+        self.table.setHorizontalHeader(BandHeader(self.table))
+        self.table.frozen.setHorizontalHeader(BandHeader(self.table.frozen))
+        self.table.frozen.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().sectionClicked.connect(self._header_clicked)
+        self.table.horizontalHeader().text_left = self.table.frozen_width
+        self.table.setAlternatingRowColors(False)
         self.table.setShowGrid(False)
         self.table.frozen.setShowGrid(False)
-        self.table.verticalHeader().setDefaultSectionSize(30)
-        self.table.frozen.verticalHeader().setDefaultSectionSize(30)
+        self.table.setWordWrap(False)
+        self.table.frozen.setWordWrap(False)
+        self.table.verticalHeader().hide()
+        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.frozen.verticalHeader().setDefaultSectionSize(34)
+        self._status_delegate = StatusDelegate(self.table)
+        self.table.setItemDelegate(ErrorSpanDelegate(self.table, self.table.frozen_width))
+        for view in (self.table, self.table.frozen):
+            view.setStyleSheet(TABLE_STYLE)
         self.table.doubleClicked.connect(lambda index: self.show_detail(index.row()))
         for view in (self.table, self.table.frozen):
             view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -221,16 +230,33 @@ class ResultsPage(QWidget):
                 lambda pos, view=view: self._row_menu(view, pos)
             )
         card_layout.addWidget(self.table)
+        self.footer = FooterBar(self.table, tr("průměr ± SD"))
+        self.footer.setToolTip(tr("Z nahrávek bez chyby v aktuálním filtru."))
+        self.footer.hide()
+        card_layout.addWidget(self.footer)
         self.empty = QLabel(tr("Vyber běh v historii vlevo."))
         self.empty.setObjectName("muted")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(self.empty)
         self.table.hide()
+        self.column_card = ColumnCard()
+        self.column_card.closed.connect(self.close_card)
+        self.column_card.step_requested.connect(self.step_card)
+        self.column_card.hide()
+        right_layout.addWidget(self.column_card)
         right_layout.addWidget(self.table_card, 1)
         self.splitter.addWidget(right)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([360, 760])
+
+    def set_embedded(self) -> None:
+        """Jen pravý panel jako záložka Hodnoty v detailu běhu na Výsledcích (31. 10. 2026);
+        historie zůstává skrytá a slouží přehledu jako zdroj seznamu a výběru."""
+        self.page_title.hide()
+        self.history.hide()
+        self._outer.setContentsMargins(0, 0, 0, 0)
+        self.prefer_running = True  # u vyšetření začít úlohou, která běží
 
     # --- knihovna (popisy sloupců) ------------------------------------------------------
 
@@ -293,12 +319,15 @@ class ResultsPage(QWidget):
     def _show_group(self, group: RunGroup, prefer: Path | None = None) -> None:
         self._group = group
         run = group.run_for(prefer) if prefer is not None else None
+        if run is None and self.prefer_running:
+            run = next((r for r in group.runs if r.status == "running"), None)
         if run is None:
             run = next((r for r in group.runs if r.status == "ok"), group.runs[0])
         self._show_single(run)
         self._fill_task_bar(group, run.dir)
         self.assess_btn.show()
         self.task_bar.show()
+        self.task_shown.emit(run)
 
     def _leave_group(self) -> None:
         self._group = None
@@ -348,6 +377,7 @@ class ResultsPage(QWidget):
             return
         self._show_single(run)
         self._set_task_note(run)
+        self.task_shown.emit(run)
 
     def _group_title(self, group: RunGroup) -> str:
         when = group.started.strftime("%d. %m. %Y") if group.started else ""
@@ -477,19 +507,51 @@ class ResultsPage(QWidget):
                 if col in frame.columns:
                     mask |= frame[col].notna()
             frame = frame[mask]
+        index = column_index(self.catalog())
+        self._fill_group_bar(index)
         needle = self.search.text().strip().lower()
-        if needle:
-            keep = [
-                c
-                for c in frame.columns
-                if c == "file" or needle in str(c).lower() or c in PROBLEM_COLUMNS
-            ]
+        keep = [
+            c
+            for c in frame.columns
+            if c in ("file", "subject")
+            or c in PROBLEM_COLUMNS
+            or (
+                (not needle or needle in str(c).lower())
+                and (
+                    not self._feature_group
+                    or (c in index and index[c].feature.group == self._feature_group)
+                    or (c not in index and not needle)
+                )
+            )
+        ]
+        if needle or self._feature_group:
             frame = frame[keep]
-        self.table.setModel(
-            FrameModel(frame.reset_index(drop=True), column_descriptions(self.catalog()))
-        )
+        frame = frame.reset_index(drop=True)
+        model = ValuesModel(frame, self.catalog(), self._footer_texts(frame, index))
+        self.table.set_frozen_count(model.frozen)
+        self.table.setModel(model)
+        for view in (self.table, self.table.frozen):
+            for c in range(2):
+                view.setItemDelegateForColumn(c, None)
+            if model.position(STATUS) >= 0:
+                view.setItemDelegateForColumn(model.position(STATUS), self._status_delegate)
         self._show_table(True)
+        self.table.clearSpans()
         self.table.resizeColumnsToContents()
+        if self.table.columnWidth(0) > NAME_MAX:
+            self.table.setColumnWidth(0, NAME_MAX)
+        span = model.feature_span()
+        if span is not None and span[1] > 1:  # chybný řádek: text chyby přes sloupce feature
+            for row in range(model.rowCount()):
+                if model.is_error(row):
+                    self.table.setSpan(row, span[0], 1, span[1])
+        self.footer.frozen = model.frozen
+        self.footer.update()
+        if self._card_key and (model.column(self._card_key) or None) is not None:
+            model.set_highlight(self._card_key)
+            self._update_card()
+        elif self._card_key:
+            self.close_card()
         pills: list = []
         if n_notes:
             pills.append(
@@ -532,10 +594,139 @@ class ResultsPage(QWidget):
 
     def _show_table(self, shown: bool) -> None:
         self.table.setVisible(shown)
+        self.footer.setVisible(shown)
         self.empty.setVisible(not shown)
+        if not shown:
+            self.close_card()
 
     def _selection_changed(self) -> None:
         self.detail_btn.setEnabled(bool(self.table.selectionModel().selectedRows()))
+        if self._card_key:
+            self._update_card()
+
+    # --- skupiny sloupců, souhrn a karta sloupce ------------------------------------------
+
+    def _fill_group_bar(self, index: dict) -> None:
+        """Přepínač skupin sloupců: vše + skupiny feature, které tabulka má (beze změny
+        se tlačítka nepřestavují, ať nepoblikávají)."""
+        frame = self._frame
+        groups: list[str] = []
+        for column in frame.columns if frame is not None else []:
+            info = index.get(column)
+            if info is not None and info.feature.group not in groups:
+                groups.append(info.feature.group)
+        if self._feature_group not in groups:
+            self._feature_group = ""
+        wanted = [""] + groups
+        if list(self.group_buttons) != wanted:
+            for btn in self.group_buttons.values():
+                self.group_choice.removeButton(btn)
+                self.group_layout.removeWidget(btn)
+                btn.hide()
+                btn.setParent(None)
+                btn.deleteLater()
+            self.group_buttons = {}
+            for group in wanted:
+                btn = QPushButton(group_short(group) if group else tr("vše"))
+                btn.setCheckable(True)
+                btn.setToolTip(contract.GROUP_LABELS.get(group, group) if group else "")
+                btn.clicked.connect(lambda _c=False, g=group: self.set_feature_group(g))
+                self.group_choice.addButton(btn)
+                self.group_layout.addWidget(btn)
+                self.group_buttons[group] = btn
+        for group, btn in self.group_buttons.items():
+            btn.setChecked(group == self._feature_group)
+        self.group_bar.setVisible(len(groups) > 1)
+
+    def set_feature_group(self, group: str) -> None:
+        """Jen sloupce jedné skupiny feature (prázdno = všechny)."""
+        self._feature_group = group
+        self._refresh()
+
+    def feature_group(self) -> str:
+        return self._feature_group
+
+    @staticmethod
+    def _footer_texts(frame, index: dict) -> dict[str, str]:  # noqa: ANN001
+        """Průměr ± SD číselných sloupců z řádků bez chyby (souhrnný řádek pod tabulkou)."""
+        ok = frame[~problem_mask(frame, "error")]
+        out: dict[str, str] = {}
+        for column in frame.columns:
+            if column in PROBLEM_COLUMNS or column in ("file", "path", "task"):
+                continue
+            if not pd.api.types.is_numeric_dtype(frame[column]):
+                continue
+            stats = column_stats(ok[column])
+            if stats is None:
+                continue
+            d = decimals_for(frame[column])
+            out[column] = format_mean_sd(stats, d, " ±")
+        return out
+
+    def _header_clicked(self, section: int) -> None:
+        model = self.table.model()
+        if not isinstance(model, ValuesModel):
+            return
+        column = model.column(model.key(section))
+        if column is None or not column.numeric:
+            return
+        if self._card_key == column.key and not self.column_card.isHidden():
+            self.close_card()
+        else:
+            self.open_card(column.key)
+
+    def open_card(self, key: str) -> bool:
+        """Karta sloupce `key` nad tabulkou (jen číselný sloupec v tabulce)."""
+        model = self.table.model()
+        column = model.column(key) if isinstance(model, ValuesModel) else None
+        if column is None or not column.numeric:
+            return False
+        self._card_key = key
+        model.set_highlight(key)
+        self._update_card()
+        self.column_card.show()
+        self.table.scrollTo(model.index(0, model.position(key)))
+        return True
+
+    def close_card(self) -> None:
+        self._card_key = ""
+        self.column_card.hide()
+        model = self.table.model()
+        if isinstance(model, ValuesModel):
+            model.set_highlight("")
+
+    def card_key(self) -> str:
+        return self._card_key if not self.column_card.isHidden() else ""
+
+    def step_card(self, delta: int) -> None:
+        """Karta na sousední číselný sloupec v pořadí tabulky."""
+        model = self.table.model()
+        if not isinstance(model, ValuesModel):
+            return
+        keys = [c.key for c in model.columns[model.frozen :] if c.numeric]
+        if not keys:
+            return
+        i = keys.index(self._card_key) if self._card_key in keys else -1
+        self.open_card(keys[max(0, min(len(keys) - 1, i + delta))])
+
+    def _update_card(self) -> None:
+        model = self.table.model()
+        column = model.column(self._card_key) if isinstance(model, ValuesModel) else None
+        if column is None:
+            return
+        frame = model.frame
+        errors = problem_mask(frame, "error")
+        values = frame.loc[~errors, column.key]
+        selected = None
+        rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
+        if rows and not errors.iloc[rows[0].row()]:
+            value = pd.to_numeric(frame[column.key].iloc[rows[0].row()], errors="coerce")
+            selected = None if pd.isna(value) else float(value)
+        self.column_card.show_column(column, values, selected, int(errors.sum()))
+        position = model.position(column.key)
+        numeric = [i for i, c in enumerate(model.columns) if c.numeric and i >= model.frozen]
+        self.column_card.prev_btn.setEnabled(bool(numeric) and position > numeric[0])
+        self.column_card.next_btn.setEnabled(bool(numeric) and position < numeric[-1])
 
     # --- detail a znovu chybné ---------------------------------------------------------
 

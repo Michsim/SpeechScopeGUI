@@ -32,6 +32,7 @@ from .spider_chart import BAND_COLORS, BAND_SOFT, MAX_SD, SPAN, clamp_sd
 ROW_HEIGHT = 46
 GROUP_HEIGHT = 30
 SPARK_WIDTH = 150
+NAME_MAX = 320  # nejširší sloupec názvu dimenze / položky (delší se zkrátí s tooltipem)
 
 
 @dataclass(slots=True)
@@ -233,8 +234,7 @@ class TrendMap(QTableWidget):
                 font.setBold(True)
                 name.setFont(font)
             name.setData(Qt.ItemDataRole.UserRole, row.key)
-            if row.tooltip:
-                name.setToolTip(row.tooltip)
+            name.setToolTip(row.tooltip or row.label)  # zkrácený název celý v tooltipu
             self.setItem(r, 1, name)
             col = 2
             if with_unit:
@@ -278,7 +278,11 @@ class TrendMap(QTableWidget):
             self.setRowHeight(r, ROW_HEIGHT)
             r += 1
         header = self.horizontalHeader()
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        # název podle obsahu (nejvýš NAME_MAX), průběh a data hned za ním, volné místo
+        # až za posledním sloupcem; Stretch dával mezeru mezi dimenzi a průběh
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        self.resizeColumnToContents(1)
+        header.resizeSection(1, min(header.sectionSize(1) + 12, NAME_MAX))
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         header.resizeSection(0, 48)
         for c in range(2, len(headers)):

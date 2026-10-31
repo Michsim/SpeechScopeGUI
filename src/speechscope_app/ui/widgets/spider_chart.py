@@ -1,4 +1,4 @@
-"""Pavoukový graf odchylek od normy po dimenzích a pruh skóre do tabulky.
+"""Pavoukový graf odchylek od normy po dimenzích.
 
 Osy jsou dimenze se skóre (z-skóre otočené k patologii). Podoba podle
 varianty I z 29. 10. 2026 (mockup `docs/mockups/pavouk-2/`, ostatní varianty
@@ -450,33 +450,4 @@ class ScaleLegend(QWidget):
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
             better,
         )
-        painter.end()
-
-
-class ScoreBar(QWidget):
-    """Pruh −2 až +3 SD barvou pásma do stromu položek: od nuly doprava horší, doleva lepší."""
-
-    def __init__(self, score: float | None, band: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.score = score
-        self.band = band
-        self.setMinimumWidth(60)
-        self.setFixedHeight(18)
-
-    def paintEvent(self, event) -> None:  # noqa: ANN001, N802
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        track = QRectF(4, 6, self.width() - 8, 6)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(theme.BORDER))
-        painter.drawRoundedRect(track, 3, 3)
-        zero = track.left() + track.width() * fraction(0.0)
-        painter.setBrush(QColor(theme.NEUTRAL))
-        painter.drawRect(QRectF(zero - 0.5, 3, 1, 12))  # značka nuly (průměr kontrol)
-        if self.score is None:
-            return
-        at = track.left() + track.width() * fraction(self.score)
-        x0, x1 = sorted((zero, at))
-        painter.setBrush(QColor(BAND_COLORS.get(self.band, theme.NEUTRAL)))
-        painter.drawRoundedRect(QRectF(x0, track.top(), max(2.0, x1 - x0), 6), 3, 3)
         painter.end()

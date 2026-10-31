@@ -190,6 +190,7 @@ class RunHistory(QWidget):
     delete_requested = Signal(object)  # RunInfo | RunGroup: Smazat…, Delete, pravé tlačítko
     rename_requested = Signal(object)  # RunInfo: Přejmenovat…, F2
     filter_changed = Signal(str)  # skupina z KINDS; i při samočinném přepnutí výběrem
+    rebuilt = Signal()  # seznam se znovu sestavil (přehled na stránce Výsledky ho opisuje)
 
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -407,6 +408,7 @@ class RunHistory(QWidget):
             self.runs.blockSignals(False)
             self._mark_current()
         self.delete_btn.setEnabled(self.can_delete(self.current()))
+        self.rebuilt.emit()
 
     # --- výběr a akce --------------------------------------------------------------
 

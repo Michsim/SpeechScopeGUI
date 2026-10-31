@@ -21,7 +21,7 @@ import math
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -39,9 +39,9 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
-    QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -95,22 +95,32 @@ from ..assessment_dialog import AssessmentDialog, match_text
 from ..feature_detail import split_unit
 from ..file_actions import file_menu, open_file
 from ..recording_detail import ColumnInfo, RecordingDetailDialog, column_index
+from ..widgets.dimension_tree import (
+    BAND_ROLE,
+    BAND_STRONG,
+    DIMENSION_ROW_BG,
+    PILL_ROLE,
+    TASK_PILL_ROLE,
+    DeviationAxis,
+    DimensionTree,
+    DimensionTreeDelegate,
+    band_dot,
+)
 from ..widgets.elided_label import ElidedLabel
+from ..widgets.patient_overview import OverviewRow, PatientOverview
 from ..widgets.spider_chart import (
     BAND_COLORS,
-    BAND_SOFT,
     INWARD,
     OUTWARD,
     Axis,
     Overlay,
     ScaleLegend,
-    ScoreBar,
     SpiderChart,
     format_sd,
 )
 from ..widgets.status_header import StatusHeader
 from ..widgets.trend_chart import TrendGrid, TrendSeries, format_tick, nice_axis
-from ..widgets.trend_map import MapRow, TrendMap
+from ..widgets.trend_map import NAME_MAX, MapRow, TrendMap
 
 NO_NORM = "none"  # volba „žádná norma“ v nabídce i v nastavení (`ui/norm`)
 
@@ -120,6 +130,7 @@ BAND_LABELS: dict[str, str] = {
     "bad": tr("mimo normu"),
 }
 BAND_ROLES: dict[str, str] = {"ok": "ok", "warn": "warn", "bad": "missing"}
+TREE_AXIS = 6  # logický sloupec osy odchylky ve stromu dimenzí (zobrazený před z)
 PENDING_BAND = "pending"  # štítek karty se teprve spočítá (líně, po zobrazení seznamu)
 BADGE_CHUNK = 4  # kolik karet se vyhodnotí v jednom tiku časovače
 WINDOWS: tuple[tuple[str, int | None], ...] = (  # výchozí ±5 (30. 10. 2026)
@@ -187,6 +198,14 @@ def task_count(visit: Visit, task: str) -> str:
 Entry = tuple[Assessment, Visit, list[RecordingRef]]  # hodnocení, vyšetření, chybějící odkazy
 
 
+def _sex_text(sex: str) -> str:
+    return (tr("žena") if sex == "f" else tr("muž")) if sex in ("f", "m") else ""
+
+
+def _age_text(age: float | None) -> str:
+    return str(int(round(age))) if age is not None else ""
+
+
 def patient_subtitle(entries: list[Entry]) -> str:
     """Řádek karty pacienta: pohlaví a věk z posledního vyšetření, počet a rozpětí dat."""
     latest = entries[0][1]
@@ -241,6 +260,7 @@ class PatientCard(QFrame):
         layout.addWidget(self.detail)
         self.band = ""
         self._current = False
+        self.on_band = None  # stránka: přepsat řádek přehledu po dopočítání štítku
         self.set_band(band)
 
     @property
@@ -259,6 +279,8 @@ class PatientCard(QFrame):
         theme.set_role(self.pill, role)
         self._role = role
         theme.set_role(self, "selected" if self._current else self._role)
+        if self.on_band is not None:
+            self.on_band(self)
 
     def set_current(self, current: bool) -> None:
         self._current = current
@@ -385,8 +407,47 @@ class AssessmentPage(QWidget):
         )  # ne clicked(checked) do initial
         title_row.addWidget(self.new_btn)
         layout.addLayout(title_row)
+        # varianta B (31. 10. 2026): přehled tabulkou přes celou šířku, dvojklik = detail
+        self.page_stack = QStackedWidget()
+        layout.addWidget(self.page_stack, 1)
+        self.overview = PatientOverview()
+        self.overview.open_requested.connect(self.open_overview_row)
+        self.overview.search_changed.connect(lambda text: self.search.setText(text))
+        self.page_stack.addWidget(self.overview)
+        detail = QWidget()
+        detail_layout = QVBoxLayout(detail)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        detail_layout.setSpacing(8)
+        nav = QHBoxLayout()
+        nav.setSpacing(8)
+        self.back_btn = QPushButton(tr("‹ Pacienti"))
+        self.back_btn.setFlat(True)
+        self.back_btn.setToolTip(tr("Zpět na přehled pacientů (Esc)"))
+        self.back_btn.clicked.connect(lambda: self.show_overview())
+        nav.addWidget(self.back_btn)
+        self.crumb = QLabel("")
+        crumb_font = self.crumb.font()
+        crumb_font.setBold(True)
+        self.crumb.setFont(crumb_font)
+        nav.addWidget(self.crumb, 1)
+        self.position = QLabel("")
+        self.position.setObjectName("muted")
+        nav.addWidget(self.position)
+        self.prev_btn = QPushButton("‹")
+        self.prev_btn.setToolTip(tr("Předchozí pacient (Alt+←)"))
+        self.prev_btn.clicked.connect(lambda: self.step(-1))
+        self.next_btn = QPushButton("›")
+        self.next_btn.setToolTip(tr("Další pacient (Alt+→)"))
+        self.next_btn.clicked.connect(lambda: self.step(1))
+        nav.addWidget(self.prev_btn)
+        nav.addWidget(self.next_btn)
+        detail_layout.addLayout(nav)
+        QShortcut(QKeySequence(Qt.Key.Key_Escape), detail, lambda: self.show_overview())
+        QShortcut(QKeySequence("Alt+Left"), detail, lambda: self.step(-1))
+        QShortcut(QKeySequence("Alt+Right"), detail, lambda: self.step(1))
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        layout.addWidget(self.splitter, 1)
+        detail_layout.addWidget(self.splitter, 1)
+        self.page_stack.addWidget(detail)
 
         # --- seznam vyšetření -----------------------------------------------------------
         left = QWidget()
@@ -424,6 +485,8 @@ class AssessmentPage(QWidget):
         left_layout.addWidget(self.empty)
         self.empty.hide()
         self.splitter.addWidget(left)
+        left.hide()  # seznam karet zůstává jako zdroj výběru, ukazuje se přehled tabulkou
+        self.list_panel = left
 
         # --- pravá část -------------------------------------------------------------------
         right = QWidget()
@@ -680,45 +743,66 @@ class AssessmentPage(QWidget):
 
         tree_card = QFrame()
         tree_card.setObjectName("card")
-        tree_card.setMinimumHeight(380)
         tree_layout = QVBoxLayout(tree_card)
         tree_layout.setContentsMargins(12, 10, 12, 10)
         tree_layout.setSpacing(6)
+        tree_top = QHBoxLayout()
+        tree_top.setSpacing(8)
         tree_title = QLabel(tr("Dimenze a jejich položky"))
         tree_title.setObjectName("card_title")
-        tree_layout.addWidget(tree_title)
+        tree_top.addWidget(tree_title)
+        tree_top.addStretch(1)
+        self.expand_all_btn = QPushButton(tr("rozbalit vše"))
+        self.expand_all_btn.clicked.connect(lambda: self.tree.expandAll())
+        tree_top.addWidget(self.expand_all_btn)
+        self.collapse_all_btn = QPushButton(tr("sbalit vše"))
+        self.collapse_all_btn.clicked.connect(lambda: self.tree.collapseAll())
+        tree_top.addWidget(self.collapse_all_btn)
+        tree_layout.addLayout(tree_top)
         self.tree_hint = QLabel("")
         self.tree_hint.setObjectName("muted")
         self.tree_hint.setWordWrap(True)
         tree_layout.addWidget(self.tree_hint)
-        self.tree = QTreeWidget()
+        # podoba A z mockupu docs/mockups/strom-dimenzi: osa odchylky v řádku, stupnice
+        # v záhlaví; logické sloupce zůstávají (osa = 6), osa se jen přesune před z
+        self.tree = DimensionTree(TREE_AXIS)
         self.tree.setColumnCount(7)
         self.tree.setHeaderLabels(
             [
-                tr("dimenze / položka"),
-                tr("úloha"),
-                tr("pacient"),
-                tr("norma"),
-                "z",
-                tr("percentil"),
+                tr("dimenze / položka").upper(),
+                tr("úloha").upper(),
+                tr("pacient").upper(),
+                tr("norma").upper(),
+                "SD",
+                tr("percentil").upper(),
                 "",
             ]
         )
         self.tree.setAlternatingRowColors(False)
         self.tree.setRootIsDecorated(True)
-        self.tree.setUniformRowHeights(True)
+        self.tree.setUniformRowHeights(False)
+        self.tree.setFrameShape(QFrame.Shape.NoFrame)
+        self.tree.setItemDelegate(DimensionTreeDelegate(self.tree))
+        self.tree.setStyleSheet(
+            f"QTreeWidget {{ background: {theme.CARD}; border: none; }}"
+            f"QTreeWidget::item {{ border-bottom: 1px solid {theme.NEUTRAL_SOFT}; }}"
+            f"QHeaderView::section {{ background: {theme.CARD}; color: {theme.MUTED};"
+            f" border: none; border-bottom: 1px solid {theme.BORDER}; padding: 6px;"
+            " font-weight: 600; }"
+        )
         header = self.tree.header()
-        # první sloupec bere zbytek šířky, ostatní podle obsahu
         header.setStretchLastSection(False)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setMinimumSectionSize(40)
-        for col in range(1, 6):
-            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(6, 90)
+        header.moveSection(header.visualIndex(TREE_AXIS), 4)
+        for col in (2, 3, 4, 5):
+            self.tree.headerItem().setTextAlignment(
+                col, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+        self._set_norm_columns(True)
         self.tree.itemDoubleClicked.connect(self._tree_double_clicked)
-        tree_layout.addWidget(self.tree, 1)
-        middle.addWidget(tree_card, 1)
+        # strom je vysoký podle obsahu (`fit_height`), roluje celá stránka, ne blok
+        tree_layout.addWidget(self.tree)
+        middle.addWidget(tree_card)
         self.middle = QWidget()
         self.middle.setLayout(middle)
         right_layout.addWidget(self.middle, 1)
@@ -1222,6 +1306,8 @@ class AssessmentPage(QWidget):
             del self._eval_cache[gone]  # změněné tabulky pozná otisk, smazaná hodnocení tady
         self._plans = pending_plans(self._store.folder) if self._store is not None else []
         self._fill_list(keep=keep)
+        if select is not None:
+            self.show_detail()  # odkaz odjinud nebo nově uložené hodnocení: rovnou pacient
 
     def recordings_pool(self) -> list[Recording]:
         """Nahrávky z hotových běhů (bez běhů norem) pro dialog hodnocení."""
@@ -1288,6 +1374,10 @@ class AssessmentPage(QWidget):
         self._shown = shown
         self._fit_cards()
         self.visits.blockSignals(False)
+        for card in self._cards:
+            if isinstance(card, PatientCard):
+                card.on_band = self._card_band_changed
+        self._fill_overview(select_row if select_row is not None else 0)
         total = len(self._plans) + len(patients)
         self.list_title.setText(tr("Pacienti ({n})").format(n=total) if total else tr("Pacienti"))
         self.empty.setVisible(not total)
@@ -1352,6 +1442,102 @@ class AssessmentPage(QWidget):
     def plans(self) -> list[AssessmentPlan]:
         return list(self._plans)
 
+    # --- přehled a detail (varianta B) -----------------------------------------------
+
+    def in_detail(self) -> bool:
+        return self.page_stack.currentIndex() == 1
+
+    def show_overview(self) -> None:
+        self.overview.select(self.visits.currentRow())
+        self.page_stack.setCurrentIndex(0)
+
+    def show_detail(self) -> None:
+        self.page_stack.setCurrentIndex(1)
+        self._update_nav()
+
+    def open_overview_row(self, row: int) -> None:
+        """Dvojklik v přehledu: pacient (nebo rozpracované hodnocení) přes celou šířku."""
+        if not 0 <= row < self.visits.count():
+            return
+        if self.visits.currentRow() == row:
+            self._item_changed(self.visits.currentItem(), None)
+        else:
+            self.visits.setCurrentRow(row)
+        self.show_detail()
+
+    def step(self, delta: int) -> None:
+        """Šipky v detailu: další pacient v pořadí a filtru přehledu."""
+        rows = self.overview.visible_rows()
+        row = self.visits.currentRow()
+        if row not in rows:
+            return
+        index = rows.index(row) + delta
+        if 0 <= index < len(rows):
+            self.open_overview_row(rows[index])
+
+    def _update_nav(self) -> None:
+        card = self.card(self.visits.currentRow())
+        self.crumb.setText(card.title.text() if card is not None else "")
+        rows = self.overview.visible_rows()
+        row = self.visits.currentRow()
+        position = rows.index(row) if row in rows else -1
+        self.position.setText(
+            tr("{i} z {n}").format(i=position + 1, n=len(rows)) if position >= 0 else ""
+        )
+        self.prev_btn.setEnabled(position > 0)
+        self.next_btn.setEnabled(0 <= position < len(rows) - 1)
+
+    def _overview_row(self, card: PatientCard | PendingCard) -> OverviewRow:
+        """Řádek přehledu (podoba D): bez výsledků dimenzí, ty jsou v detailu."""
+        from .norms import PLAN_STATUS  # stejné popisky stavů dávek jako u normy
+
+        if isinstance(card, PendingCard):
+            plan = card.plan
+            chips = []
+            for task in plan.tasks:
+                label, role = PLAN_STATUS.get(task.status, (task.status, "neutral"))
+                chips.append((f"{tasks.label(task.task)} · {tr(label)}", role))
+            return OverviewRow(
+                plan.patient.subject,
+                _sex_text(plan.patient.sex),
+                _age_text(plan.patient.age),
+                card.pill.text(),
+                card._role,
+                "",
+                format_visit_date(plan.patient.date) if plan.patient.date else tr("dnes"),
+                "",
+                kind="pending",
+                sort_date=plan.patient.date or dt.date.today().isoformat(),
+                chips=chips,
+            )
+        latest = card.visit
+        dates = [e[0].date for e in card.entries if e[0].date]
+        task_keys = sorted(
+            {r.task for e in card.entries for r in e[1].recordings}, key=tasks.task_order
+        )
+        return OverviewRow(
+            card.title.text(),
+            _sex_text(latest.sex),
+            _age_text(latest.age),
+            card.pill.text(),
+            BAND_ROLES.get(card.band, "neutral") if not card.pending else "neutral",
+            str(len(card.entries)),
+            format_visit_date(max(dates)) if dates else "",
+            ", ".join(tasks.label(t) for t in task_keys),
+            band=card.band,
+            sort_date=max(dates) if dates else "",
+        )
+
+    def _fill_overview(self, current: int = -1) -> None:
+        self.overview.set_empty_text(self.empty.text())
+        self.overview.set_rows([self._overview_row(c) for c in self._cards], current)
+        if self.in_detail():
+            self._update_nav()
+
+    def _card_band_changed(self, card: PatientCard) -> None:
+        if card in self._cards:
+            self.overview.update_row(self._cards.index(card), self._overview_row(card))
+
     def card(self, row: int) -> PatientCard | PendingCard | None:
         return self._cards[row] if 0 <= row < len(self._cards) else None
 
@@ -1365,7 +1551,8 @@ class AssessmentPage(QWidget):
             self.visits.setCurrentRow(row)
 
     def select_assessment(self, assessment_id: str) -> bool:
-        """Vybere pacienta a v jeho řadě dané vyšetření."""
+        """Vybere pacienta a v jeho řadě dané vyšetření (a ukáže detail)."""
+        self.show_detail()
         offset = len(self._shown_plans)
         for row, entries in enumerate(self._groups):
             entry = next((e for e in entries if e[0].id == assessment_id), None)
@@ -2062,10 +2249,8 @@ class AssessmentPage(QWidget):
             if row.change_total is not None and abs(row.change_total) >= 1.0:
                 change.setForeground(QColor(theme.MISSING if row.change_total > 0 else theme.OK))
             table.setItem(r, len(timeline.visits) + 1, change)
+        _fit_name_column(table)
         header = table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for c in range(1, table.columnCount()):
-            header.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
         height = header.height() + 4 + sum(table.rowHeight(i) for i in range(len(rows)))
         table.setFixedHeight(max(height, 60))
         notes = [
@@ -2307,10 +2492,8 @@ class AssessmentPage(QWidget):
                     QTableWidgetItem(f"{pct:+.0f} %".replace("+0 %", "0 %") if pct else "–"),
                 )
                 r += 1
+        _fit_name_column(table)
         header = table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for c in range(1, table.columnCount()):
-            header.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
         height = header.height() + 4 + sum(table.rowHeight(i) for i in range(table.rowCount()))
         table.setFixedHeight(max(height, 60))
         notes = [
@@ -2436,11 +2619,13 @@ class AssessmentPage(QWidget):
 
     def _set_norm_columns(self, visible: bool) -> None:
         """Sloupce norma, z, percentil a pruh mají smysl jen s normou."""
-        for col in (3, 4, 5, 6):
+        for col in (3, 4, 5, TREE_AXIS):
             self.tree.setColumnHidden(col, not visible)
         header = self.tree.header()
         if visible:
-            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+            # název a osu dopočítá strom (`fit_columns`), ostatní podle obsahu
+            for col in range(1, 6):
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         else:
             # dlouhé „bez dat: potřebuje úlohu…“ by jinak sebralo šířku názvu dimenze
             header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
@@ -2469,9 +2654,7 @@ class AssessmentPage(QWidget):
                 tasks.label(t) for t in sorted({r.task for r in rows}, key=tasks.task_order)
             ) or ", ".join(tasks.label(t) for t in dim.tasks)
             top = QTreeWidgetItem([dim.display_name, task_text, "", "", "", "", ""])
-            font = top.font(0)
-            font.setBold(True)
-            top.setFont(0, font)
+            _style_dimension_row(top)
             self.tree.addTopLevelItem(top)
             if not rows:
                 needed = [t for t in dim.tasks if t not in present]
@@ -2502,12 +2685,22 @@ class AssessmentPage(QWidget):
                     ]
                 )
                 child.setData(0, Qt.ItemDataRole.UserRole, row)
+                child.setData(1, TASK_PILL_ROLE, child.text(1))
+                child.setTextAlignment(
+                    2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                )
                 child.setToolTip(0, row.item.column)
                 top.addChild(child)
-            top.setExpanded(True)
+        self.tree.refit()
 
     def _fill_tree(self, evaluation: Evaluation) -> None:
-        self.tree_hint.setText(tr("z = o kolik SD horším směrem, percentil mezi kontrolami"))
+        self.tree_hint.setText(
+            tr(
+                "Odchylka v SD od průměru kontrol, vpravo horší; zelený pás = v normě (±1 SD), "
+                "◆ dimenze, ● položka. Percentil = pořadí mezi kontrolami, ▲▼ = strana "
+                "odchylky u položek, kde vadí obě."
+            )
+        )
         self._set_norm_columns(True)
         self.tree.clear()
         for result in evaluation.results:
@@ -2528,13 +2721,16 @@ class AssessmentPage(QWidget):
             )
             top.setData(0, Qt.ItemDataRole.UserRole, result)
             top.setToolTip(4, _score_tooltip(result))
-            font = top.font(0)
-            font.setBold(True)
-            top.setFont(0, font)
+            _style_dimension_row(top)
+            top.setForeground(1, QColor(theme.MUTED))
             if result.shown:
-                _colorize(top, result.band)
+                _style_score(top, result.band, large=True)
+                top.setData(0, BAND_ROLE, result.band)
+                top.setData(0, PILL_ROLE, BAND_LABELS.get(result.band, ""))
                 self.tree.addTopLevelItem(top)
-                self.tree.setItemWidget(top, 6, ScoreBar(result.score, result.band))
+                self.tree.setItemWidget(
+                    top, TREE_AXIS, DeviationAxis(result.score, result.band, dimension=True)
+                )
                 for item in result.items:
                     label, unit = self._item_label(item.item.column)
                     value = format_number(item.value) + (
@@ -2549,7 +2745,7 @@ class AssessmentPage(QWidget):
                         if item.item.direction == BOTH:
                             z_text += " \u25b2" if item.score.signed_z >= 0 else " \u25bc"
                     else:
-                        norm_text, z_text, pct = item.reason, "", ""
+                        norm_text, z_text, pct = "", "", ""
                     if item.versions is not None:
                         label += " \u26a0"  # feature se od spočítání normy změnila
                     child = QTreeWidgetItem(
@@ -2560,33 +2756,42 @@ class AssessmentPage(QWidget):
                             norm_text,
                             z_text,
                             pct,
-                            "",
+                            "" if item.score is not None else item.reason,
                         ]
                     )
                     child.setData(0, Qt.ItemDataRole.UserRole, item)
+                    child.setData(1, TASK_PILL_ROLE, child.text(1))
                     child.setToolTip(0, item.item.column + _versions_tooltip(item))
                     child.setToolTip(4, _item_z_tooltip(item))
+                    for col in (2, 3, 4, 5):
+                        child.setTextAlignment(
+                            col, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                        )
+                    child.setForeground(3, QColor(theme.MUTED))
+                    child.setForeground(5, QColor(theme.MUTED))
+                    # tečka a název barvou pásma (zelená v normě), bez hodnoty šedě bez tečky
+                    child.setIcon(0, band_dot(item.band if item.score is not None else ""))
                     if item.score is not None:
-                        _colorize(child, item.band)
+                        _style_score(child, item.band, large=False)
+                        child.setForeground(0, QColor(BAND_STRONG.get(item.band, theme.TEXT)))
                     else:
                         child.setForeground(0, QColor(theme.MUTED))
+                        child.setForeground(TREE_AXIS, QColor(theme.MUTED))
+                        font = child.font(TREE_AXIS)
+                        font.setItalic(True)
+                        child.setFont(TREE_AXIS, font)
                     top.addChild(child)
                     if item.score is not None:
-                        self.tree.setItemWidget(child, 6, ScoreBar(item.score.z, item.band))
-                top.setExpanded(result.band == "bad")
+                        self.tree.setItemWidget(
+                            child, TREE_AXIS, DeviationAxis(item.score.z, item.band)
+                        )
             else:
-                top.setText(2, tr("bez dat: {reason}").format(reason=result.reason))
+                top.setText(TREE_AXIS, tr("bez dat: {reason}").format(reason=result.reason))
+                top.setToolTip(TREE_AXIS, top.text(TREE_AXIS))
                 for col in range(7):
                     top.setForeground(col, QColor(theme.MUTED))
                 self.tree.addTopLevelItem(top)
-        # nejhorší dimenze rozbalená, aby bylo hned vidět proč
-        shown = [r for r in evaluation.shown]
-        if shown:
-            worst = max(shown, key=lambda r: r.score or 0.0)
-            for i in range(self.tree.topLevelItemCount()):
-                item = self.tree.topLevelItem(i)
-                if item.data(0, Qt.ItemDataRole.UserRole) is worst:
-                    item.setExpanded(True)
+        self.tree.refit()  # vše sbalené (31. 10. 2026), položky až po rozbalení
 
     def _tree_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         data = item.data(0, Qt.ItemDataRole.UserRole)
@@ -2905,10 +3110,39 @@ def _score_tooltip(result: DimensionResult) -> str:
     )
 
 
-def _colorize(item: QTreeWidgetItem, band: str) -> None:
-    color = QColor(BAND_SOFT.get(band, theme.NEUTRAL_SOFT))
+def _fit_name_column(table: QTableWidget) -> None:
+    """Tabulka Vývoje: název podle obsahu (nejvýš NAME_MAX), data hned za ním, volné
+    místo až za posledním sloupcem; Stretch dával mezeru mezi dimenzi a data."""
+    header = table.horizontalHeader()
+    for c in range(1, table.columnCount()):
+        header.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+    header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+    table.resizeColumnToContents(0)
+    header.resizeSection(0, min(header.sectionSize(0) + 12, NAME_MAX))
+
+
+def _style_dimension_row(item: QTreeWidgetItem) -> None:
+    """Řádek dimenze: tučný název a světle šedé pozadí přes celou šířku."""
+    font = item.font(0)
+    font.setBold(True)
+    item.setFont(0, font)
     for col in range(item.columnCount()):
-        item.setBackground(col, color)
+        item.setBackground(col, QColor(DIMENSION_ROW_BG))
+    for col in (4, 5):
+        item.setTextAlignment(col, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+
+def _style_score(item: QTreeWidgetItem, band: str, large: bool) -> None:
+    """Barvu pásma nese jen číslo SD (podoba A, text řádku zůstává černý)."""
+    item.setForeground(4, QColor(BAND_STRONG.get(band, theme.TEXT)))
+    font = item.font(4)
+    font.setBold(True)
+    item.setFont(4, font)
+    if not large:
+        return
+    font = item.font(4)
+    font.setPointSizeF(font.pointSizeF() * 1.05)
+    item.setFont(4, font)
 
 
 __all__ = [

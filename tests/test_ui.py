@@ -24,6 +24,7 @@ from speechscope_app.ui.main_window import (
     PAGE_RUN,
     MainWindow,
 )
+from speechscope_app.ui.widgets.meta_table import GROUP_FOLDER
 from speechscope_app.ui.widgets.param_form import ParamForm
 
 
@@ -61,20 +62,41 @@ def test_window_runs_batch_end_to_end(
     assert not window.batch_page.editor.picker.warning.text()  # doctor: všechno připravené
     assert "Bez modelů" in window.batch_page.editor_summary.text()
 
+    runs = window.runs_page
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
         window.batch_page.run_btn.click()
         run_dir = window._running_dir
         assert read_run(run_dir).status == "running"  # záznam hned při startu
+        # Výsledky = přehled + detail: běžící běh otevřený na Průběhu, Hodnoty zavřené
+        assert window.nav.currentRow() == PAGE_RESULTS and runs.in_detail()
+        assert runs.tab() == "progress" and not runs.values_tab.isEnabled()
+        assert not runs.running_card.isHidden() and runs.live_dir() == run_dir
     state = window.run_page.runner.state
     assert state.finished and state.total == 4
     assert window.nav.currentRow() == PAGE_RESULTS
+    assert runs.in_detail() and runs.tab() == "values"  # po dávce hodnoty
+    assert runs.values_tab.isEnabled() and runs.running_card.isHidden()
+    assert runs.detail_stack.currentWidget() is window.results_page
+    runs.set_tab("progress")
+    assert runs.detail_stack.currentWidget() is window.run_page
+    runs.show_overview()
+    assert not runs.in_detail() and runs.table.rowCount() == 1
+    assert runs.table.item(0, 0).text() == "Fonace, základní"
+    assert runs.table.item(0, 3).text() == "4" and runs.cell_text(0, 4)
+    assert runs.table.item(0, 4).text() == ""  # stav kreslí štítek, text pod ním není
+    runs.search.setText("nic takového")
+    assert runs.visible_rows() == []
+    runs.search.clear()
+    runs.open_row(0)
+    assert runs.in_detail() and runs.tab() == "values" and runs.crumb.text() == "Fonace, základní"
+    assert not runs.prev_btn.isEnabled() and not runs.next_btn.isEnabled()
     assert read_run(run_dir).status == "ok"
     # tabulka běhu: řádek na nahrávku, výsledek, nabídka bez postupu po konci
     run = window.run_page
     assert run.files.rowCount() == 4
     statuses = [run.files.item(r, run.col_status).text() for r in range(4)]
     assert sorted(statuses) == ["chyba", "ok", "ok", "ok"]
-    assert window.nav.item(PAGE_RUN).text() == "Výpočet"
+    assert window.nav.item(PAGE_RUN).text() == "Výsledky"  # Výpočet je záložka Výsledků
     assert run.headline.text().startswith("Hotovo za")
     assert settings.seconds_per_file("fonace-zakladni") is not None
     assert window.results_page.table.model().rowCount() == 4
@@ -590,7 +612,8 @@ def test_manifest_metadata_reach_results(
     page.set_folder(recordings)
     assert page.manifest() is not None
     headers = [page.files.horizontalHeaderItem(c).text() for c in range(page.files.columnCount())]
-    assert headers[-2:] == ["subject", "group"]  # kanonické názvy sloupců
+    assert page.files.columns == ["subject", "group"]  # kanonické názvy sloupců
+    assert headers[-2:] == ["PACIENT", "SKUPINA"]  # v hlavičce popisky velkými písmeny
     assert "2 z 4" in page.manifest_label.text()
     assert page.select_protocol("Fonace, základní")
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
@@ -622,7 +645,7 @@ def test_metadata_edits_and_custom_columns_reach_run(
     page.set_folder(recordings)
     assert page.meta_edits() == 0 and page.edits_btn.isHidden()
     assert page.add_meta_column("vek") == "age" and page.add_meta_column("path") == ""
-    headers = [page.files.horizontalHeaderItem(c).text() for c in range(page.files.columnCount())]
+    headers = [""] * page.files.meta_from + page.files.columns  # klíče podle pozice
     assert headers[-2:] == ["subject", "age"]
     assert page.set_meta(recordings / "p01.wav", "age", "64,5") == "64.5"
     assert page.set_meta(recordings / "p03_short.wav", "subject", "HC003") == "HC003"
@@ -799,7 +822,7 @@ def test_runs_queue_up_and_continue(
     qtbot.waitUntil(lambda: len(finished) == 2, timeout=30000)
     qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=5000)
     assert not window.queued_jobs() and window.run_page.queue_box.isHidden()
-    assert window.nav.item(PAGE_RUN).text() == "Výpočet"
+    assert window.nav.item(PAGE_RUN).text() == "Výsledky"  # Výpočet je záložka Výsledků
     assert window.nav.currentRow() == PAGE_RESULTS  # až po poslední dávce
     run_dirs = sorted(p.name for p in settings.work_root.iterdir() if p.name != "work")
     assert any(n.endswith("fonace-zakladni") for n in run_dirs)
@@ -1176,3 +1199,66 @@ def test_home_cards_running_strip_and_norm_warning(
     assert home.running.isHidden()
     home.run_btn.click()
     assert window.nav.currentRow() == PAGE_RUN
+
+
+def test_recordings_table_grouping_search_and_missing(
+    qtbot: QtBot, settings: AppSettings, recordings: Path
+) -> None:
+    """Krok 1 Analýzy: Seskupit podle sloupce i podsložky, hledání, dlaždice bez údajů."""
+    (recordings / "manifest.csv").write_text(
+        "﻿path;pacient;vek\np01.wav;PD001;64\np02_bad.wav;PD001;64\np03_short.wav;HC002;\n",
+        encoding="utf-8",
+    )
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    files = page.files
+    assert files.rowCount() == 4 and files.group_by == ""
+    # p03 nemá věk, p04 (bez řádku v manifestu) nemá nic: dlaždice a žluté „doplnit“
+    assert not page.missing_tile.isHidden() and page.missing_tile.value.text() == "2"
+    assert page.patients_tile.value.text() == "2"
+    page.missing_tile.clicked.emit()
+    assert [page._recordings[i].name for i in files.visible_indices()] == [
+        "p03_short.wav",
+        "p04.flac",
+    ]
+    page.missing_tile.clicked.emit()
+    assert len(files.visible_indices()) == 4
+
+    # seskupení podle pacienta: nadpisy skupin, prázdný pacient na konci
+    assert page.set_group_by("subject")
+    assert files.rowCount() == 4 + 3 and files.is_group_header(0)
+    assert files.item(0, 0).text().startswith("HC002")
+    assert "PD001" in files.item(2, 0).text() and "64" in files.item(2, 0).text()
+    assert files.item(files.rowCount() - 2, 0).text().startswith("bez hodnoty")
+    assert files.data_index(0) is None and not page.open_recording(0)
+    # klik na nadpis označí skupinu, Vyplnit vybrané ji doplní
+    files.cellClicked.emit(2, 0)
+    pd = sorted(page._recordings[i].name for i in page.selected_rows())
+    assert pd == ["p01.wav", "p02_bad.wav"] and page.fill_btn.isEnabled()
+    assert page.fill_selected("skupina", "PD") == 2
+    assert page.manifest().meta_for(recordings / "p01.wav")["group"] == "PD"
+    # úprava buňky přesune řádek do jiné skupiny
+    i = next(i for i, rec in enumerate(page._recordings) if rec.name == "p04.flac")
+    subject_col = files.meta_from + files.columns.index("subject")
+    files.item(files.table_row(i), subject_col).setText("HC002")
+    assert files.rowCount() == 4 + 2
+    # Odebrat ve seskupené tabulce odebírá nahrávky, ne nadpisy
+    files.clearSelection()
+    files.select_index(i)
+    page.remove_selected()
+    assert "p04.flac" not in [rec.name for rec in page._recordings]
+
+    # podsložka jako volba jen se sken včetně podsložek; hledání schová i prázdné skupiny
+    page.restore_excluded()
+    assert page.set_group_by(GROUP_FOLDER)
+    titles = [files.item(r, 0).text() for r in range(files.rowCount()) if files.is_group_header(r)]
+    assert titles[0].startswith("sub") and titles[1].startswith("(hlavní složka)")
+    page.search.setText("p04")
+    assert [page._recordings[i].name for i in files.visible_indices()] == ["p04.flac"]
+    main = next(r for r in range(files.rowCount()) if files.item(r, 0).text().startswith("(hl"))
+    assert files.isRowHidden(main)  # skupina bez shody se schová celá
+    page.search.clear()
+    page.recursive.setChecked(False)
+    assert page.group_combo.findData(GROUP_FOLDER) < 0 and files.group_by == ""

@@ -91,9 +91,29 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
 ## Stránky
 Pořadí v nabídce (od 30. 10. 2026, mockup
 https://claude.ai/artifact/UkcxmVZDY3M9n89UQFuhdq, `docs/mockups/domu-pacienti/` mimo
-git): Domů · Analýza nahrávek · Výpočet · Výsledky · Pacienti, dole Protokoly · Normy ·
+git): Domů · Analýza nahrávek · Výsledky · Pacienti, dole Protokoly · Normy ·
 Prostředí (`PAGE_HOME` … `PAGE_ENV`; popis stránek Pacienti a Normy je v sekci
-Normy a dimenze). Uvítání mimo nabídku už není.
+Normy a dimenze). Uvítání mimo nabídku už není. **Výsledky a Výpočet jsou od
+31. 10. 2026 jedna stránka** (`pages/runs.py`, `RunsPage`, mockup
+https://claude.ai/artifact/9oecmvHjjNY99LeW3vvxZb, `docs/mockups/vysledky-vypocet/` mimo
+git; `PAGE_RUN` = `PAGE_RESULTS`): přehled = oddíl „Běží a ve frontě“ (`set_running`,
+`set_progress`, `set_queue`, `clear_running` z hlavního okna vedle pruhu na Domů;
+Průběh, Zrušit…, Vyndat z fronty → `RunPage.queue_remove`) a tabulka běhů přes celou
+šířku (běh, úloha, protokol, nahrávky, stav, doba, spuštěno; filtr Analýzy · Hodnocení
+· Normy, hledání, pravé tlačítko, Delete, F2); zdroj je skrytá `ResultsPage.history`
+(opisuje se po signálu `RunHistory.rebuilt`, mazání a přejmenování jdou přes její
+signály; uhlazená tabulka podoby A: záhlaví velkými písmeny, štítky úlohy a stavu
+(`_cell_widget`, `_pill`; buňka pod štítkem je prázdná, text v `TEXT_ROLE`, `cell_text`), průběh v řádku u běžícího běhu, relativní datum `_when`, šipka ›;
+sloupce podle obsahu, název běhu nejvýš `NAME_MAX`). Dvojklik nebo Enter na řádek = detail (`open_row`, `open_entry`, `open_run`): „‹ Výsledky“
+(Esc), šipky na sousední běh (`step`) a záložky Hodnoty · Průběh (`set_tab`): Hodnoty =
+`ResultsPage`, Průběh = `RunPage`, obě vložené přes `set_embedded` (bez nadpisu a
+historie). U vyšetření je řada úloh `ResultsPage.task_bar` přenesená nad záložky a platí
+pro obě (`ResultsPage.task_shown` → `RunsPage._task_shown` přehraje Průběh té úlohy,
+výchozí běžící úloha `prefer_running`; `open_run` otevře danou úlohu). Běžící běh má Hodnoty neaktivní (features.csv se během běhu neotvírá),
+Průběh jiného běhu během výpočtu neaktivní. Spustit a pruh na Domů otevřou detail na
+Průběhu (`MainWindow.show_running`, `RunsPage.show_running`), po dávce
+`_go_after_batch` na Hodnoty (`show_values`). Popis Výpočtu a Výsledků níže platí pro
+obsah záložek.
 **Domů** (`pages/home.py`, `HomePage`, po startu vždy, `show_home`): rozcestník
 podle výstupu, dvě velké karty `ActionCard` Hodnocení pacienta a Analýza nahrávek
 (obě s modrým tlačítkem, dál vede jen tlačítko, ne klik do karty; → Analýza).
@@ -128,7 +148,20 @@ Prostředí (doctor, modely, Diagnostika… = zip pro podporu z
 `backend/diagnostics.py`) · Analýza (dva kroky v `QStackedWidget`:
 1 nahrávky s metadaty z `manifest.csv` (`backend/manifest.py`, tolerantní
 čtení, normalizovaná kopie do složky běhu); tabulka nahrávek je od 30. 10. 2026
-`widgets/meta_table.py` (`MetaTable`, sdílená s průvodcem z nahrávek): vlevo
+`widgets/meta_table.py` (`MetaTable`, sdílená s průvodcem z nahrávek; sloupce podle obsahu, název
+nahrávky nejvýš `NAME_MAX` se zkrácením uprostřed, volné místo za posledním sloupcem;
+od 31. 10. 2026 podoba A z mockupu https://claude.ai/artifact/RbdMDqP2NUunQRc1RdH1VD,
+`docs/mockups/analyza-tabulka/` mimo git: záhlaví velkými písmeny s popisky sloupců (klíč
+v tooltipu, `MetaTable.columns`), řádky bez mřížky, tučný název, délka vpravo; podbarvení,
+modrou tečku u upravené buňky a „doplnit“ v prázdné povinné kreslí `_CellDelegate`, protože
+styl `::item` barvu položky přebíjí; nad tabulkou dlaždice `_Tile` (zvuk, odhad výpočtu,
+pacienti, klikací „bez údajů“ = jen neúplné; pacient, věk a pohlaví jsou na Analýze povinné
+jen vzhledem), řada „vybráno n“ · Vyplnit vybrané… · Odebrat · hledání · Seskupit; Seskupit
+(`set_group_by`, výchozí nic) jen podle sloupce metadat nebo podsložky (`GROUP_FOLDER`, jen
+když nahrávky v podsložkách jsou), nic se neodhaduje z názvů; nadpis skupiny přes celou šířku
+(hodnota, shodné údaje, počet a délka, prázdná hodnota na konci), klik označí skupinu; řádek
+tabulky pak není index nahrávky, stránka převádí přes `data_index`, `table_row`,
+`selected_indices`, `select_index`): vlevo
 pevné sloupce jen ke čtení (název, délka, ruční vstupy), vpravo metadata
 upravitelná dvojklikem, + Sloupec… (nabídka vyhrazených `meta.META_COLUMNS`
 s popisky `meta.label`, nebo vlastní název, kanonizuje se `meta.canonical_column`),
@@ -179,7 +212,18 @@ se před výměnou skryje, Qt ho maže až z fronty událostí) · Výsledky (hi
 `backend/history.py` a `run.json` jako karty (`widgets/run_history.py`, `RunCard`
 se štítkem stavu, API `count/card/current_row/select_row`), stavová karta se
 štítky počtů (klik přepne filtr), tabulka vybraného běhu v kartě se zmrazeným prvním
-sloupcem (`widgets/frozen_table.py`; šířky sloupců se měří z hlavičky a prvních
+sloupcem (od 31. 10. 2026 podoba „A + karta sloupce“, mockup
+https://claude.ai/artifact/3zTRx5diHQquy8ZjSMU6WW, `docs/mockups/vysledky-hodnoty/` mimo git;
+`widgets/values_table.py`: `ValuesModel` ukazuje nahrávka · stav · pacient zmrazené vlevo
+(`FrozenTableView.set_frozen_count`), metadata, feature, technické sloupce, `frame` zůstává
+v pořadí CSV; `BandHeader` = záhlaví ve dvou patrech, pruh feature a krátký název z katalogu
+s jednotkou ze závorky popisu; čísla vpravo, desetinná místa podle velikosti (`decimals_for`);
+stav štítkem `StatusDelegate`; chybný řádek má span přes feature a text chyby kreslí
+`ErrorSpanDelegate` za zmrazenou částí; `FooterBar` = průměr ± SD z řádků bez chyby;
+přepínač skupin feature `set_feature_group`; klik na záhlaví číselného sloupce = `ColumnCard`
+nad tabulkou (histogram, průměr ± SD, medián, rozsah, počet, ‹ ›, `open_card`, `close_card`,
+`step_card`); výběr stylem `TABLE_STYLE`, jinak Windows 11 kreslil čárku u každé buňky;
+`widgets/frozen_table.py`; šířky sloupců se měří z hlavičky a prvních
 `SAMPLE_ROWS` řádků, celý jen sloupec s názvem souboru, u 500 × 135 buněk trvalo
 měření všech 10 s), hledání sloupce, popis sloupce
 v tooltipu z `list --json`, detail nahrávky (`ui/recording_detail.py`),
@@ -307,7 +351,19 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `outdated_text`) a ve varováních řekne, co se změnilo. Bez záznamu na jedné
   straně (starší běh, import) se nic nehlásí.
 - **Stránka Pacienti** (dřív Hodnocení; `ui/pages/assessment.py`,
-  `AssessmentPage`, `PAGE_ASSESSMENT`, od 30. 10. 2026): vlevo karta na
+  `AssessmentPage`, `PAGE_ASSESSMENT`, od 30. 10. 2026; **od 31. 10. varianta B**:
+  `page_stack` = přehled `widgets/patient_overview.py` `PatientOverview` (podoba D,
+  mockup https://claude.ai/artifact/J8iCqC36qpFSDbyip27jb6: jeden seznam řádků `PatientRowWidget`
+  bez skupin, pruh stavu (štítek stavu v řádku není), jméno, „muž · 64 let · 3 vyšetření“, vpravo datum a úlohy,
+  šipka ›; výsledky dimenzí v řádku záměrně nejsou; rozpracované má úlohy se stavem;
+  řazení poslední vyšetření · jméno · stav `set_sort`, hledání, filtr všichni · mimo normu ·
+  počítá se; řádky z `_cards` přes
+  `_fill_overview`, dopočítaný štítek karty přepíše řádek přes `PatientCard.on_band`),
+  dvojklik nebo Enter = detail přes celou šířku (`open_overview_row`, „‹ Pacienti“ a Esc
+  `show_overview`, šipky ‹ › a Alt+←/→ `step` v pořadí a filtru přehledu, „i z n“);
+  `refresh(select=…)` a `select_assessment` otevřou detail rovnou; mockup
+  https://claude.ai/artifact/D34hrQNAdgecczoUitFNx3, `docs/mockups/seznam-detail/` mimo
+  git. Seznam karet níže zůstal skrytý (`list_panel`) jako zdroj výběru): vlevo karta na
   pacienta (`PatientCard`; pacient = `patient_key(subject)`, zatím jen řetězec
   bez mezer a velikosti písmen, rozhodnuto 30. 10.; štítek a pohlaví/věk podle
   posledního vyšetření, u víc vyšetření „n vyšetření · první → poslední“;
@@ -354,7 +410,8 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   přepínač „Podoba: Pavouk · Grafy“ na druhém řádku `trend_bar` pod záložkami, volba
   v `ui/trend_form` přes `set_form`/`trend_form()`/`form_changed`, `effective_form()`):
   **Grafy** (výchozí) = nahoře přehled `widgets/trend_map.py` (`TrendMap`/`MapRow`/
-  `Sparkline`: řádek dimenze, buňka vyšetření podbarvená pásmem s SD, poslední tučně,
+  `Sparkline`: název podle obsahu nejvýš `NAME_MAX`, průběh hned za ním, volné místo
+  až za posledním sloupcem; řádek dimenze, buňka vyšetření podbarvená pásmem s SD, poslední tučně,
   průběh, změna; v Hodnotách řádky = položky ve skupinách s jednotkou, šedé buňky;
   klik na sloupec `visit_clicked` → `_trend_visit_clicked` otevře to vyšetření) s
   políčkem „graf“ v prvním sloupci a tlačítky vše · nic; pod ním mřížka grafů jen
@@ -363,7 +420,7 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   a položky (`ui/trend_items`, klíč `úloha:sloupec` `_item_key`) přes
   `trend_selection_changed`/`set_trend_selection`; bez volby = dimenze hraniční nebo
   mimo normu naposledy, resp. dvě položky s největší změnou v procentech. Tabulka
-  `trend_table` zůstává jen u Pavouka. **Pavouk** (`can_overlay`: jen SD a 2 až 3
+  `trend_table` zůstává jen u Pavouka (název podle obsahu, `_fit_name_column`). **Pavouk** (`can_overlay`: jen SD a 2 až 3
   vyšetření; `SpiderChart.set_axes(axes, overlays)` s `Overlay`: poslední vyšetření
   černě, prostřední tmavě modře čárkovaně se čtverečky, nejstarší světle modře
   tečkovaně s kroužky a slabou výplní, legenda `spider_legend`; u jedné dimenze
@@ -390,13 +447,24 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   svislá stupnice `ScaleLegend` vedle grafu (do PNG se exportuje výřez pavouka
   `content_rect` i stupnice, `_chart_image`, se zachovaným poměrem pixelů
   displeje; dialog Uložit obrázek… začíná ve složce výsledků); jedna osa = pruh
-  s nulou uprostřed, `ScoreBar` ve stromu též od nuly. Dřívější podoba 2b
+  s nulou uprostřed. Dřívější podoba 2b
   (28. 10., mockup https://claude.ai/artifact/Bgky5AXRhPZvjuBZnixhu7, dovnitř
   „větší = zdravější“) zůstává v kódu jako `INWARD` (`set_orientation`,
   `ui/spider_orientation`, výchozí `outward`), přepínač na stránce je skrytý
   (`orientation_combo.hide()`)), strom
-  dimenze → položka (úloha, pacient, norma, z, percentil), chybějící dimenze
-  s důvodem, tabulka Nahrávky hodnocení (úloha, nahrávka, běh, s normou)
+  dimenze → položka (úloha, pacient, norma, z, percentil; od 31. 10. 2026 podoba A
+  z mockupu https://claude.ai/artifact/9nB73DCNv65AxBRkAh2Wuh, `docs/mockups/strom-dimenzi/`
+  mimo git, `widgets/dimension_tree.py`: `DimensionTree` se záhlavím stupnice `AxisHeader`,
+  sloupec osy `TREE_AXIS` = 6 zobrazený před z, `DeviationAxis` = bod na společné ose
+  −2 až +3 SD se zeleným pásem ±1 a nožičkou od nuly, dimenze kosočtverec, položka
+  kroužek; barvu nese jen štítek pásma za názvem dimenze, bod a číslo SD, řádky bez
+  podbarvení, položka navíc tečkou (`band_dot`) a názvem barvou pásma (i zelená v normě,
+  bez hodnoty šedě), úloha položky šedým štítkem (`DimensionTreeDelegate`); šířku názvu a osy
+  dopočítá `fit_columns` včetně sbalených položek, Stretch smrskl název; ve výchozím
+  stavu vše sbalené, „rozbalit vše“ · „sbalit vše“; strom je vysoký podle viditelných
+  řádků (`fit_height`, `refit`) bez vlastního svislého posuvníku, roluje stránka),
+  chybějící dimenze
+  s důvodem ve sloupci osy, tabulka Nahrávky hodnocení (úloha, nahrávka, běh, s normou)
   s poznámkou o průměru, jiném protokolu a chybějících odkazech, O normě.
   Bez normy (31. 10. 2026) ukáže místo pavouka strom jen s hodnotami položek
   v jednotkách (`_fill_values_tree` přes `build_value_timeline` s jedním vyšetřením,

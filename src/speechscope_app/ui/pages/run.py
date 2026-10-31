@@ -127,9 +127,10 @@ class RunPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(28, 24, 28, 24)
         outer.setSpacing(10)
-        page_title = QLabel(tr("Výpočet"))
-        page_title.setObjectName("page_title")
-        outer.addWidget(page_title)
+        self.page_title = QLabel(tr("Výpočet"))
+        self.page_title.setObjectName("page_title")
+        outer.addWidget(self.page_title)
+        self._outer = outer
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         outer.addWidget(self.splitter, 1)
         self.history = RunHistory(tr("Historie výpočtů"))
@@ -225,6 +226,13 @@ class RunPage(QWidget):
         self.log.setMaximumBlockCount(5000)
         self.log.setVisible(False)
         layout.addWidget(self.log, 1)
+
+    def set_embedded(self) -> None:
+        """Jen pravý panel jako záložka Průběh v detailu běhu na Výsledcích (31. 10. 2026):
+        bez nadpisu stránky a bez vlastní historie (ta zůstává skrytá kvůli výběru)."""
+        self.page_title.hide()
+        self.history.hide()
+        self._outer.setContentsMargins(0, 0, 0, 0)
 
     # --- start -------------------------------------------------------------------
 

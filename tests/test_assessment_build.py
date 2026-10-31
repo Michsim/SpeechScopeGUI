@@ -220,6 +220,15 @@ def test_wizard_runs_batches_and_creates_assessment(
     assert results.current_dir() == groups[0] / "ddk"
     results.task_buttons[0].click()
     assert results.current_dir() == groups[0] / "fonace" and results.table.model().rowCount() == 2
+    # detail na Výsledcích: řada úloh nad záložkami platí i pro Průběh
+    detail = window.runs_page
+    assert detail.open_run(groups[0] / "ddk") and detail.task_bar.parentWidget() is not results
+    assert detail.task_run() is not None and detail.task_run().dir == groups[0] / "ddk"
+    detail.set_tab("progress")
+    assert window.run_page.viewing_dir() == groups[0] / "ddk"
+    results.task_buttons[0].click()
+    assert detail.task_run().dir == groups[0] / "fonace"
+    assert window.run_page.viewing_dir() == groups[0] / "fonace"  # Průběh přepnul úlohu
     results.assess_btn.click()
     assert window.nav.currentRow() == PAGE_ASSESSMENT
     assert page.current_assessment().id == assessment.id
@@ -420,7 +429,7 @@ def test_wizard_with_manifest_runs_batches_per_date_and_creates_visits(
         and dialog.people_table.item(3, 3).text() == "2026-10-14"
     )
     assert [dialog.people_table.item(r, 1).text() for r in range(4)] == ["Fonace"] * 4
-    headers = [dialog.people_table.horizontalHeaderItem(c).text() for c in range(6)]
+    headers = [dialog.people_table.horizontalHeaderItem(c).text().lower() for c in range(6)]
     assert headers == ["soubor", "úloha", "pacient", "datum vyšetření", "věk", "pohlaví"]
     assert dialog.next_btn.isEnabled() and "2 pacienti · vyšetření: 3" in dialog.hint.text()
     # šablona manifestu kam uživatel ukáže; do složky s nahrávkami nic

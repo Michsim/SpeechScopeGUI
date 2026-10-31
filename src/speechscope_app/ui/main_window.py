@@ -89,6 +89,7 @@ from .pages.norms import NormsPage
 from .pages.protocols import ProtocolsPage
 from .pages.results import ResultsPage
 from .pages.run import RunPage
+from .pages.runs import RunsPage
 from .settings_dialog import SettingsDialog
 from .widgets.elided_label import ElidedLabel
 from .widgets.sidebar_nav import SidebarNav
@@ -97,13 +98,14 @@ from .widgets.sidebar_nav import SidebarNav
 (
     PAGE_HOME,
     PAGE_BATCH,
-    PAGE_RUN,
     PAGE_RESULTS,
     PAGE_ASSESSMENT,
     PAGE_PROTOCOLS,
     PAGE_NORMS,
     PAGE_ENV,
-) = range(8)
+) = range(7)
+# Výpočet je od 31. 10. 2026 záložka Průběh v detailu běhu na Výsledcích (`RunsPage`).
+PAGE_RUN = PAGE_RESULTS
 
 
 @dataclass(slots=True)
@@ -171,6 +173,8 @@ class MainWindow(QMainWindow):
         self.protocols_page = ProtocolsPage()
         self.run_page = RunPage()
         self.results_page = ResultsPage()
+        # Výsledky + Výpočet v jedné stránce: přehled běhů a detail Hodnoty · Průběh
+        self.runs_page = RunsPage(self.run_page, self.results_page)
         self.assessment_page = AssessmentPage()
         self.norms_page = NormsPage()
         self.home_page = HomePage()
@@ -178,7 +182,6 @@ class MainWindow(QMainWindow):
         self.nav_labels = (
             tr("Domů"),
             tr("Analýza nahrávek"),
-            tr("Výpočet"),
             tr("Výsledky"),
             tr("Pacienti"),
             tr("Protokoly"),
@@ -191,8 +194,7 @@ class MainWindow(QMainWindow):
         for page in (
             self.home_page,
             self.batch_page,
-            self.run_page,
-            self.results_page,
+            self.runs_page,
             self.assessment_page,
             self.protocols_page,
             self.norms_page,
@@ -273,7 +275,7 @@ class MainWindow(QMainWindow):
         self.home_page.norm_requested.connect(self.new_norm_from_home)
         self.home_page.environment_requested.connect(lambda: self.nav.setCurrentRow(PAGE_ENV))
         self.home_page.norms_requested.connect(lambda: self.nav.setCurrentRow(PAGE_NORMS))
-        self.home_page.run_requested.connect(lambda: self.nav.setCurrentRow(PAGE_RUN))
+        self.home_page.run_requested.connect(lambda: self.show_running())
         self.env_page.report_changed.connect(self.protocols_page.set_doctor)
         self.batch_page.set_stats_lookup(self.settings.seconds_per_file)
         self.batch_page.set_rate_lookup(self.settings.seconds_per_audio_minute)
@@ -358,12 +360,11 @@ class MainWindow(QMainWindow):
         elif index == PAGE_RESULTS:
             self._merge_finished_groups()
             self.results_page.refresh()
+            self.run_page.refresh_history()
         elif index == PAGE_ASSESSMENT:
             self.assessment_page.refresh()
         elif index == PAGE_NORMS:
             self.norms_page.reload()
-        elif index == PAGE_RUN:
-            self.run_page.refresh_history()
         elif index == PAGE_ENV:
             self.env_page.refresh_cache()
 
@@ -482,10 +483,23 @@ class MainWindow(QMainWindow):
     def open_run(self, run_dir: Path) -> bool:
         """Z Hodnocení (Otevřít běh ve Výsledcích): karta běhu, u vyšetření jeho úloha."""
         self.nav.setCurrentRow(PAGE_RESULTS)
-        if not self.results_page.open_run(run_dir):
+        if not self.runs_page.open_run(run_dir, "values"):
             self.statusBar().showMessage(tr("Běh už v historii není."), 6000)
             return False
         return True
+
+    def show_running(self) -> None:
+        """Výsledky s detailem běžícího běhu na záložce Průběh (dřív stránka Výpočet)."""
+        self.nav.setCurrentRow(PAGE_RESULTS)
+        live = getattr(self, "_running_dir", None) if self.run_page.runner.running else None
+        self.runs_page.show_running(live)
+
+    def _go_after_batch(self) -> None:
+        """Po poslední dávce: Výsledky s detailem na Hodnotách, po hodnocení Pacienti."""
+        page = self._page_after_batch()
+        self.nav.setCurrentRow(page)
+        if page == PAGE_RESULTS:
+            self.runs_page.show_values()
 
     def start_page(self) -> int:
         """Kam uvítání doporučí: Analýza; bez knihovny nebo bez modelů Prostředí."""
@@ -529,6 +543,7 @@ class MainWindow(QMainWindow):
         if run_dir is None or not run_dir.is_dir():
             return
         self.home_page.set_progress(processed, total)
+        self.runs_page.set_progress(processed, total)
         try:
             write_run_file(
                 run_dir,
@@ -603,8 +618,14 @@ class MainWindow(QMainWindow):
                 len(self._queue),
                 [j.title() for j in self._queue if hasattr(j, "title")],
             )
+            self.runs_page.set_running(
+                getattr(self, "_running_label", "") or getattr(self, "_running_name", ""),
+                tr("{progress} nahrávek").format(progress=text) if "/" in text else text,
+                getattr(self, "_running_dir", None),
+            )
         else:
             self.home_page.clear_running()
+            self.runs_page.clear_running()
         if self._queue:
             text = f"{text} (+{len(self._queue)})" if text else f"+{len(self._queue)}"
         label = self.nav_labels[PAGE_RUN]
@@ -1353,6 +1374,7 @@ class MainWindow(QMainWindow):
                 job.merge_into = new / job.merge_into.name
         self.results_page.relocate(old, new)
         self.run_page.relocate(old, new)
+        self.runs_page.relocate(old, new)
         self.assessment_page.relocate(old, new)
 
     def delete_run(self, info: RunInfo | RunGroup, *, confirm: bool = True) -> bool:
@@ -1522,6 +1544,7 @@ class MainWindow(QMainWindow):
 
     def _show_queue(self) -> None:
         self.run_page.set_queue([job.title() for job in self._queue])
+        self.runs_page.set_queue([job.title() for job in self._queue])
         self._show_progress(self._last_progress)
 
     def _launch_next(self) -> None:
@@ -1627,7 +1650,9 @@ class MainWindow(QMainWindow):
         # karta běhu hned, ať vyšetření neukazuje „hotovo“, dokud běží další úloha
         self.run_page.refresh_history(select=run_dir)
         self.results_page.refresh()
-        self.nav.setCurrentRow(PAGE_RUN)
+        self.nav.setCurrentRow(PAGE_RESULTS)
+        self.runs_page.set_running(self._running_label or title, "", run_dir)
+        self.runs_page.show_running(run_dir)
         self.run_page.start(
             argv,
             title=self._running_label or title,
@@ -1723,7 +1748,7 @@ class MainWindow(QMainWindow):
                 note=tr("Znovu spočítané chybné nahrávky: {n} řádků nahrazeno.").format(n=n),
             )
             if not more:
-                self.nav.setCurrentRow(self._page_after_batch())
+                self._go_after_batch()
             return
         if cancelled or code != 0:
             partial = self._running_out
@@ -1736,7 +1761,7 @@ class MainWindow(QMainWindow):
                     ),
                 )
                 if not more:
-                    self.nav.setCurrentRow(self._page_after_batch())
+                    self._go_after_batch()
             return
         if not state.out:
             return
@@ -1745,7 +1770,7 @@ class MainWindow(QMainWindow):
         if out.is_file():
             self.results_page.load(out)
             if not more:
-                self.nav.setCurrentRow(self._page_after_batch())
+                self._go_after_batch()
         elif out.is_dir():  # jen segmentace nebo přepis: kopie v běhu, živé ve work
             self.statusBar().showMessage(
                 tr(
