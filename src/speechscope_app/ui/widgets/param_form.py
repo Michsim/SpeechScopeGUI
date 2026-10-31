@@ -1,10 +1,13 @@
 """Formulář parametrů generovaný z deklarace `Param` knihovny.
 
-Typ určí widget, meze `gt/ge/lt/le` jdou do spinboxu, `choices` do
-comboboxu. Každý parametr má tři řádky: jméno (tučně a s tečkou, když je
-změněný, vpravo ↺ na návrat k výchozí), samotné pole přes celou šířku
-a popis z knihovny s výchozí hodnotou. Vrací jen hodnoty, které se liší
-od výchozích, takže YAML protokolu zůstává krátký a čitelný.
+Podoba B (31. 10. 2026, mockup https://claude.ai/artifact/14g3AuV9rwngo5QNx1zC23):
+parametr je jeden řádek seznamu, vlevo popis z knihovny (bez jednotky ze závorky)
+a pod ním šedě technické jméno a výchozí hodnota, vpravo pole a ↺. Typ určí
+vstup (`widgets/inputs.py`): číslo = `NumberField` s jednotkou a mezemi
+`gt/ge/lt/le`, 2–3 možnosti = `Segmented`, víc možností = rozbalovací seznam,
+ano/ne = `ToggleSwitch`, text = pole. Změněný parametr má tučný popis s modrou
+tečkou a podbarvené pole. Vrací jen hodnoty, které se liší od výchozích, takže
+YAML protokolu zůstává krátký a čitelný.
 """
 
 from __future__ import annotations
@@ -13,14 +16,12 @@ from typing import Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -29,6 +30,11 @@ from PySide6.QtWidgets import (
 from ...backend.library import ParamInfo
 from ...i18n import tr
 from .. import theme
+from ..feature_detail import split_unit
+from .elided_label import ElidedLabel
+from .inputs import NumberField, Segmented, ToggleSwitch, format_value
+
+SEGMENT_MAX = 3  # do tolika možností přepínač, nad to rozbalovací seznam
 
 _BIG = 1e9
 
@@ -53,28 +59,57 @@ def format_default(value: Any) -> str:
         return "–"
     if isinstance(value, bool):
         return tr("ano") if value else tr("ne")
+    if isinstance(value, float):
+        return format_value(value)
     if value == "":
         return tr("prázdné")
     return str(value)
 
 
+def split_title(description: str) -> tuple[str, str]:
+    """Popis z knihovny → (titulek, zbytek): titulek do první dvojtečky nebo středníku.
+
+    „Reference půltónů: fmin (…), fixed (…)“ → („Reference půltónů“, „fmin (…), …“);
+    krátký popis bez dvojtečky je celý titulek.
+    """
+    text = description.strip().rstrip(".")
+    for sep in (":", ";"):
+        head, found, tail = text.partition(sep)
+        if found and len(head.strip()) >= 8:
+            return head.strip(), tail.strip()
+    return text, ""
+
+
 class _Row(QWidget):
-    """Jeden parametr: jméno, pole, popis."""
+    """Jeden parametr jako řádek seznamu: popis vlevo, pole a ↺ vpravo."""
 
     def __init__(self, info: ParamInfo, widget: QWidget, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.info = info
         self.widget = widget
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 6, 0, 6)
-        layout.setSpacing(3)
-        head = QHBoxLayout()
-        head.setSpacing(6)
-        self.mark = QLabel("●")
-        self.mark.setStyleSheet(f"color: {theme.ACCENT};")
-        self.mark.setFixedWidth(12)
-        self.name = QLabel(info.name)
-        self.name.setToolTip(info.description)
+        text, _unit = split_unit(info.description)
+        title, rest = split_title(text)
+        layout = QGridLayout(self)
+        layout.setContentsMargins(4, 9, 0, 9)
+        layout.setHorizontalSpacing(14)
+        layout.setVerticalSpacing(2)
+        # titulek i druhý řádek na jeden řádek se zkrácením, ať řádek neroste dolů;
+        # celý popis z knihovny je v tooltipu řádku
+        self.name = ElidedLabel(title or info.name)
+        layout.addWidget(self.name, 0, 0)
+        self.desc = ElidedLabel(
+            f"{info.name} · " + tr("výchozí {value}").format(value=format_default(info.default))
+        )
+        self.desc.setObjectName("muted")
+        self.desc.setStyleSheet("font-size: 8.5pt;")
+        layout.addWidget(self.desc, 1, 0)
+        default = tr("výchozí {value}").format(value=format_default(info.default))
+        # celý popis (i zbytek za dvojtečkou) je jen v tooltipu řádku
+        description = info.description.strip()
+        self.setToolTip(f"{description}\n{info.name} · {default}" if description else "")
+        field = QHBoxLayout()
+        field.setSpacing(4)
+        field.addWidget(widget)
         self.reset_btn = QToolButton()
         self.reset_btn.setText("↺")
         self.reset_btn.setAutoRaise(True)
@@ -82,32 +117,26 @@ class _Row(QWidget):
             tr("Vrátit na výchozí: {value}").format(value=format_default(info.default))
         )
         self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        head.addWidget(self.mark)
-        head.addWidget(self.name, 1)
-        head.addWidget(self.reset_btn)
-        layout.addLayout(head)
-        layout.addWidget(widget)
-        desc = info.description.strip().rstrip(".")
-        text = f"{desc} · " if desc else ""
-        text += (
-            f"<span style='color:{theme.NEUTRAL}'>"
-            + tr("výchozí: {value}").format(value=format_default(info.default))
-            + "</span>"
+        self.reset_btn.setFixedWidth(22)
+        field.addWidget(self.reset_btn)
+        layout.addLayout(
+            field, 0, 1, 2, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
-        self.desc = QLabel(text)
-        self.desc.setObjectName("muted")
-        self.desc.setWordWrap(True)
-        self.desc.setTextFormat(Qt.TextFormat.RichText)
-        self.desc.setStyleSheet("font-size: 8.5pt;")
-        layout.addWidget(self.desc)
+        layout.setColumnStretch(0, 1)
         self.set_changed(False)
 
     def set_changed(self, changed: bool) -> None:
-        self.mark.setVisible(changed)
+        # ↺ jen u změněného; místo drží, ať pole neposkakují
+        policy = self.reset_btn.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self.reset_btn.setSizePolicy(policy)
         self.reset_btn.setVisible(changed)
         font = self.name.font()
         font.setBold(changed)
         self.name.setFont(font)
+        self.name.setStyleSheet(f"color: {theme.ACCENT_HOVER};" if changed else "")
+        if isinstance(self.widget, NumberField):
+            self.widget.set_changed(changed)
 
 
 class ParamForm(QWidget):
@@ -142,6 +171,10 @@ class ParamForm(QWidget):
         self.changed.connect(self._refresh_marks)
 
     def _make_widget(self, p: ParamInfo) -> QWidget:
+        if p.choices and len(p.choices) <= SEGMENT_MAX:
+            seg = Segmented(list(p.choices), p.default)
+            seg.currentChanged.connect(lambda _v: self.changed.emit())
+            return seg
         if p.choices:
             combo = QComboBox()
             for choice in p.choices:
@@ -150,28 +183,26 @@ class ParamForm(QWidget):
             combo.currentIndexChanged.connect(self.changed)
             return combo
         if p.type == "bool":
-            box = QCheckBox(tr("zapnuto"))
-            box.setChecked(bool(p.default))
-            box.toggled.connect(self.changed)
-            return box
-        if p.type == "int":
-            spin = QSpinBox()
-            lo, hi = _bounds(p, integer=True)
-            spin.setRange(int(max(lo, -2_000_000_000)), int(min(hi, 2_000_000_000)))
-            spin.setValue(int(p.default or 0))
-            spin.valueChanged.connect(self.changed)
-            return spin
-        if p.type == "float":
-            spin = QDoubleSpinBox()
-            lo, hi = _bounds(p, integer=False)
-            spin.setDecimals(4)
-            spin.setRange(lo, hi)
-            spin.setSingleStep(0.01)
-            spin.setValue(float(p.default or 0.0))
-            spin.valueChanged.connect(self.changed)
-            return spin
+            switch = ToggleSwitch(bool(p.default))
+            switch.toggled.connect(self.changed)
+            return switch
+        if p.type in ("int", "float"):
+            integer = p.type == "int"
+            lo, hi = _bounds(p, integer=integer)
+            _text, unit = split_unit(p.description)
+            field = NumberField(
+                float(p.default or 0),
+                unit=unit,
+                integer=integer,
+                minimum=lo,
+                maximum=hi,
+                width=80,
+            )
+            field.valueChanged.connect(lambda _v: self.changed.emit())
+            return field
         edit = QLineEdit(str(p.default if p.default is not None else ""))
         edit.setPlaceholderText(tr("prázdné") if p.default in ("", None) else "")
+        edit.setFixedWidth(220)
         edit.textChanged.connect(self.changed)
         return edit
 
@@ -179,24 +210,26 @@ class ParamForm(QWidget):
 
     def value(self, name: str) -> Any:
         w = self._widgets[name]
+        if isinstance(w, Segmented):
+            return w.current()
         if isinstance(w, QComboBox):
             return w.currentData()
-        if isinstance(w, QCheckBox):
+        if isinstance(w, ToggleSwitch):
             return w.isChecked()
-        if isinstance(w, QSpinBox | QDoubleSpinBox):
+        if isinstance(w, NumberField):
             return w.value()
         assert isinstance(w, QLineEdit)
         return w.text()
 
     def set_value(self, name: str, value: Any) -> None:
         w = self._widgets[name]
-        if isinstance(w, QComboBox):
+        if isinstance(w, Segmented):
+            w.set_current(value)
+        elif isinstance(w, QComboBox):
             w.setCurrentIndex(max(0, w.findData(value)))
-        elif isinstance(w, QCheckBox):
+        elif isinstance(w, ToggleSwitch):
             w.setChecked(bool(value))
-        elif isinstance(w, QSpinBox):
-            w.setValue(int(value))
-        elif isinstance(w, QDoubleSpinBox):
+        elif isinstance(w, NumberField):
             w.setValue(float(value))
         elif isinstance(w, QLineEdit):
             w.setText(str(value))

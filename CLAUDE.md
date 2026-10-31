@@ -690,9 +690,15 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   úloha se kontroluje podle `base`): fonace délka i znělá část < 5 s (bad < 2),
   DDK trojic /pataka/ < 5 (bad < 3), čtení délka < 20 s (bad < 10), spontánní
   délka < 60 s (bad < 30) a slov < 100 (bad < 50), všude SNR < 20 dB (bad < 10)
-  a přebuzení > 0,1 % (bad > 1 %). Rozhodnuto: prahy výchozí, jdou změnit
-  kopií souboru do dat aplikace (`settings.quality_file()`, `quality.use_user_file`
-  z hlavního okna; nahradí přibalené celé, bez UI). `assess(row, task)` vrátí
+  a přebuzení > 0,1 % (bad > 1 %). Rozhodnuto: prahy výchozí a **společné pro
+  celou aplikaci**, mění se v dialogu Prahy kontroly kvality (`ui/quality_dialog.py`,
+  `QualityThresholdsDialog`: žlutý a červený práh a vypínač `Check.enabled` po
+  úlohách, upravená hodnota podbarvená s výchozí vedle, Obnovit výchozí; z nabídky
+  Aplikace, z Nastavení řádkem Kontrola kvality a z dialogu Kontroly a kvalita);
+  uloží se jen odchylky (`quality.save_checks` → `overrides` v `settings.quality_file()`,
+  žádná odchylka = soubor smazán; starší ruční kopie s `checks` nahradí celé),
+  `validate` hlídá pořadí prahů, `MainWindow.quality_changed` překreslí Výsledky,
+  Pacienty, Normy a varování na Analýze, nic se nepřepočítává. `assess(row, task)` vrátí
   `Issue` (horší napřed; poznámka knihovny `notes` = `warn` „bez hodnoty“),
   `level_of`, `summary`, `min_duration(task)` pro kontrolu z hlavičky. Nic se
   nevyřazuje samo, jen se označí. Očekávaný počet slov textu čtení GUI nezná
@@ -704,8 +710,22 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   v tooltipu (`ValuesModel(quality=…)`, `quality_level`), štítky v hlavičce
   „n podezřelých“ / „n nepoužitelných“ a filtr „jen problémové“ je bere;
   Pacienti = sloupec „kvalita“ v tabulce nahrávek s poznámkou pod ní a ⚠ u
-  položek stromu z takové nahrávky (`_task_quality`, tooltip). Normy zatím
-  nic (controls.csv sloupce nese, vyřazení kontrol je další krok). Faleška
+  položek stromu z takové nahrávky (`_task_quality`, tooltip).
+- **Kvalita kontrol normy** (31. 10. 2026, mockup
+  https://claude.ai/artifact/ALTCFxkegtMF7zTpGrxb15, `docs/mockups/kvalita-normy/` mimo
+  git; rozhodnuto: nic samo, vyřazuje se **nahrávka** (kontrola × úloha), ne osoba):
+  `controls.csv` sloupce kvality nese, prahy se použijí při zobrazení
+  (`norms.control_quality`, `quality_problems`, `has_quality_data`). Vyřazení je
+  `NormInfo.excluded` (`Excluded`: subject, task, reason) v `norm.yaml` i v exportu;
+  řádky v `controls.csv` zůstávají, výběr kontrol, `has_column`, `norm_problems`
+  a `task_summaries` (`excluded`) berou `Norm.active`; `set_excluded`. Přepočet
+  normy (`finish_plan`) vyřazení převezme pro nahrávky, které v nové tabulce jsou.
+  Stránka Normy: štítek „kvalita: n“ na kartě (nevyřazené problémy), rámeček
+  `quality_box` s výčtem a tlačítkem Kontroly a kvalita… (`edit_quality`,
+  `make_quality_dialog`, `save_excluded` → `norms_changed`), sloupec „vyřazeno“.
+  Dialog `ui/norm_quality_dialog.py` (`NormQualityDialog`: jen problémové / všechny,
+  filtr úlohy, políčko použít, Vyřadit nepoužitelné = jen červené, `excluded()`);
+  přibalená a importovaná norma (`Norm.editable` = má `plan.json`) jen ke čtení. Faleška
   dává sloupcům kvality pevné hodnoty (`fake.cli.QUALITY_VALUES`), název se
   „short“ / „noisy“ / „clipped“ práh podleze (`QUALITY_STEMS`).
 
@@ -807,5 +827,16 @@ uv run --with pillow python packaging\make_icon.py   # ikona a wordmark z icon\
 - Nahrávky pacientů nikdy do gitu. `.gitignore` blokuje `data/`, `work/`,
   `out/`, `models/` a všechna audio mimo `tests/data/`.
 - Refaktoring a změna chování nikdy v jednom commitu.
+- **Vstupy podoby B** (31. 10. 2026, mockup https://claude.ai/artifact/14g3AuV9rwngo5QNx1zC23,
+  `docs/mockups/ciselna-pole/` mimo git): čísla `widgets/inputs.py` `NumberField` (bez šipek,
+  číslo vpravo, jednotka šedě uvnitř, desetinná **tečka** a bez zbytečných nul `format_value`,
+  ↑↓ a kolečko krokují, nečitelné nebo mimo meze červeně a nepřijme se, `set_changed` podbarví),
+  ano/ne `ToggleSwitch`, 2–3 možnosti `Segmented`. Formulář parametrů feature
+  (`widgets/param_form.py`) je řádek seznamu: vlevo popis z knihovny bez jednotky (titulek do
+  dvojtečky, `split_title`), pod ním šedě technické jméno a výchozí, vpravo pole a ↺; nad
+  `SEGMENT_MAX` možností rozbalovací seznam. Dialog prahů kvality má tatáž pole, „pod / nad“
+  v záhlaví a u názvu. Uhlazené tabulky dialogů kvality jdou přes `widgets/clean_table.py`
+  (`style_table`, `card`, `pill`, `cell`, `fit_widget_column`); přehled běhů má zatím vlastní
+  kopii stylu. Spinboxy Qt jinde v aplikaci zůstávají.
 - Změny GUI nejdřív navrhnout (text, mockup), pak psát; snímek před
   commitem. Návrhy jsou v `docs/navrh-gui-2.md`.

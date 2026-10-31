@@ -319,6 +319,46 @@ def test_param_form_overrides(qtbot: QtBot) -> None:
     assert "f_min" not in form.overrides()
 
 
+def test_param_form_rows_use_inputs_of_form_b(qtbot: QtBot) -> None:
+    """Parametry jako řádky: číslo s jednotkou, 2–3 možnosti přepínač, víc seznam, vypínač."""
+    from PySide6.QtWidgets import QComboBox
+
+    from speechscope_app.ui.widgets.inputs import NumberField, Segmented, ToggleSwitch
+
+    params = [
+        ParamInfo("f_min", 60.0, "float", "Nejnižší povolená hodnota F0 (Hz)", bounds={"gt": 0}),
+        ParamInfo(
+            "mode", "fmin", "str", "Reference půltónů: fmin, fixed, median",
+            choices=["fmin", "fixed", "median"],
+        ),
+        ParamInfo("model", "a", "str", "Model", choices=["a", "b", "c", "d"]),
+        ParamInfo("order", 5, "int", "Řád (-)", bounds={"ge": 1, "le": 10}),
+        ParamInfo("flag", False, "bool", "Vyhodit meze"),
+    ]  # fmt: skip
+    form = ParamForm(params)
+    qtbot.addWidget(form)
+    f_min = form._widgets["f_min"]
+    assert isinstance(f_min, NumberField) and f_min.unit.text() == "Hz" and f_min.text() == "60"
+    assert isinstance(form._widgets["mode"], Segmented)
+    assert isinstance(form._widgets["model"], QComboBox)
+    assert isinstance(form._widgets["flag"], ToggleSwitch)
+    row = form._rows["mode"]
+    assert row.name.text() == "Reference půltónů" and row.desc.text() == "mode · výchozí fmin"
+    assert "fmin, fixed, median" in row.toolTip()  # celý popis v tooltipu řádku
+    assert form._rows["f_min"].name.text() == "Nejnižší povolená hodnota F0"
+    f_min.set_text("75.5")
+    assert form.overrides() == {"f_min": 75.5} and form._rows["f_min"].reset_btn.isVisibleTo(form)
+    order = form._widgets["order"]
+    order.set_text("12")  # nad mezí: nepřijme se
+    assert form.value("order") == 5
+    order.step_by(2)
+    assert form.value("order") == 7
+    form._widgets["mode"].buttons[2].click()
+    assert form.value("mode") == "median"
+    form.reset()
+    assert form.overrides() == {}
+
+
 def _bundle(path: Path, *, valid: bool = True) -> Path:
     import zipfile
 
