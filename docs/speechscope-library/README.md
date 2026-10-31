@@ -358,8 +358,15 @@ Přenos laboratorních skriptů běží. Hotové jsou tyhle feature:
 | `acoustic.ddk.vot` | doba nástupu hlasu, od exploze po začátek vokálu (ms) | `median`, `iqr` |
 | `acoustic.ddk.vowel_length` | relativní délka vokálu ve slabice (0–1) | jeden sloupec |
 | `acoustic.ddk.intensity` | sklon a variabilita obálky intenzity | `slope`, `rirv` |
+| `acoustic.ddk.count` | kolik slabik detektor našel, kolik je to celých /pa-ta-ka/ a z kolika se počítají ostatní feature; vydá se i pod `min_syllables` | `syllables`, `triplets`, `analyzed` |
+| `acoustic.recording.duration` | délka souboru a součet znělých rámců podle SWIPE (všechny úlohy, bez provideru) | `total`, `voiced`, `voiced_fraction` |
+| `acoustic.recording.snr` | odstup řeči od pozadí z percentilů energie rámců (90. − 10.), bez segmentace | `snr_db`, `noise_db`, `speech_db` |
+| `acoustic.recording.clipping` | podíl vzorků na plném rozsahu a špička | `fraction`, `peak_dbfs` |
 
-Tím je přenesených všech osm původních modulů a DDK.
+Tím je přenesených všech osm původních modulů a DDK. Feature
+`acoustic.recording.*` a `acoustic.ddk.count` neměří řeč, ale nahrávku:
+jsou to vstupy pro kontrolu kvality (příliš krátká fonace, málo opakování
+/pataka/, šum, přebuzení). Knihovna jen měří, prahy má GUI.
 
 Feature `acoustic.ddk.*` jsou jen pro úlohu `ddk` a jen pro /pataka/
 (metoda Melechovsky 2020 a 2026). Obecná akustika (F0, CPP, LTAS, MFCC)

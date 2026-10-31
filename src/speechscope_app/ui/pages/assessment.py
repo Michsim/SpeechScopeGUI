@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
-from ...backend import tasks
+from ...backend import quality, tasks
 from ...backend.assessment_build import AssessmentPlan, pending_plans, plan_from_assessment
 from ...backend.assessments import (
     Assessment,
@@ -361,6 +361,7 @@ class AssessmentPage(QWidget):
         self._groups: list[list[Entry]] = []  # karta pacienta → jeho vyšetření (nejnovější první)
         self._shown: list[Entry] = []  # karta pacienta → právě vybrané vyšetření
         self._missing: list[RecordingRef] = []
+        self._task_quality: dict[str, str] = {}  # úloha → kontrola kvality nahrávek
         self._plans: list[AssessmentPlan] = []
         self._shown_plans: list[AssessmentPlan] = []
         self._norms: list[Norm] = []
@@ -929,9 +930,9 @@ class AssessmentPage(QWidget):
         rec_title.setObjectName("card_title")
         rec_layout.addWidget(rec_title)
         self.recordings = QTableWidget()
-        self.recordings.setColumnCount(4)
+        self.recordings.setColumnCount(5)
         self.recordings.setHorizontalHeaderLabels(
-            [tr("úloha"), tr("nahrávka"), tr("běh"), tr("s normou")]
+            [tr("úloha"), tr("nahrávka"), tr("běh"), tr("s normou"), tr("kvalita")]
         )
         self.recordings.verticalHeader().setVisible(False)
         self.recordings.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -943,6 +944,7 @@ class AssessmentPage(QWidget):
         rec_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         rec_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         rec_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        rec_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.recordings.setMaximumHeight(170)
         self.recordings.cellDoubleClicked.connect(lambda row, _col: self._detail_row(row))
         self.recordings.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -2746,8 +2748,9 @@ class AssessmentPage(QWidget):
                             z_text += " \u25b2" if item.score.signed_z >= 0 else " \u25bc"
                     else:
                         norm_text, z_text, pct = "", "", ""
-                    if item.versions is not None:
-                        label += " \u26a0"  # feature se od spočítání normy změnila
+                    quality_tip = self._task_quality.get(item.task, "")
+                    if item.versions is not None or quality_tip:
+                        label += " \u26a0"  # změněná feature, nebo podezřelá nahrávka
                     child = QTreeWidgetItem(
                         [
                             label,
@@ -2761,7 +2764,12 @@ class AssessmentPage(QWidget):
                     )
                     child.setData(0, Qt.ItemDataRole.UserRole, item)
                     child.setData(1, TASK_PILL_ROLE, child.text(1))
-                    child.setToolTip(0, item.item.column + _versions_tooltip(item))
+                    child.setToolTip(
+                        0,
+                        item.item.column
+                        + _versions_tooltip(item)
+                        + (f"\n{quality_tip}" if quality_tip else ""),
+                    )
                     child.setToolTip(4, _item_z_tooltip(item))
                     for col in (2, 3, 4, 5):
                         child.setTextAlignment(
@@ -2809,6 +2817,7 @@ class AssessmentPage(QWidget):
         protocols = norm.info.protocols if norm is not None else {}
         recs = sorted(visit.recordings, key=lambda r: (tasks.task_order(r.task), r.file))
         self.recordings.setRowCount(len(recs))
+        self._task_quality = _task_quality(recs)
         last_task = ""
         for row, rec in enumerate(recs):
             task = tasks.label(rec.task) if rec.task != last_task else ""
@@ -2819,7 +2828,12 @@ class AssessmentPage(QWidget):
             with_norm = match_text(match)
             if match is not False and outdated:
                 with_norm = tr("jiná verze feature")
-            cells = [task, rec.file, started or rec.run.display_name, with_norm]
+            issues = quality.assess(rec.data, rec.task)
+            level = quality.level_of(issues)
+            quality_text = {quality.BAD: tr("nepoužitelná"), quality.WARN: tr("podezřelá")}.get(
+                level, tr("ok") if quality.COLUMN_TOTAL in rec.data else ""
+            )
+            cells = [task, rec.file, started or rec.run.display_name, with_norm, quality_text]
             for col, text in enumerate(cells):
                 item = QTableWidgetItem(text)
                 if col == 1:
@@ -2830,6 +2844,11 @@ class AssessmentPage(QWidget):
                 if col == 3 and (match is False or outdated):
                     item.setForeground(QColor(theme.WARN))
                     item.setToolTip("\n".join(outdated))
+                if col == 4 and level:
+                    item.setForeground(
+                        QColor(theme.MISSING if level == quality.BAD else theme.WARN)
+                    )
+                    item.setToolTip(quality.summary(issues))
                 self.recordings.setItem(row, col, item)
         notes = []
         if any(visit.count(t) > 1 for t in visit.tasks):
@@ -2848,6 +2867,19 @@ class AssessmentPage(QWidget):
                     "Jiná verze feature než u kontrol normy: {items}. Normu nebo hodnocení "
                     "je třeba spočítat znovu, srovnání je jen orientační."
                 ).format(items=", ".join(changed))
+            )
+        flagged = [r for r in recs if quality.level_of(quality.assess(r.data, r.task))]
+        if flagged:
+            notes.append(
+                tr(
+                    "Kontrola kvality: {files}. Hodnoty z takové nahrávky jsou ve stromu "
+                    "označené ⚠ a mohou být zkreslené."
+                ).format(
+                    files="; ".join(
+                        f"{r.file} ({quality.summary(quality.assess(r.data, r.task))})"
+                        for r in flagged
+                    )
+                )
             )
         if self._missing:
             notes.append(
@@ -2949,6 +2981,20 @@ def _side_by_side(left: QPixmap, right: QPixmap, gap: int = 12) -> QPixmap:
     painter.drawPixmap(QPointF(0, (height - lh) / 2), left)
     painter.drawPixmap(QPointF(lw + gap, (height - rh) / 2), right)
     painter.end()
+    return out
+
+
+def _task_quality(recs: list[Recording]) -> dict[str, str]:
+    """Úloha → text kontroly kvality, když některá její nahrávka neprošla."""
+    out: dict[str, str] = {}
+    for rec in recs:
+        issues = quality.assess(rec.data, rec.task)
+        if not quality.level_of(issues):
+            continue
+        text = tr("kvalita nahrávky {file}: {issues}").format(
+            file=rec.file, issues=quality.summary(issues)
+        )
+        out[rec.task] = f"{out[rec.task]}\n{text}" if rec.task in out else text
     return out
 
 

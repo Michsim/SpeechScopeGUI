@@ -671,6 +671,44 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `dimensions.yaml`). Testy `tests/test_tasks.py`, průvodce v `test_norms_page`,
   dialog a strom v `test_assessment`; `conftest` registr před každým testem maže.
 
+## Kontrola kvality nahrávek (31. 10. 2026)
+- **Knihovna měří, GUI soudí.** Knihovna má od 31. 10. 2026 feature
+  `acoustic.recording.duration` (`total`, `voiced` = součet znělých rámců SWIPE,
+  `voiced_fraction`), `acoustic.recording.snr` (`snr_db` = 90. − 10. percentil
+  energie rámců, `noise_db`, `speech_db`), `acoustic.recording.clipping`
+  (`fraction` v %, `peak_dbfs`) pro všechny úlohy bez provideru a
+  `acoustic.ddk.count` (`syllables`, `triplets`, `analyzed`; vydá se i pod
+  `min_syllables`). Verze knihovny zůstala 0.4.0, fixtury falešky obnovené.
+  GUI je přidá ke každému běhu výpočtu feature (`quality.quality_features`
+  → `Protocol.to_request(extra_features=…)` v `MainWindow._launch`; protokol
+  s doménou se přepíše na vzor `doména.*`, protože knihovna doménou jen
+  filtruje zadaný seznam; se starší knihovnou bez nich se nic nepřidá).
+  `protocol.summarize` je nepočítá (nejsou v protokolu). Skupina
+  `acoustic.recording` = „Akustika · nahrávka“ v `GROUP_LABELS`.
+- **Prahy** jsou v `assets/quality.yaml` (`backend/quality.py`: `Check`
+  s `column`, `tasks`, `kind` min|max, `warn` žlutá, `bad` červená; vlastní
+  úloha se kontroluje podle `base`): fonace délka i znělá část < 5 s (bad < 2),
+  DDK trojic /pataka/ < 5 (bad < 3), čtení délka < 20 s (bad < 10), spontánní
+  délka < 60 s (bad < 30) a slov < 100 (bad < 50), všude SNR < 20 dB (bad < 10)
+  a přebuzení > 0,1 % (bad > 1 %). Rozhodnuto: prahy výchozí, jdou změnit
+  kopií souboru do dat aplikace (`settings.quality_file()`, `quality.use_user_file`
+  z hlavního okna; nahradí přibalené celé, bez UI). `assess(row, task)` vrátí
+  `Issue` (horší napřed; poznámka knihovny `notes` = `warn` „bez hodnoty“),
+  `level_of`, `summary`, `min_duration(task)` pro kontrolu z hlavičky. Nic se
+  nevyřazuje samo, jen se označí. Očekávaný počet slov textu čtení GUI nezná
+  (rozhodnuto).
+- **Kde se ukazuje:** Analýza krok 2 = žlutý řádek pod úlohou s nahrávkami
+  kratšími než práh úlohy podle hlavičky (`BatchPage.short_warning`,
+  `short_recordings`), Spustit se zeptá; Výsledky › Hodnoty = štítek stavu
+  „kvalita“ (warn) / „nepoužitelná“ (bad, oranžový řádek `BAD_ROW`) s důvody
+  v tooltipu (`ValuesModel(quality=…)`, `quality_level`), štítky v hlavičce
+  „n podezřelých“ / „n nepoužitelných“ a filtr „jen problémové“ je bere;
+  Pacienti = sloupec „kvalita“ v tabulce nahrávek s poznámkou pod ní a ⚠ u
+  položek stromu z takové nahrávky (`_task_quality`, tooltip). Normy zatím
+  nic (controls.csv sloupce nese, vyřazení kontrol je další krok). Faleška
+  dává sloupcům kvality pevné hodnoty (`fake.cli.QUALITY_VALUES`), název se
+  „short“ / „noisy“ / „clipped“ práh podleze (`QUALITY_STEMS`).
+
 ## Pasti z knihovny, které GUI hlídá
 - Podproces vždy s `PYTHONUTF8=1` (`library.subprocess_env`). Bez toho
   knihovna při přesměrovaném stdout na Windows spadne na cp1252.

@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__, contract
 from ..backend import history as history_mod
-from ..backend import tasks
+from ..backend import quality, tasks
 from ..backend.assessment_build import (
     PLAN_SUFFIX,
     AssessmentPlan,
@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
     def __init__(self, settings: AppSettings) -> None:
         super().__init__()
         self.settings = settings
+        quality.use_user_file(settings.quality_file())  # vlastní prahy kontroly kvality
         tasks.registry().load(settings.tasks_file())  # vlastní úlohy uživatele
         register_custom_tasks(settings.norms_dir())  # a z norem, dřív než se čtou běhy
         self.setWindowTitle(tr("SpeechScope"))
@@ -1583,6 +1584,9 @@ class MainWindow(QMainWindow):
                 config_path=config_path,
                 log_file=log_file,
                 manifest=manifest_path,
+                extra_features=quality.quality_features(
+                    proto.task, {f.name for f in self.library.features()}
+                ),
             )
             argv = self.library.argv(extract_args(req, models_dir=self.settings.models_dir))
             self._running_slug = slug

@@ -38,6 +38,27 @@
     ]
   },
   {
+    "name": "acoustic.ddk.count",
+    "version": "1.0",
+    "tasks": [
+      "ddk"
+    ],
+    "requires": [
+      "ddk_events"
+    ],
+    "description": "",
+    "outputs": {
+      "syllables": "Number of syllables the detector found in the recording",
+      "triplets": "Number of complete /pa-ta-ka/ triplets (syllables divided by three)",
+      "analyzed": "Number of syllables the other DDK features are computed from"
+    },
+    "columns": [
+      "acoustic.ddk.count.syllables",
+      "acoustic.ddk.count.triplets",
+      "acoustic.ddk.count.analyzed"
+    ]
+  },
+  {
     "name": "acoustic.ddk.deceleration",
     "version": "1.0",
     "tasks": [
@@ -238,6 +259,70 @@
       "acoustic.quality.perturbation.shimmer_apq3",
       "acoustic.quality.perturbation.shimmer_apq11",
       "acoustic.quality.perturbation.hnr"
+    ]
+  },
+  {
+    "name": "acoustic.recording.clipping",
+    "version": "1.0",
+    "tasks": [
+      "ddk",
+      "phonation",
+      "reading",
+      "spontaneous"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "fraction": "Share of samples at full scale (%)",
+      "peak_dbfs": "Recording peak (dB relative to full scale, 0 = full scale)"
+    },
+    "columns": [
+      "acoustic.recording.clipping.fraction",
+      "acoustic.recording.clipping.peak_dbfs"
+    ]
+  },
+  {
+    "name": "acoustic.recording.duration",
+    "version": "1.0",
+    "tasks": [
+      "ddk",
+      "phonation",
+      "reading",
+      "spontaneous"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "total": "Recording length (s)",
+      "voiced": "Sum of voiced frames according to SWIPE (s)",
+      "voiced_fraction": "Share of voiced frames in the whole recording (0–1)"
+    },
+    "columns": [
+      "acoustic.recording.duration.total",
+      "acoustic.recording.duration.voiced",
+      "acoustic.recording.duration.voiced_fraction"
+    ]
+  },
+  {
+    "name": "acoustic.recording.snr",
+    "version": "1.0",
+    "tasks": [
+      "ddk",
+      "phonation",
+      "reading",
+      "spontaneous"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "snr_db": "Speech-to-background ratio: difference between a high and a low percentile of frame energy (dB)",
+      "noise_db": "Background level, low percentile of frame energy (dB relative to full scale)",
+      "speech_db": "Speech level, high percentile of frame energy (dB relative to full scale)"
+    },
+    "columns": [
+      "acoustic.recording.snr.snr_db",
+      "acoustic.recording.snr.noise_db",
+      "acoustic.recording.snr.speech_db"
     ]
   },
   {

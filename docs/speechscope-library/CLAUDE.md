@@ -270,6 +270,21 @@ dává skoro totéž (d 0.49) a potřebuje segmentaci; `novad` nejhorší.
 Praat sám znělost neřeší (všechny rámce, průměr), znělé úseky vybírá
 AVQI pitch trackerem. **Normy z kontrol se musí přepočítat.**
 
+## Kontrola kvality nahrávky (31. 10. 2026, necommitováno)
+`features/acoustic/recording.py`: `acoustic.recording.duration` (délka
+souboru, součet znělých rámců SWIPE jako F0 1.1/intenzita 2.0/CPP 1.3,
+podíl), `acoustic.recording.snr` (percentilový odhad: 90. − 10. percentil
+energie 25ms rámců, nulové rámce vynechané, digitální ticho =
+InsufficientData) a `acoustic.recording.clipping` (podíl vzorků ≥ 0.99
+plného rozsahu v %, špička dBFS). Všechny úlohy, bez provideru, bez VAD,
+vždy celý soubor. `acoustic.ddk.count` (`features/acoustic/ddk.py`):
+`syllables`, `triplets` (= slabiky // 3), `analyzed`; vydá se i pod
+`min_syllables`, chybou je jen úplné selhání detektoru. Prahy (co je
+„krátké“ nebo „zašuměné“) knihovna nemá, má je GUI (`assets/quality.yaml`
+v repu GUI), které tyhle feature přidává ke každému běhu. Testy
+`tests/test_recording.py`; `test_obecne_feature_na_ddk_nejsou` feature
+`acoustic.recording.*` z výčtu vynechává. Verze knihovny zůstala 0.4.0.
+
 ## Pravidla pro přenos starých skriptů
 1. Feature funkce nesmí dělat I/O – dostane `Signal`, vrátí čísla.
 2. Konstanty natvrdo → deklarované parametry.

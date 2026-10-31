@@ -1,0 +1,92 @@
+# Kontrola kvality nahrávek: od kdy GUI nahrávku označí jako podezřelou.
+# Knihovna jen měří (feature acoustic.recording.*, acoustic.ddk.count,
+# word_count), prahy jsou tady. Kopie tohoto souboru v datech aplikace
+# (vedle protokolů, `quality.yaml`) má přednost a nahradí ho celý.
+#
+# Každá kontrola: column (sloupec features.csv), tasks (úlohy knihovny; vlastní
+# úloha se kontroluje podle své základní), kind min = hodnota pod prahem vadí,
+# max = hodnota nad prahem vadí; warn = žlutá (upozornění), bad = červená
+# (nahrávka nejspíš nepoužitelná). Chybějící sloupec = kontrola se přeskočí.
+format: 1
+
+checks:
+  # Fonace: tón má trvat aspoň 5 s; znělá část je délka bez ticha kolem.
+  - key: phonation_total
+    column: acoustic.recording.duration.total
+    tasks: [phonation]
+    kind: min
+    warn: 5
+    bad: 2
+    name: Délka nahrávky
+    name_en: Recording length
+    unit: s
+  - key: phonation_voiced
+    column: acoustic.recording.duration.voiced
+    tasks: [phonation]
+    kind: min
+    warn: 5
+    bad: 2
+    name: Znělá část
+    name_en: Voiced part
+    unit: s
+
+  # DDK: aspoň pět celých /pa-ta-ka/, jinak jsou tempo i pravidelnost z mála.
+  - key: ddk_triplets
+    column: acoustic.ddk.count.triplets
+    tasks: [ddk]
+    kind: min
+    warn: 5
+    bad: 3
+    name: Opakování /pataka/
+    name_en: /pataka/ repetitions
+    unit: ""
+
+  # Čtení a spontánní řeč: délka nahrávky, u spontánní i počet slov
+  # (lingvistika potřebuje aspoň okno 50 slov pro MATTR).
+  - key: reading_total
+    column: acoustic.recording.duration.total
+    tasks: [reading]
+    kind: min
+    warn: 20
+    bad: 10
+    name: Délka nahrávky
+    name_en: Recording length
+    unit: s
+  - key: spontaneous_total
+    column: acoustic.recording.duration.total
+    tasks: [spontaneous]
+    kind: min
+    warn: 60
+    bad: 30
+    name: Délka nahrávky
+    name_en: Recording length
+    unit: s
+  - key: spontaneous_words
+    column: acoustic.timing.speech_rate.word_count
+    tasks: [spontaneous]
+    kind: min
+    warn: 100
+    bad: 50
+    name: Počet slov
+    name_en: Word count
+    unit: ""
+
+  # Všechny úlohy: odstup od šumu a přebuzení.
+  - key: snr
+    column: acoustic.recording.snr.snr_db
+    tasks: [phonation, ddk, reading, spontaneous]
+    kind: min
+    warn: 20
+    bad: 10
+    name: Odstup od šumu
+    name_en: Signal-to-noise
+    unit: dB
+  - key: clipping
+    column: acoustic.recording.clipping.fraction
+    tasks: [phonation, ddk, reading, spontaneous]
+    kind: max
+    warn: 0.1
+    bad: 1
+    name: Přebuzení
+    name_en: Clipping
+    unit: "%"

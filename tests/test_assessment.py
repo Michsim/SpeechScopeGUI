@@ -905,3 +905,38 @@ def test_patient_overview_and_detail(qtbot: QtBot, settings: AppSettings) -> Non
     # hledání v přehledu filtruje seznam stránky
     page.overview.search.setText("018")
     assert page.overview.count() == 1
+
+
+def test_quality_flags_recording_table_and_tree(qtbot: QtBot, settings: AppSettings) -> None:
+    """Krátká fonace: v tabulce nahrávek „podezřelá“, položky z ní ve stromu ⚠ s důvodem."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    path = settings.work_root / "2026-10-14_10-12-00_fonace" / "features.csv"
+    frame = pd.read_csv(path)
+    frame["acoustic.recording.duration.total"] = [3.0, 8.0]
+    frame["acoustic.recording.snr.snr_db"] = [35.0, 35.0]
+    frame.to_csv(path, index=False)
+    save_norm(settings.norms_dir())
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.assessment_page
+    dialog = page.make_dialog(initial=recording(page, "P-017_fonace.wav"))
+    qtbot.addWidget(dialog)
+    assert page.save_from(dialog) is not None
+    rows = {page.recordings.item(r, 1).text(): r for r in range(page.recordings.rowCount())}
+    fon = page.recordings.item(rows["P-017_fonace.wav"], 4)
+    assert fon.text() == "podezřelá" and "délka nahrávky 3 s < 5 s" in fon.toolTip()
+    assert list(rows) == ["P-017_fonace.wav"]  # hodnocení jen z fonace
+    assert "Kontrola kvality: P-017_fonace.wav" in page.recordings_note.text()
+    flagged = []
+    for i in range(page.tree.topLevelItemCount()):
+        top = page.tree.topLevelItem(i)
+        for j in range(top.childCount()):
+            child = top.child(j)
+            if child.text(1) == "Fonace":
+                flagged.append(child)
+                assert child.text(0).endswith(chr(0x26A0))
+                assert "kvalita nahrávky P-017_fonace.wav" in child.toolTip(0)
+            else:
+                assert not child.text(0).endswith(chr(0x26A0))
+    assert flagged

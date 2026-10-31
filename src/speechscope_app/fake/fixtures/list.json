@@ -38,6 +38,27 @@
     ]
   },
   {
+    "name": "acoustic.ddk.count",
+    "version": "1.0",
+    "tasks": [
+      "ddk"
+    ],
+    "requires": [
+      "ddk_events"
+    ],
+    "description": "",
+    "outputs": {
+      "syllables": "Počet slabik, které detektor v nahrávce našel",
+      "triplets": "Počet celých trojic /pa-ta-ka/ (slabiky děleno třemi)",
+      "analyzed": "Počet slabik, ze kterých se počítají ostatní feature DDK"
+    },
+    "columns": [
+      "acoustic.ddk.count.syllables",
+      "acoustic.ddk.count.triplets",
+      "acoustic.ddk.count.analyzed"
+    ]
+  },
+  {
     "name": "acoustic.ddk.deceleration",
     "version": "1.0",
     "tasks": [
@@ -238,6 +259,70 @@
       "acoustic.quality.perturbation.shimmer_apq3",
       "acoustic.quality.perturbation.shimmer_apq11",
       "acoustic.quality.perturbation.hnr"
+    ]
+  },
+  {
+    "name": "acoustic.recording.clipping",
+    "version": "1.0",
+    "tasks": [
+      "ddk",
+      "phonation",
+      "reading",
+      "spontaneous"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "fraction": "Podíl vzorků na plném rozsahu (%)",
+      "peak_dbfs": "Špička nahrávky (dB proti plnému rozsahu, 0 = plný rozsah)"
+    },
+    "columns": [
+      "acoustic.recording.clipping.fraction",
+      "acoustic.recording.clipping.peak_dbfs"
+    ]
+  },
+  {
+    "name": "acoustic.recording.duration",
+    "version": "1.0",
+    "tasks": [
+      "ddk",
+      "phonation",
+      "reading",
+      "spontaneous"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "total": "Délka nahrávky (s)",
+      "voiced": "Součet znělých rámců podle SWIPE (s)",
+      "voiced_fraction": "Podíl znělých rámců na celé nahrávce (0–1)"
+    },
+    "columns": [
+      "acoustic.recording.duration.total",
+      "acoustic.recording.duration.voiced",
+      "acoustic.recording.duration.voiced_fraction"
+    ]
+  },
+  {
+    "name": "acoustic.recording.snr",
+    "version": "1.0",
+    "tasks": [
+      "ddk",
+      "phonation",
+      "reading",
+      "spontaneous"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "snr_db": "Odstup řeči od pozadí: rozdíl vysokého a nízkého percentilu energie rámců (dB)",
+      "noise_db": "Úroveň pozadí, nízký percentil energie rámců (dB proti plnému rozsahu)",
+      "speech_db": "Úroveň řeči, vysoký percentil energie rámců (dB proti plnému rozsahu)"
+    },
+    "columns": [
+      "acoustic.recording.snr.snr_db",
+      "acoustic.recording.snr.noise_db",
+      "acoustic.recording.snr.speech_db"
     ]
   },
   {

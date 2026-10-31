@@ -1,0 +1,55 @@
+{
+  "kind": "feature",
+  "name": "acoustic.recording.duration",
+  "version": "1.0",
+  "tasks": [
+    "ddk",
+    "phonation",
+    "reading",
+    "spontaneous"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "ddk": false,
+      "phonation": false,
+      "reading": false,
+      "spontaneous": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "total": "Recording length (s)",
+    "voiced": "Sum of voiced frames according to SWIPE (s)",
+    "voiced_fraction": "Share of voiced frames in the whole recording (0–1)"
+  },
+  "params": {
+    "f_min": {
+      "default": 60.0,
+      "type": "float",
+      "description": "Lowest allowed F0 for voicing (Hz)",
+      "gt": 0
+    },
+    "f_max": {
+      "default": 400.0,
+      "type": "float",
+      "description": "Highest allowed F0 for voicing (Hz)",
+      "gt": 0
+    },
+    "timestep": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Step of the voicing frames (s)",
+      "gt": 0
+    },
+    "strength_threshold": {
+      "default": 0.3,
+      "type": "float",
+      "description": "Minimum tone strength below which a frame is unvoiced",
+      "ge": 0,
+      "le": 1
+    }
+  }
+}

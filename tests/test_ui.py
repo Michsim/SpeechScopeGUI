@@ -100,6 +100,13 @@ def test_window_runs_batch_end_to_end(
     assert run.headline.text().startswith("Hotovo za")
     assert settings.seconds_per_file("fonace-zakladni") is not None
     assert window.results_page.table.model().rowCount() == 4
+    # kontrola kvality: faleška dá „short“ nahrávce 3 s, pod žlutým prahem fonace
+    model = window.results_page.table.model()
+    statuses = {model.frame["file"].iloc[r]: model._status(r)[0] for r in range(4)}
+    assert statuses["p03_short.wav"] == "kvalita" and statuses["p01.wav"] == "ok"
+    assert "délka nahrávky 3 s < 5 s" in model._status(list(statuses).index("p03_short.wav"))[2]
+    pills = [p.text() for p in window.results_page.header._pill_widgets]
+    assert "1 podezřelých" in pills and "1 s chybou" in pills
 
     run_dirs = list((settings.work_root).glob("*_fonace-zakladni"))
     assert len(run_dirs) == 1
@@ -1299,3 +1306,40 @@ def test_sidebar_collapse_badge_and_environment(qtbot: QtBot, settings: AppSetti
     qtbot.addWidget(window2)
     assert window2.nav.collapsed() and window2.nav.width() == COLLAPSED_WIDTH
 
+
+def test_analysis_warns_about_short_recordings(
+    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Krátké nahrávky podle hlavičky: varování pod úlohou a dotaz před Spustit."""
+    from dataclasses import replace
+
+    from PySide6.QtWidgets import QMessageBox
+
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    wait_doctor(qtbot, window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    page._found = [replace(r, duration=3.0 if "short" in r.name else 30.0) for r in page._found]
+    page._apply_exclusions()
+    page._update_run_state()  # skenování složky to volá samo, tady se délky podstrčily
+    assert page.select_protocol("Fonace, základní")
+    assert not page.short_warning.isHidden() and "p03_short.wav" in page.short_warning.text()
+    assert [r.name for r in page.short_recordings()] == ["p03_short.wav"]
+    assert page.select_protocol("DDK, základní")  # DDK práh délky nemá
+    assert page.short_warning.isHidden() and page.short_recordings() == []
+    assert page.select_protocol("Fonace, základní")
+
+    asked: list[str] = []
+    answer = [QMessageBox.StandardButton.No]
+    monkeypatch.setattr(
+        "speechscope_app.ui.pages.batch.QMessageBox.question",
+        lambda _parent, _title, text, *a, **k: (asked.append(text), answer[0])[1],
+    )
+    started: list = []
+    page.run_requested.connect(lambda proto, paths: started.append(proto))
+    page.run_btn.click()
+    assert asked and "1 nahrávek je kratších než 5 s" in asked[0] and not started
+    answer[0] = QMessageBox.StandardButton.Yes
+    page.run_btn.click()
+    assert len(started) == 1

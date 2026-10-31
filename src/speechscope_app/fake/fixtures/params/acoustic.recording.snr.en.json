@@ -1,0 +1,56 @@
+{
+  "kind": "feature",
+  "name": "acoustic.recording.snr",
+  "version": "1.0",
+  "tasks": [
+    "ddk",
+    "phonation",
+    "reading",
+    "spontaneous"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "ddk": false,
+      "phonation": false,
+      "reading": false,
+      "spontaneous": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "snr_db": "Speech-to-background ratio: difference between a high and a low percentile of frame energy (dB)",
+    "noise_db": "Background level, low percentile of frame energy (dB relative to full scale)",
+    "speech_db": "Speech level, high percentile of frame energy (dB relative to full scale)"
+  },
+  "params": {
+    "frame": {
+      "default": 0.025,
+      "type": "float",
+      "description": "Energy envelope frame length (s)",
+      "gt": 0
+    },
+    "hop": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Frame step (s)",
+      "gt": 0
+    },
+    "noise_percentile": {
+      "default": 10.0,
+      "type": "float",
+      "description": "Percentile of frame energy taken as background",
+      "ge": 0,
+      "le": 100
+    },
+    "speech_percentile": {
+      "default": 90.0,
+      "type": "float",
+      "description": "Percentile of frame energy taken as speech",
+      "ge": 0,
+      "le": 100
+    }
+  }
+}

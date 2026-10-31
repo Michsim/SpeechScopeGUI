@@ -1,0 +1,55 @@
+{
+  "kind": "feature",
+  "name": "acoustic.recording.duration",
+  "version": "1.0",
+  "tasks": [
+    "ddk",
+    "phonation",
+    "reading",
+    "spontaneous"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "ddk": false,
+      "phonation": false,
+      "reading": false,
+      "spontaneous": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "total": "Délka nahrávky (s)",
+    "voiced": "Součet znělých rámců podle SWIPE (s)",
+    "voiced_fraction": "Podíl znělých rámců na celé nahrávce (0–1)"
+  },
+  "params": {
+    "f_min": {
+      "default": 60.0,
+      "type": "float",
+      "description": "Nejnižší povolená hodnota F0 pro znělost (Hz)",
+      "gt": 0
+    },
+    "f_max": {
+      "default": 400.0,
+      "type": "float",
+      "description": "Nejvyšší povolená hodnota F0 pro znělost (Hz)",
+      "gt": 0
+    },
+    "timestep": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Krok rámců znělosti (s)",
+      "gt": 0
+    },
+    "strength_threshold": {
+      "default": 0.3,
+      "type": "float",
+      "description": "Minimální síla tónu, pod kterou je rámec neznělý",
+      "ge": 0,
+      "le": 1
+    }
+  }
+}

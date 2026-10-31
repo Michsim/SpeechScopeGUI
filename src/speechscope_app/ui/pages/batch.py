@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
-from ...backend import meta
+from ...backend import meta, quality, tasks
 from ...backend.audio import format_duration
 from ...backend.discover import Recording, find_recordings
 from ...backend.library import Library, LibraryError
@@ -410,6 +410,13 @@ class BatchPage(QWidget):
         task_row.addWidget(QLabel(tr("Jazyk nahrávek:")))
         task_row.addWidget(self.language)
         task_layout.addLayout(task_row)
+        # Kontrola kvality z hlavičky souboru: nahrávky kratší než práh úlohy
+        # (`assets/quality.yaml`), ještě před výpočtem. Zbytek až z výsledků.
+        self.short_warning = QLabel("")
+        self.short_warning.setWordWrap(True)
+        self.short_warning.setStyleSheet(f"color: {theme.WARN};")
+        self.short_warning.hide()
+        task_layout.addWidget(self.short_warning)
         # Rozšířený režim: co spustit. Přepínače jako úlohy, ať nejsou schované dole.
         self.mode_row = QWidget()
         mode_layout = QHBoxLayout(self.mode_row)
@@ -1113,6 +1120,8 @@ class BatchPage(QWidget):
                 caption += " · " + tr("zobrazeny jen tyto")
             self.missing_tile.set_text(str(len(missing)), caption)
         self.missing_tile.setVisible(bool(missing))
+        if hasattr(self, "short_warning"):  # seznam nahrávek se změnil, varování kroku 2 taky
+            self._update_short_warning()
 
     def _ask_meta_column(self) -> None:
         name, ok = QInputDialog.getText(
@@ -1269,10 +1278,41 @@ class BatchPage(QWidget):
 
     # --- spuštění -------------------------------------------------------------
 
+    def short_recordings(self, task: str | None = None) -> list[Recording]:
+        """Nahrávky kratší než práh délky pro úlohu (podle hlavičky souboru)."""
+        if task is None:
+            proto = self.current_protocol()
+            task = proto.task if proto is not None else ""
+        limit = quality.min_duration(task) if task else None
+        if limit is None:
+            return []
+        return [r for r in self._recordings if r.duration and r.duration < limit]
+
+    def _update_short_warning(self) -> None:
+        proto = self.current_protocol()
+        short = self.short_recordings(proto.task if proto is not None else "")
+        if not short or proto is None:
+            self.short_warning.hide()
+            return
+        limit = quality.min_duration(proto.task) or 0
+        self.short_warning.setText(
+            tr(
+                "⚠ {n} nahrávek je kratších než {s} s ({task}): {names}. Spočítají se, "
+                "ale ve výsledcích budou označené."
+            ).format(
+                n=len(short),
+                s=f"{limit:g}",
+                task=tasks.label(proto.task),
+                names=", ".join(r.name for r in short[:3]) + (" …" if len(short) > 3 else ""),
+            )
+        )
+        self.short_warning.show()
+
     def _update_run_state(self) -> None:
         proto = self.current_protocol()
         ok = bool(self._recordings) and proto is not None and self._library is not None
         self.run_btn.setEnabled(ok)
+        self._update_short_warning()
         self.new_btn.setEnabled(self.editor.has_catalog())
         self._update_editor_summary()
         self._update_step1_hint()
@@ -1409,6 +1449,27 @@ class BatchPage(QWidget):
                 ).format(names=names),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        short = self.short_recordings(proto.task)
+        if short:
+            limit = quality.min_duration(proto.task) or 0
+            answer = QMessageBox.question(
+                self,
+                tr("Krátké nahrávky"),
+                tr(
+                    "{n} nahrávek je kratších než {s} s, pro úlohu {task} je to málo "
+                    "(např. {name}). Spočítají se, ale ve výsledcích budou označené jako "
+                    "podezřelé.\n\nSpustit přesto?"
+                ).format(
+                    n=len(short),
+                    s=f"{limit:g}",
+                    task=tasks.label(proto.task),
+                    name=short[0].name,
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return

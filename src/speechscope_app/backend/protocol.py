@@ -9,7 +9,7 @@ from __future__ import annotations
 import fnmatch
 import re
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
@@ -146,12 +146,27 @@ class Protocol:
         config_path: Path | None,
         log_file: Path | None = None,
         manifest: Path | None = None,
+        extra_features: Sequence[str] = (),
     ) -> ExtractRequest:
+        """Požadavek na `extract`; `extra_features` přibudou k výběru protokolu.
+
+        GUI tak ke každému běhu přidá feature kvality nahrávky (`backend/quality.py`).
+        Protokol s doménou místo seznamu se přepíše na vzor `doména.*`, protože
+        knihovna doménou jen filtruje zadaný seznam a feature mimo ni by vypadly.
+        """
+        features = list(self.features)
+        domain = self.domain
+        extra = [f for f in extra_features if f not in features]
+        if extra:
+            if domain and not features:
+                features = [f"{domain}.*"]
+                domain = None
+            features += extra
         return ExtractRequest(
             inputs=inputs,
             task=self.task,
-            features=list(self.features),
-            domain=self.domain,
+            features=features,
+            domain=domain,
             config=config_path,
             vad=self.vad,
             out=out,

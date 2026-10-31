@@ -307,6 +307,10 @@ class AppSettings:
         """Katalog SQLite: pacienti, hodnocení a index běhů (`backend/catalog.py`)."""
         return app_data_dir() / "catalog.sqlite"
 
+    def quality_file(self) -> Path:
+        """Vlastní prahy kontroly kvality (`backend/quality.py`); bez souboru platí přibalené."""
+        return app_data_dir() / "quality.yaml"
+
     def tasks_file(self) -> Path:
         """Vlastní úlohy uživatele (`backend/tasks.py`), vedle protokolů a norem."""
         return app_data_dir() / "tasks.json"

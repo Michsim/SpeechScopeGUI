@@ -47,8 +47,9 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
-from ...backend import meta
+from ...backend import meta, quality
 from ...backend.library import FeatureInfo
+from ...backend.quality import Issue
 from ...i18n import tr
 from .. import theme
 from ..feature_detail import split_unit
@@ -74,6 +75,7 @@ TABLE_STYLE = (
 )
 ERROR_ROW = QColor(254, 242, 242)
 NOTE_ROW = QColor(255, 251, 235)
+BAD_ROW = QColor(255, 237, 213)  # kvalita nahrávky: nepoužitelná
 HIST_BAR = "#93c5fd"
 
 
@@ -164,11 +166,16 @@ class ValuesModel(QAbstractTableModel):
         frame: pd.DataFrame,
         catalog: list[FeatureInfo] | None = None,
         footer: dict[str, str] | None = None,
+        quality: list[list[Issue]] | None = None,
     ) -> None:
         super().__init__()
         self.frame = frame
         self._errors = problem_mask(frame, "error")
         self._notes = problem_mask(frame, "notes")
+        # kontrola kvality (`backend/quality.py`) po řádcích `frame`; prázdný seznam = ok
+        self.quality: list[list[Issue]] = (
+            quality if quality is not None else [[] for _ in range(len(frame))]
+        )
         self.highlight = ""  # sloupec s otevřenou kartou
         self.footer = footer or {}
         index = column_index(catalog or [])
@@ -274,9 +281,20 @@ class ValuesModel(QAbstractTableModel):
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: B008, N802
         return 0 if parent.isValid() else len(self.columns)
 
+    def quality_level(self, row: int) -> str:
+        """Nejhorší kontrola kvality řádku bez poznámek knihovny: `bad`, `warn` nebo prázdné."""
+        issues = self.quality[row] if 0 <= row < len(self.quality) else []
+        return quality.level_of([i for i in issues if i.check.key != quality.NOTES_KEY])
+
     def _status(self, row: int) -> tuple[str, str, str]:
         if self._errors.iloc[row]:
             return tr("chyba"), "missing", str(self.frame["error"].iloc[row])
+        issues = self.quality[row] if 0 <= row < len(self.quality) else []
+        level = self.quality_level(row)
+        if level == quality.BAD:
+            return tr("nepoužitelná"), "missing", quality.summary(issues)
+        if level == quality.WARN:
+            return tr("kvalita"), "warn", quality.summary(issues)
         if self._notes.iloc[row]:
             return tr("poznámka"), "warn", str(self.frame["notes"].iloc[row])
         return tr("ok"), "ok", ""
@@ -325,7 +343,10 @@ class ValuesModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.BackgroundRole:
             if self._errors.iloc[row]:
                 return ERROR_ROW
-            if self._notes.iloc[row]:
+            level = self.quality_level(row)
+            if level == quality.BAD:
+                return BAD_ROW
+            if self._notes.iloc[row] or level == quality.WARN:
                 return NOTE_ROW
             if self.highlight and col.key == self.highlight:
                 return QColor(SELECTED_COLUMN)

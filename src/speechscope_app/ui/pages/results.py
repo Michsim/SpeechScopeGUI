@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from ... import contract
-from ...backend import tasks
+from ...backend import quality, tasks
 from ...backend.history import RunGroup, RunInfo, read_run
 from ...backend.library import FeatureInfo, Library, LibraryError
 from ...backend.results import failed_paths
@@ -166,7 +166,7 @@ class ResultsPage(QWidget):
         self.search.setMaximumWidth(260)
         self.search.textChanged.connect(self._refresh)
         self.problems_only = QCheckBox(tr("jen problémové"))
-        self.problems_only.setToolTip(tr("Jen řádky s poznámkou nebo chybou."))
+        self.problems_only.setToolTip(tr("Jen řádky s poznámkou, chybou nebo podezřelou kvalitou."))
         self.problems_only.toggled.connect(self._refresh)
         self.detail_btn = QPushButton(tr("Detail nahrávky…"))
         self.detail_btn.setToolTip(tr("Hodnoty jedné nahrávky po skupinách s popisem sloupců."))
@@ -501,8 +501,19 @@ class ResultsPage(QWidget):
         frame = self._frame
         n_notes = int(frame["notes"].notna().sum()) if "notes" in frame.columns else 0
         n_err = int(frame["error"].notna().sum()) if "error" in frame.columns else 0
+        issues = self._quality_issues(frame)
+        errors = problem_mask(frame, "error")
+        levels = pd.Series(
+            [
+                quality.level_of([i for i in row if i.check.key != quality.NOTES_KEY])
+                for row in issues
+            ],
+            index=frame.index,
+        )
+        n_bad = int(((levels == quality.BAD) & ~errors).sum())
+        n_warn = int(((levels == quality.WARN) & ~errors).sum())
         if self.problems_only.isChecked():
-            mask = pd.Series(False, index=frame.index)
+            mask = levels != ""
             for col in PROBLEM_COLUMNS:
                 if col in frame.columns:
                     mask |= frame[col].notna()
@@ -526,8 +537,12 @@ class ResultsPage(QWidget):
         ]
         if needle or self._feature_group:
             frame = frame[keep]
+        by_index = dict(zip(self._frame.index, issues, strict=True))
+        frame_quality = [by_index[i] for i in frame.index]
         frame = frame.reset_index(drop=True)
-        model = ValuesModel(frame, self.catalog(), self._footer_texts(frame, index))
+        model = ValuesModel(
+            frame, self.catalog(), self._footer_texts(frame, index), quality=frame_quality
+        )
         self.table.set_frozen_count(model.frozen)
         self.table.setModel(model)
         for view in (self.table, self.table.frozen):
@@ -553,6 +568,26 @@ class ResultsPage(QWidget):
         elif self._card_key:
             self.close_card()
         pills: list = []
+        if n_bad:
+            pills.append(
+                (
+                    tr("{n} nepoužitelných").format(n=n_bad),
+                    "missing",
+                    tr("Nahrávky pod červeným prahem kontroly kvality (délka, šum, přebuzení). ")
+                    + tr("Klik přepne filtr jen na problémové řádky."),
+                    self.problems_only.toggle,
+                )
+            )
+        if n_warn:
+            pills.append(
+                (
+                    tr("{n} podezřelých").format(n=n_warn),
+                    "warn",
+                    tr("Nahrávky pod žlutým prahem kontroly kvality (délka, šum, přebuzení). ")
+                    + tr("Klik přepne filtr jen na problémové řádky."),
+                    self.problems_only.toggle,
+                )
+            )
         if n_notes:
             pills.append(
                 (
@@ -591,6 +626,13 @@ class ResultsPage(QWidget):
                 folder=self._path.parent.name if self._path else "",
             )
         )
+
+    @staticmethod
+    def _quality_issues(frame: pd.DataFrame) -> list[list[quality.Issue]]:
+        """Kontrola kvality (`backend/quality.py`) pro každý řádek tabulky."""
+        if "task" not in frame.columns:
+            return [[] for _ in range(len(frame))]
+        return [quality.assess(row, str(row.get("task") or "")) for row in frame.to_dict("records")]
 
     def _show_table(self, shown: bool) -> None:
         self.table.setVisible(shown)

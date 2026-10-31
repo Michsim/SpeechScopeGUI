@@ -316,7 +316,48 @@ def cmd_models_unpack(ns: argparse.Namespace) -> int:
     return 0
 
 
+# Sloupce kontroly kvality dostanou rozumné hodnoty, ne hash: jinak by faleška
+# náhodně hlásila krátké nebo zašuměné nahrávky. Název s „short“, „noisy“ nebo
+# „clipped“ dá hodnotu pod (nad) prahem GUI (`assets/quality.yaml`).
+QUALITY_VALUES: dict[str, float] = {
+    "acoustic.recording.duration.total": 90.0,
+    "acoustic.recording.duration.voiced": 60.0,
+    "acoustic.recording.duration.voiced_fraction": 0.667,
+    "acoustic.recording.snr.snr_db": 35.0,
+    "acoustic.recording.snr.noise_db": -60.0,
+    "acoustic.recording.snr.speech_db": -25.0,
+    "acoustic.recording.clipping.fraction": 0.0,
+    "acoustic.recording.clipping.peak_dbfs": -3.0,
+    "acoustic.ddk.count.syllables": 24.0,
+    "acoustic.ddk.count.triplets": 8.0,
+    "acoustic.ddk.count.analyzed": 20.0,
+    "acoustic.timing.speech_rate.word_count": 180.0,
+}
+QUALITY_STEMS: dict[str, dict[str, float]] = {
+    "short": {
+        "acoustic.recording.duration.total": 3.0,
+        "acoustic.recording.duration.voiced": 2.5,
+        "acoustic.recording.duration.voiced_fraction": 0.833,
+        "acoustic.ddk.count.syllables": 9.0,
+        "acoustic.ddk.count.triplets": 3.0,
+        "acoustic.ddk.count.analyzed": 0.0,
+        "acoustic.timing.speech_rate.word_count": 40.0,
+    },
+    "noisy": {"acoustic.recording.snr.snr_db": 8.0, "acoustic.recording.snr.noise_db": -33.0},
+    "clipped": {
+        "acoustic.recording.clipping.fraction": 2.5,
+        "acoustic.recording.clipping.peak_dbfs": 0.0,
+    },
+}
+
+
 def _value(name: str, column: str) -> float:
+    if column in QUALITY_VALUES:
+        stem = name.lower()
+        for marker, values in QUALITY_STEMS.items():
+            if marker in stem and column in values:
+                return values[column]
+        return QUALITY_VALUES[column]
     digest = hashlib.md5(f"{name}:{column}".encode()).hexdigest()
     return round(int(digest[:8], 16) / 0xFFFFFFFF * 100, 4)
 

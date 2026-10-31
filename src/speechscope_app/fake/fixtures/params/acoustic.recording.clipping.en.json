@@ -1,0 +1,36 @@
+{
+  "kind": "feature",
+  "name": "acoustic.recording.clipping",
+  "version": "1.0",
+  "tasks": [
+    "ddk",
+    "phonation",
+    "reading",
+    "spontaneous"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "ddk": false,
+      "phonation": false,
+      "reading": false,
+      "spontaneous": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "fraction": "Share of samples at full scale (%)",
+    "peak_dbfs": "Recording peak (dB relative to full scale, 0 = full scale)"
+  },
+  "params": {
+    "threshold": {
+      "default": 0.99,
+      "type": "float",
+      "description": "A sample at or above this share of full scale counts as clipped",
+      "gt": 0,
+      "le": 1
+    }
+  }
+}

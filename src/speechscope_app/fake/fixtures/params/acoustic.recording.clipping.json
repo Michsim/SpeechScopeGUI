@@ -1,0 +1,36 @@
+{
+  "kind": "feature",
+  "name": "acoustic.recording.clipping",
+  "version": "1.0",
+  "tasks": [
+    "ddk",
+    "phonation",
+    "reading",
+    "spontaneous"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "ddk": false,
+      "phonation": false,
+      "reading": false,
+      "spontaneous": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "fraction": "Podíl vzorků na plném rozsahu (%)",
+    "peak_dbfs": "Špička nahrávky (dB proti plnému rozsahu, 0 = plný rozsah)"
+  },
+  "params": {
+    "threshold": {
+      "default": 0.99,
+      "type": "float",
+      "description": "Vzorek na nebo nad tímto podílem plného rozsahu se počítá jako přebuzený",
+      "gt": 0,
+      "le": 1
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "kind": "feature",
+  "name": "acoustic.recording.snr",
+  "version": "1.0",
+  "tasks": [
+    "ddk",
+    "phonation",
+    "reading",
+    "spontaneous"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "ddk": false,
+      "phonation": false,
+      "reading": false,
+      "spontaneous": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "snr_db": "Odstup řeči od pozadí: rozdíl vysokého a nízkého percentilu energie rámců (dB)",
+    "noise_db": "Úroveň pozadí, nízký percentil energie rámců (dB proti plnému rozsahu)",
+    "speech_db": "Úroveň řeči, vysoký percentil energie rámců (dB proti plnému rozsahu)"
+  },
+  "params": {
+    "frame": {
+      "default": 0.025,
+      "type": "float",
+      "description": "Délka rámce obálky energie (s)",
+      "gt": 0
+    },
+    "hop": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Krok rámců (s)",
+      "gt": 0
+    },
+    "noise_percentile": {
+      "default": 10.0,
+      "type": "float",
+      "description": "Percentil energie rámců, který se bere jako pozadí",
+      "ge": 0,
+      "le": 100
+    },
+    "speech_percentile": {
+      "default": 90.0,
+      "type": "float",
+      "description": "Percentil energie rámců, který se bere jako řeč",
+      "ge": 0,
+      "le": 100
+    }
+  }
+}
