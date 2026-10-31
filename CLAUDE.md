@@ -778,6 +778,12 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   (`_prefetched`), místo aby pustil nový podproces. Hlavní okno se ukáže celé hotové
   (`splash.finish`). Start do okna 6,5 s → 3,8 s ve vývoji. V exe zvážit i splash
   PyInstalleru ze spouštěče.
+- **Časy startu** (`backend/startup_log.py`): každý start připíše řádek do
+  `settings.startup_log()` (`startup.log` v datech aplikace, posledních 200, jde do zipu
+  Diagnostiky): `total` od vzniku procesu (`GetProcessTimes`), `python`, fáze `qt`, `splash`,
+  `import`, `window`, `shown` (přírůstky od `main()`) a `lib_list`, `lib_providers`,
+  `lib_models` z `library.prefetch_seconds`. Ve vývoji 31. 10.: total ~4,2, splash ~1,05
+  (první okno na Windows), dotazy souběžně ~2,1.
 - `segments.model=auto` bere jen hotovou cache. Protokol, který potřebuje
   segmentaci, musí mít v `config` `segments.model` nastavený; samostatná
   segmentace (Jen segmentace) `auto` nenabízí.

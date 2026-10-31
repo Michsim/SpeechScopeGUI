@@ -21,6 +21,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from . import __version__, i18n
+from .backend import library, startup_log
 from .backend.library import CHILD_ENV
 from .backend.settings import APP, ORG, AppSettings
 from .ui import theme
@@ -48,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return EXIT_CHILD_GUARD
 
+    timer = startup_log.StartupTimer()
     app = QApplication(sys.argv)
     app.setOrganizationName(ORG)
     app.setApplicationName(APP)
@@ -63,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     qt_dir = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
     if translator.load(QLocale(language), "qtbase", "_", qt_dir):
         app.installTranslator(translator)
+    timer.mark("qt")  # QApplication, nastavení, styl, překlady
     # Úvodní okno hned, dotazy na knihovnu souběžně napřed (běží i během importu
     # hlavního okna); hlavní okno se ukáže až celé hotové.
     from .ui.splash import make_splash
@@ -70,14 +73,29 @@ def main(argv: list[str] | None = None) -> int:
     splash = make_splash(__version__)
     splash.show()
     app.processEvents()
+    timer.mark("splash")
     lib = settings.make_library()
     if lib is not None:
         lib.prefetch()
     from .ui.main_window import MainWindow
 
+    timer.mark("import")
     window = MainWindow(settings)
+    timer.mark("window")
     window.show()
     splash.finish(window)
+
+    def log_startup() -> None:
+        timer.mark("shown")
+        info = "app={v} exe={e} fake={f}".format(
+            v=__version__,
+            e=int(bool(getattr(sys, "frozen", False))),
+            f=int(settings.use_fake_library),
+        )
+        line = timer.line(extra=dict(library.prefetch_seconds), info=info)
+        startup_log.append(settings.startup_log(), line)
+
+    QTimer.singleShot(0, log_startup)  # po prvním kroku smyčky: okno je opravdu vidět
     if "--smoke" in args:
         QTimer.singleShot(500, app.quit)
     return app.exec()

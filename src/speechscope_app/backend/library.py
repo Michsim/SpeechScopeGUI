@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +29,8 @@ CHILD_ENV = "SPEECHSCOPE_APP_CHILD"
 #: vláknech souběžně; `Library.run` si výsledek vezme místo nového podprocesu.
 _prefetched: dict[tuple[str, ...], Future[subprocess.CompletedProcess[str]]] = {}
 _executor: ThreadPoolExecutor | None = None
+#: Jak dlouho který dotaz puštěný napřed trval (klíč `lib_list`…), pro `startup.log`.
+prefetch_seconds: dict[str, float] = {}
 
 
 def _run_argv(argv: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
@@ -42,6 +45,14 @@ def _run_argv(argv: list[str], timeout: float) -> subprocess.CompletedProcess[st
         timeout=timeout,
         check=False,
     )
+
+
+def _timed_run(label: str, argv: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
+    start = time.perf_counter()
+    try:
+        return _run_argv(argv, timeout)
+    finally:
+        prefetch_seconds[label] = time.perf_counter() - start
 
 
 def forget_prefetched() -> None:
@@ -234,14 +245,14 @@ class Library:
         global _executor
         if _executor is None:
             _executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="prefetch")
-        for args in (
-            command.list_args(models_dir=self.models_dir, lang=self.lang),
-            command.providers_args(models_dir=self.models_dir, lang=self.lang),
-            command.models_list_args(models_dir=self.models_dir, lang=self.lang),
+        for label, args in (
+            ("lib_list", command.list_args(models_dir=self.models_dir, lang=self.lang)),
+            ("lib_providers", command.providers_args(models_dir=self.models_dir, lang=self.lang)),
+            ("lib_models", command.models_list_args(models_dir=self.models_dir, lang=self.lang)),
         ):
             argv = self.argv(args)
             if tuple(argv) not in _prefetched:
-                _prefetched[tuple(argv)] = _executor.submit(_run_argv, argv, 120)
+                _prefetched[tuple(argv)] = _executor.submit(_timed_run, label, argv, 120)
 
     def run_json(self, args: list[str], *, ok_codes: tuple[int, ...] = (0,)) -> Any:
         proc = self.run(args)

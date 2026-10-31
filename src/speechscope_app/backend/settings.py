@@ -311,6 +311,10 @@ class AppSettings:
         """Vlastní prahy kontroly kvality (`backend/quality.py`); bez souboru platí přibalené."""
         return app_data_dir() / "quality.yaml"
 
+    def startup_log(self) -> Path:
+        """Časy startu aplikace (`backend/startup_log.py`), jde i do diagnostiky."""
+        return app_data_dir() / "startup.log"
+
     def tasks_file(self) -> Path:
         """Vlastní úlohy uživatele (`backend/tasks.py`), vedle protokolů a norem."""
         return app_data_dir() / "tasks.json"

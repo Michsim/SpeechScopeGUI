@@ -39,6 +39,7 @@ def test_bundle_contents(settings: AppSettings, fake_library: Library, tmp_path:
     write_run_file(run, status="ok", processed=1, total=1)
     settings.protocols_dir().mkdir(parents=True)
     Protocol(name="Moje", task="spontaneous").save(settings.protocols_dir() / "moje.yaml")
+    settings.startup_log().write_text("2026-10-31 total=3.80", encoding="utf-8")
 
     target = tmp_path / default_name()
     members = build_bundle(target, settings=settings, library=fake_library, report=None)
@@ -46,6 +47,7 @@ def test_bundle_contents(settings: AppSettings, fake_library: Library, tmp_path:
     assert set(members) == {
         "info.json",
         "doctor.json",
+        "startup.log",
         "protocols/moje.yaml",
         f"runs/{run.name}/speechscope.log",
         f"runs/{run.name}/protocol.yaml",

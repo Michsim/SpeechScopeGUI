@@ -1,7 +1,7 @@
 """Diagnostický balíček: zip, který klinika pošle, když něco nefunguje.
 
 Obsah: `info.json` (verze aplikace a knihovny, Python, systém, nastavení),
-`doctor.json`, vlastní protokoly a z posledních běhů log, protokol,
+`doctor.json`, `startup.log` (časy startu), vlastní protokoly a z posledních běhů log, protokol,
 config a run.json. Nikdy ne nahrávky, tabulky výsledků ani manifest
 s metadaty pacientů; v logu ale zůstávají názvy souborů nahrávek.
 """
@@ -85,6 +85,7 @@ def build_bundle(
             "info.json", json.dumps(collect_info(settings, library), ensure_ascii=False, indent=2)
         )
         add_text("doctor.json", json.dumps(report or {}, ensure_ascii=False, indent=2))
+        add_file("startup.log", settings.startup_log())
         protocols_dir = settings.protocols_dir()
         if protocols_dir.is_dir():
             for path in sorted(protocols_dir.glob("*.yaml")):
