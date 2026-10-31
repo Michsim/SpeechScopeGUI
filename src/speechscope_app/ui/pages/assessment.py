@@ -57,6 +57,7 @@ from ...backend.assessments import (
     norm_match,
     patient_key,
     resolve,
+    run_protocol_name,
 )
 from ...backend.catalog import Catalog, PatientPrefs
 from ...backend.dimensions import (
@@ -1922,8 +1923,10 @@ class AssessmentPage(QWidget):
         )
         band = worst_band(self._evaluation)
         self.header.set_role(BAND_ROLES.get(band, "neutral"))
-        # štítky dimenzí v hlavičce odstraněny (31. 10. 2026): totéž říká pavouk a strom
-        self.header.set_pills([])
+        # štítky dimenzí v hlavičce odstraněny (31. 10. 2026): totéž říká pavouk a strom;
+        # zůstává jen varování, že úloha pacienta je spočítaná jiným protokolem než norma
+        mismatch = protocol_mismatch(visit, norm)
+        self.header.set_pills([(mismatch[0], "warn", mismatch[1], None)] if mismatch else [])
         self._fill_chart(self._evaluation)
         self._fill_tree(self._evaluation)
         self.selection_label.setText(self._selection_text(visit, self._evaluation))
@@ -2999,6 +3002,41 @@ def _versions_tooltip(item: ItemResult) -> str:
     return "\n" + tr("Verze feature {patient} u pacienta, {norm} u kontrol normy.").format(
         patient=patient, norm=control
     )
+
+
+def protocol_mismatch(visit: Visit, norm: Norm | None) -> tuple[str, str] | None:
+    """Štítek a tooltip, když se úloha pacienta počítala jiným protokolem než norma."""
+    if norm is None or not norm.info.protocols:
+        return None
+    lines: list[str] = []
+    labels: list[str] = []
+    for rec in sorted(visit.recordings, key=lambda r: tasks.task_order(r.task)):
+        if norm_match(rec, norm.info.protocols) is not False:
+            continue
+        label = tasks.label(rec.task)
+        if label in labels:
+            continue
+        labels.append(label)
+        lines.append(
+            tr("{task}: pacient {patient}, norma {norm}").format(
+                task=label,
+                patient=run_protocol_name(rec.run.dir) or "?",
+                norm=norm.info.protocols.get(rec.task, ""),
+            )
+        )
+    if not labels:
+        return None
+    text = tr("jiný protokol než norma: {tasks}").format(tasks=", ".join(labels))
+    tooltip = "\n".join(
+        [
+            *lines,
+            tr(
+                "Položky z těchto úloh se počítaly jinak než kontroly, srovnání je jen "
+                "orientační. Pomůže Přepočítat… s protokolem normy."
+            ),
+        ]
+    )
+    return text, tooltip
 
 
 def _changed_versions(recs: list[Recording], norm: Norm | None) -> list[str]:

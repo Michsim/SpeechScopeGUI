@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import Qt
 from pytestqt.qtbot import QtBot
 from test_norms import controls_frame
 
@@ -423,3 +424,172 @@ def test_quality_thresholds_dialog_saves_and_refreshes(qtbot: QtBot, settings: A
     dialog.reset_defaults()
     dialog.accept()
     assert not settings.quality_file().exists()
+
+
+def test_norm_from_runs_and_add_controls(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    from test_norm_build import HNR, _rec, _run
+
+    from speechscope_app.backend.norm_build import load_plan
+    from speechscope_app.ui.new_norm_dialog import RUNS
+
+    a, b, p = _rec(tmp_path, "HC01.wav"), _rec(tmp_path, "HC02.wav"), _rec(tmp_path, "PD01.wav")
+    _run(
+        tmp_path,
+        "2026-10-14_10-00-00_fonace",
+        [
+            {"path": a, "subject": "HC01", "age": 60, "sex": "m", "group": "HC", HNR: 10.0},
+            {"path": b, "subject": "HC02", "age": "", "sex": "f", "group": "HC", HNR: 12.0},
+            {"path": p, "subject": "PD01", "age": 66, "sex": "f", "group": "PD", HNR: 5.0},
+        ],
+    )
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.nav.setCurrentRow(PAGE_NORMS)
+    page = window.norms_page
+
+    # nová norma z hotového běhu, jen skupina HC
+    dialog = window.make_new_norm_dialog()
+    qtbot.addWidget(dialog)
+    assert dialog.runs_card.isEnabled()
+    dialog.set_source(RUNS)
+    assert dialog.runs_box.isVisibleTo(dialog) and not dialog.folders_box.isVisibleTo(dialog)
+    dialog.name.setText("Z běhů")
+    holder = dialog.runs_table.cellWidget(0, 5)  # Vybrat…: obal musí myš propustit
+    assert not holder.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    dialog.set_runs("phonation", dialog.runs_for("phonation"))
+    assert dialog.set_group_filter("group", "HC")
+    assert dialog.next_btn.isEnabled() and "2 nahrávek · 2 kontrol" in dialog.hint.text()
+    assert dialog.group_count.text() == "(2 z 3)"
+    assert dialog.runs_table.item(0, 3).text() == "2"  # fonace: nahrávek po filtru
+    assert dialog.runs_table.item(0, 2).text() == "Fonace, základní"
+    dialog.go_next()
+    assert dialog.table.rowCount() == 2 and not dialog.rule.isVisibleTo(dialog)
+    assert "chybí věk" in dialog.table.item(1, 4).text()
+    dialog.set_age("HC02", 58)
+    dialog.go_next()
+    assert dialog.next_btn.text() == "Sestavit" and "Nic se nepočítá" in dialog.summary_text.text()
+    plan = dialog.plan()
+    assert window.start_norm(plan) == 0  # nic do fronty, sestaví se hned
+    norm = norms_mod.Norm.load(plan.folder)
+    assert norm.subjects == 2 and norm.info.protocols == {"phonation": "Fonace, základní"}
+    people = norm.controls.set_index("subject")
+    assert people.loc["HC02", "age"] == 58 and "PD01" not in people.index
+    page.reload(select=plan.folder)
+    assert page.current().path == plan.folder and page.add_btn.isEnabled()
+    assert page.recompute_btn.isEnabled()  # zdrojové nahrávky jsou na disku
+
+    # Přidat kontroly z dalšího běhu: HC01 už v normě je (přeskočí se), HC03 přibude
+    c, a2 = _rec(tmp_path, "HC03.wav"), _rec(tmp_path, "HC01_znovu.wav")
+    _run(
+        tmp_path,
+        "2026-10-20_10-00-00_fonace-dalsi",
+        [
+            {"path": c, "subject": "HC03", "age": 71, "sex": "m", HNR: 14.0},
+            {"path": a2, "subject": "HC01", "age": 60, "sex": "m", HNR: 30.0},
+        ],
+    )
+    extend = window.make_new_norm_dialog(extend=load_plan(plan.folder))
+    qtbot.addWidget(extend)
+    assert "Přidat kontroly" in extend.windowTitle() and extend.name.isHidden()
+    extend.set_source(RUNS)
+    newest = extend.runs_for("phonation")[0]
+    assert newest.dir.name.endswith("fonace-dalsi")
+    extend.set_runs("phonation", [newest])
+    extend.go_next()  # Přidat kontroly má dva kroky: tabulka kontrol je poslední
+    assert extend.step_pills[2].isHidden()
+    assert not extend.policy_row.isHidden() and extend.next_btn.text() == "Přidat"
+    states = {extend.table.item(r, 0).text(): extend.table.item(r, 3).text() for r in range(2)}
+    assert states == {"HC01": "už v normě · přeskočí se", "HC03": "nová"}
+    assert "Přidá se 1 nahrávek, 1 se přeskočí" in extend.extend_summary.text()
+    extend.set_replace(True)
+    assert "Přidá se 2 nahrávek" in extend.extend_summary.text()
+    assert extend.table.item(0, 3).text() == "nahradí se"
+    extend.set_replace(False)
+    ext, replace = extend.extension()
+    assert window.extend_norm(load_plan(plan.folder), ext, replace=replace) == 0
+    norm = norms_mod.Norm.load(plan.folder)
+    people = norm.controls.set_index("subject")
+    assert norm.subjects == 3 and people.loc["HC01", HNR] == 10.0  # stará HC01 zůstala
+
+    # Přidat kontroly z nahrávek: dávka s protokolem normy, norma zůstane, pak se sestaví
+    data = tmp_path / "nove"
+    data.mkdir()
+    (data / "HC04_a.wav").write_bytes(b"RIFF")
+    extend = window.make_new_norm_dialog(extend=load_plan(plan.folder))
+    qtbot.addWidget(extend)
+    extend.set_folder("phonation", data)
+    assert not extend.rows["phonation"].protocol.isEnabled()
+    extend.go_next()
+    extend.set_age("HC04", 66)
+    extend.set_sex("HC04", "f")
+    assert extend.next_btn.text() == "Spustit" and extend.next_btn.isEnabled()
+    ext, replace = extend.extension()
+    assert ext.tasks[0].proto().name == "Fonace, základní"
+    assert window.extend_norm(load_plan(plan.folder), ext, replace=replace) == 1
+    page.reload(select=plan.folder)
+    assert page.current_plan() is not None and "Přidávají se kontroly" in (
+        page.plan_header.subtitle.text()
+    )
+    assert page.discard_btn.text() == "Zrušit přidání…"
+    qtbot.waitUntil(lambda: not load_plan(plan.folder).recomputing, timeout=30000)
+    qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=10000)
+    norm = norms_mod.Norm.load(plan.folder)
+    assert norm.subjects == 4
+    assert norm.controls.set_index("subject").loc["HC04", "age"] == 66
+    assert not load_plan(plan.folder).extending
+
+
+def test_pick_runs_analyses_and_assessments_with_patient_warning(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    import json
+
+    from test_norm_build import HNR, _rec, _run
+
+    from speechscope_app.backend.history import read_run
+    from speechscope_app.backend.protocol import builtin_protocols
+    from speechscope_app.ui.new_norm_dialog import RUNS, NewNormDialog, PickRunsDialog
+
+    analysis = _run(
+        tmp_path,
+        "2026-10-14_10-00-00_fonace",
+        [{"path": _rec(tmp_path, "HC01.wav"), "subject": "HC01", HNR: 1.0}],
+    )
+    visit = _run(
+        tmp_path,
+        "2026-10-28_21-21-29_hodnoceni-hn032",
+        [{"path": _rec(tmp_path, "HN032.wav"), "subject": "HN032", HNR: 2.0}],
+    )
+    run_json = visit.dir / "run.json"
+    data = json.loads(run_json.read_text(encoding="utf-8"))
+    data.update(assessment="a1", patient="HN032")
+    run_json.write_text(json.dumps(data), encoding="utf-8")
+    visit = read_run(visit.dir)
+    assert visit is not None and visit.kind == "assessment"
+
+    pick = PickRunsDialog("phonation", [visit, analysis], [])
+    qtbot.addWidget(pick)
+    assert pick.table.rowCount() == 1 and pick.note.isHidden()  # výchozí jen analýzy
+    pick.show_assessments(True)
+    assert pick.table.rowCount() == 1 and pick.table.item(0, 2).text() == "HN032"
+    pick.search.setText("xyz")
+    assert pick.table.rowCount() == 0
+    pick.search.setText("hn0")
+    pick.check_all(True)
+    pick.show_assessments(False)  # výběr přežije přepnutí, analýza zůstane nevybraná
+    assert [r.dir for r in pick.chosen()] == [visit.dir] and pick.count.text() == "vybráno 1"
+
+    # pojistka: kontrola normy je zároveň pacient na stránce Pacienti
+    dialog = NewNormDialog(
+        builtin_protocols(), tmp_path / "norms", runs=[analysis, visit], patients={"hn032"}
+    )
+    qtbot.addWidget(dialog)
+    dialog.name.setText("S hodnocením")
+    dialog.set_source(RUNS)
+    dialog.set_runs("phonation", [analysis, visit])
+    dialog.go_next()
+    dialog.go_next()
+    assert dialog.patients_in_norm() == ["HN032"]
+    assert "zároveň na stránce Pacienti (HN032)" in dialog.warnings.text()

@@ -286,6 +286,10 @@ def test_norm_protocol_mismatch_is_shown(qtbot: QtBot, settings: AppSettings) ->
     page.save_from(dialog)
     assert page.recordings.item(0, 3).text() == "jiný protokol než norma"
     assert "jen orientační" in page.recordings_note.text()
+    # štítek v hlavičce pacienta, v tooltipu oba protokoly
+    pills = page.header._pill_widgets
+    assert [p.text() for p in pills] == ["jiný protokol než norma: Fonace"]
+    assert "norma Fonace, základní" in pills[0].toolTip()
 
 
 def test_recompute_with_pending_plan_in_list(qtbot: QtBot, settings: AppSettings) -> None:

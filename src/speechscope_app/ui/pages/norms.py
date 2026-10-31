@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QTableWidget,
@@ -79,6 +80,24 @@ from ..widgets.status_header import StatusHeader
 
 NORM_FILTER = "Norma SpeechScope (*.ssnorm)"
 
+
+def _scroll(widget: QWidget) -> QScrollArea:
+    """Detail stránky v posuvné ploše bez rámečku, jen svisle."""
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setFrameShape(QFrame.Shape.NoFrame)
+    area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    area.setStyleSheet("QScrollArea { background: transparent; }")
+    widget.setObjectName("norm_detail")
+    widget.setStyleSheet("#norm_detail { background: transparent; }")
+    area.setWidget(widget)
+    # posouvá se jen svisle; užší než obsah být nesmí, jinak se ořežou tlačítka hlavičky
+    area.setMinimumWidth(
+        widget.minimumSizeHint().width() + area.verticalScrollBar().sizeHint().width()
+    )
+    return area
+
+
 PLAN_STATUS = {
     PENDING: (N_("čeká"), "neutral"),
     RUNNING: (N_("počítá se"), "accent"),
@@ -95,6 +114,14 @@ def plan_status_text(status: str) -> str:
 def plan_pill(plan: NormPlan) -> tuple[str, str]:
     """Štítek rozpracované normy: počítá se, čeká na sestavení, nebo čeká."""
     n, k = len(plan.tasks), plan.done
+    if plan.extending:  # počítají se jen přidané dávky
+        added = [t for t in plan.tasks if t.added]
+        n, k = len(added), sum(1 for t in added if t.finished)
+        if any(t.status == RUNNING for t in added):
+            return tr("přidávají se kontroly {k} z {n}").format(k=k, n=n), "accent"
+        if all(t.finished for t in added):
+            return tr("čeká na sestavení"), "warn"
+        return tr("přidání kontrol {k} z {n}").format(k=k, n=n), "neutral"
     if any(t.status == RUNNING for t in plan.tasks):
         if plan.recomputing:
             return tr("přepočítává se {k} z {n}").format(k=k, n=n), "accent"
@@ -321,6 +348,7 @@ class NormsPage(QWidget):
     resume_requested = Signal(object)  # složka plánu: dopočítat zbývající dávky
     discard_requested = Signal(object)  # složka plánu: zahodit rozpracovanou normu
     recompute_requested = Signal(object)  # složka normy: spočítat znovu současnou knihovnou
+    add_controls_requested = Signal(object)  # složka normy: průvodce Přidat kontroly
     notice = Signal(str)  # krátká hláška do stavového řádku hlavního okna
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -402,14 +430,16 @@ class NormsPage(QWidget):
         self.export_btn = QPushButton(tr("Export…"))
         self.export_btn.setToolTip(tr("Norma jako jeden soubor pro kolegu nebo jiné pracoviště"))
         self.export_btn.clicked.connect(self.export_current)
+        self.add_btn = QPushButton(tr("Přidat kontroly…"))
+        self.add_btn.clicked.connect(lambda: self._add_current())
         self.recompute_btn = QPushButton(tr("Přepočítat…"))
         self.recompute_btn.clicked.connect(lambda: self._recompute_current())
         self.delete_btn = QPushButton(tr("Smazat…"))
         theme.set_role(self.delete_btn, "danger")
         self.delete_btn.clicked.connect(self.delete_current)
-        self.header.add_button(self.export_btn)
-        self.header.add_button(self.recompute_btn)
-        self.header.add_button(self.delete_btn)
+        for btn in (self.export_btn, self.add_btn, self.recompute_btn, self.delete_btn):
+            btn.setMinimumWidth(btn.sizeHint().width())  # v úzkém okně se neořízne text
+            self.header.add_button(btn)
         right_layout.addWidget(self.header)
 
         self.problems = QLabel("")
@@ -489,9 +519,11 @@ class NormsPage(QWidget):
         bottom.addWidget(about_card, 1)
         right_layout.addLayout(bottom)
         right_layout.addStretch(1)
-        self.detail = right
-        self.splitter.addWidget(right)
-        self.plan_detail = self._build_plan_detail()
+        # detail v posuvné ploše: v menším okně by tabulka kontrol a histogram byly
+        # useknuté bez možnosti posunu
+        self.detail = _scroll(right)
+        self.splitter.addWidget(self.detail)
+        self.plan_detail = _scroll(self._build_plan_detail())
         self.splitter.addWidget(self.plan_detail)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
@@ -537,8 +569,15 @@ class NormsPage(QWidget):
         return box
 
     def _update_recompute(self, norm: Norm | None) -> None:
-        """Přepočítat… jen pro normu s uloženým plánem, jehož nahrávky ještě existují."""
+        """Přepočítat… jen pro normu s uloženým plánem, jehož nahrávky ještě existují;
+        Přidat kontroly… pro každou normu s plánem."""
         plan = load_plan(norm.path) if norm is not None and norm.path and not norm.builtin else None
+        self.add_btn.setEnabled(plan is not None)
+        self.add_btn.setToolTip(
+            tr("Další kontroly z nahrávek nebo z hotových běhů; norma se sestaví znovu.")
+            if plan is not None
+            else tr("Importovanou nebo přibalenou normu doplnit nejde.")
+        )
         if plan is None:
             self.recompute_btn.setEnabled(False)
             self.recompute_btn.setToolTip(
@@ -567,6 +606,11 @@ class NormsPage(QWidget):
             )
         )
 
+    def _add_current(self) -> None:
+        norm = self.current()
+        if norm is not None and norm.path is not None:
+            self.add_controls_requested.emit(norm.path)
+
     def _recompute_current(self) -> None:
         norm = self.current()
         if norm is not None and norm.path is not None:
@@ -579,16 +623,26 @@ class NormsPage(QWidget):
 
     def _show_plan(self, plan: NormPlan) -> None:
         self.plan_header.title.setText(plan.info.display_name)
-        self.plan_header.subtitle.setText(
-            (
-                tr("Přepočet normy · {n} kontrol")
-                if plan.recomputing
-                else tr("Rozpracovaná norma · {n} kontrol")
-            ).format(n=len(plan.controls))
-        )
-        self.discard_btn.setText(tr("Zrušit přepočet…") if plan.recomputing else tr("Zahodit…"))
+        if plan.extending:
+            subtitle = tr("Přidávají se kontroly · {n} kontrol")
+        elif plan.recomputing:
+            subtitle = tr("Přepočet normy · {n} kontrol")
+        else:
+            subtitle = tr("Rozpracovaná norma · {n} kontrol")
+        self.plan_header.subtitle.setText(subtitle.format(n=len(plan.controls)))
+        if plan.extending:
+            discard = tr("Zrušit přidání…")
+        else:
+            discard = tr("Zrušit přepočet…") if plan.recomputing else tr("Zahodit…")
+        self.discard_btn.setText(discard)
         self.plan_note.setText(
             tr(
+                "Přidané kontroly se počítají na stránce Výpočet. Dosavadní norma zůstává "
+                "použitelná; po poslední dávce se sestaví znovu i s nimi. Zrušit přidání "
+                "ji nechá beze změny."
+            )
+            if plan.extending
+            else tr(
                 "Dávky se počítají na stránce Výpočet. Dosavadní norma zůstává použitelná, "
                 "dokud přepočet neskončí; po poslední dávce se přepíše. Zrušit přepočet "
                 "ji nechá beze změny."

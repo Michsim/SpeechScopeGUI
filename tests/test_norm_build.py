@@ -225,3 +225,157 @@ def test_recompute_resets_plan_and_keeps_old_norm_until_finished(tmp_path: Path)
     # chybějící nahrávka
     (tmp_path / "fonace" / "HC01_a.wav").unlink()
     assert load_plan(plan.folder).missing_inputs() == [tmp_path / "fonace" / "HC01_a.wav"]
+
+
+# --- norma z hotových běhů, přidané kontroly ----------------------------------------
+
+
+def _run(tmp_path: Path, name: str, rows: list[dict], task: str = "phonation"):  # noqa: ANN202
+    """Hotový běh se zadanými řádky, protokolem a run.json; vrátí RunInfo."""
+    from speechscope_app.backend.history import read_run
+
+    run = tmp_path / "work" / name
+    run.mkdir(parents=True)
+    (run / "speechscope.log").write_text("", encoding="utf-8")
+    proto = default_protocol(task, builtin_protocols())
+    proto.save(run / "protocol.yaml")
+    write_run_file(run, status="ok", kind="extract", protocol=proto.name, total=len(rows))
+    frame = pd.DataFrame([{"file": Path(r["path"]).name, "task": task, **r} for r in rows])
+    frame.to_csv(run / "features.csv", index=False)
+    info = read_run(run)
+    assert info is not None
+    return info
+
+
+def _rec(tmp_path: Path, name: str) -> str:
+    path = tmp_path / "data" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"RIFF")
+    return str(path)
+
+
+HNR = "acoustic.quality.perturbation.hnr"
+
+
+def test_norm_from_runs_filters_group_and_prefers_newer_run(tmp_path: Path) -> None:
+    from speechscope_app.backend.norm_build import (
+        controls_from_scan,
+        plan_from_runs,
+        run_columns,
+        scan_runs,
+    )
+
+    a, b, p = _rec(tmp_path, "HC01.wav"), _rec(tmp_path, "HC02.wav"), _rec(tmp_path, "PD01.wav")
+    older = _run(
+        tmp_path,
+        "2026-10-14_10-00-00_fonace",
+        [
+            {"path": a, "subject": "HC01", "age": 60, "sex": "m", "group": "HC", HNR: 10.0},
+            {"path": p, "subject": "PD01", "age": 66, "sex": "f", "group": "PD", HNR: 5.0},
+        ],
+    )
+    newer = _run(
+        tmp_path,
+        "2026-10-20_10-00-00_fonace-doplneni",
+        [
+            {"path": a, "subject": "HC01", "age": 60, "sex": "m", "group": "HC", HNR: 20.0},
+            {"path": b, "subject": "HC02", "age": "", "sex": "f", "group": "HC", HNR: 21.0},
+        ],
+    )
+    runs = {"phonation": [newer, older]}
+    assert run_columns([older, newer])["group"] == ["HC", "PD"]
+    scan = scan_runs(runs, "group", "HC")
+    assert scan.outside == 1 and len(scan.rows) == 2  # PD vynechán, HC01 jen jednou
+    assert {r.run_dir for r in scan.rows} == {newer.dir}  # novější běh vyhrál
+    controls = controls_from_scan(scan)
+    assert controls["HC02"].age is None
+    controls["HC02"].age = 58  # doplněno ručně v průvodci
+    plan, problems = plan_from_runs(
+        NormInfo(name="Z běhů"), tmp_path / "norms" / "z-behu", runs, scan, controls
+    )
+    assert problems == [] and [t.key for t in plan.tasks] == ["phonation"]
+    assert plan.all_ok and plan.remaining() == []  # nic se nepočítá
+    plan.save()
+    norm = finish_plan(plan)
+    assert norm.subjects == 2
+    people = norm.controls.set_index("subject")
+    assert people.loc["HC01", HNR] == 20.0  # z novějšího běhu
+    assert people.loc["HC02", "age"] == 58  # věk z tabulky kontrol přebil prázdnou buňku
+    assert "PD01" not in people.index
+    # přepočet: dávky z běhů se dají spočítat znovu, nahrávky jsou na disku
+    loaded = load_plan(plan.folder)
+    assert loaded is not None and loaded.missing_inputs() == []
+
+
+def test_two_runs_of_one_task_are_two_batches(tmp_path: Path) -> None:
+    from speechscope_app.backend.norm_build import plan_from_runs, scan_runs, task_of_key
+
+    a, b = _rec(tmp_path, "HC01.wav"), _rec(tmp_path, "HC02.wav")
+    r1 = _run(tmp_path, "2026-10-14_10-00-00_f1", [{"path": a, "subject": "HC01", HNR: 1.0}])
+    r2 = _run(tmp_path, "2026-10-15_10-00-00_f2", [{"path": b, "subject": "HC02", HNR: 2.0}])
+    runs = {"phonation": [r1, r2]}
+    plan, _ = plan_from_runs(NormInfo(name="N"), tmp_path / "n", runs, scan_runs(runs), {})
+    assert [t.key for t in plan.tasks] == ["phonation", "phonation#1"]
+    assert task_of_key("phonation#1") == "phonation" and task_of_key("ddk@2026-10-01") == "ddk"
+    plan.save()
+    assert [t.key for t in NormPlan.load(plan.folder).tasks] == ["phonation", "phonation#1"]
+    assert finish_plan(plan).subjects == 2
+
+
+def test_extend_plan_skips_or_replaces_and_cancel_drops(tmp_path: Path) -> None:
+    from speechscope_app.backend.norm_build import Extension, extend_plan, plan_from_runs, scan_runs
+
+    a, b = _rec(tmp_path, "HC01.wav"), _rec(tmp_path, "HC01_novy.wav")
+    c = _rec(tmp_path, "HC03.wav")
+    base = _run(tmp_path, "2026-10-14_10-00-00_f", [{"path": a, "subject": "HC01", HNR: 1.0}])
+    runs = {"phonation": [base]}
+    plan, _ = plan_from_runs(NormInfo(name="N"), tmp_path / "n", runs, scan_runs(runs), {})
+    plan.save()
+    finish_plan(plan)
+
+    def ext() -> Extension:
+        proto = plan.protocol_for("phonation")
+        assert proto is not None
+        return Extension(
+            [TaskPlan("phonation", proto, [Path(a), Path(b), Path(c)])],
+            {Path(a): "HC01", Path(b): "HC01", Path(c): "HC03"},
+            {"HC03": Control("HC03", 70.0, "f")},
+        )
+
+    # přeskočit: HC01 už v normě je (a stejná nahrávka vždy), přidá se jen HC03
+    assert extend_plan(plan, ext(), replace=False) == (1, 2)
+    added = plan.tasks[-1]
+    assert added.added and added.key == "phonation#1" and added.inputs == [Path(c)]
+    assert plan.recomputing and plan.extending and plan.controls["HC03"].age == 70.0
+    plan.cancel_recompute()  # zrušit: přidané zmizí, norma zůstane
+    assert [t.key for t in plan.tasks] == ["phonation"] and Path(c) not in plan.files
+
+    # nahradit: nová nahrávka HC01 nahradí starou, až má dávka tabulku
+    assert extend_plan(plan, ext(), replace=True) == (2, 1)
+    added = plan.tasks[-1]
+    assert added.inputs == [Path(b), Path(c)] and added.replaces == [Path(a)]
+    newer = _run(
+        tmp_path,
+        "2026-10-21_10-00-00_f-pridane",
+        [{"path": b, "subject": "HC01", HNR: 9.0}, {"path": c, "subject": "HC03", HNR: 3.0}],
+    )
+    added.status, added.run_dir = OK, newer.dir
+    norm = finish_plan(plan)
+    people = norm.controls.set_index("subject")
+    assert norm.subjects == 2 and people.loc["HC01", HNR] == 9.0  # stará HC01 vypadla
+    assert not plan.recomputing and not plan.extending
+    assert Path(a) not in plan.files and [t.key for t in plan.tasks] == ["phonation#1"]
+
+
+def test_run_without_subject_column_uses_file_names(tmp_path: Path) -> None:
+    from speechscope_app.backend.norm_build import scan_runs
+
+    a, b = _rec(tmp_path, "HC01_ddk.wav"), _rec(tmp_path, "HC02_ddk.wav")
+    run = _run(tmp_path, "2026-10-27_23-58-05_ddk", [{"path": a}, {"path": b}], task="ddk")
+    scan = scan_runs({"ddk": [run]})  # analýza bez manifestu: žádný sloupec subject
+    assert [r.subject for r in scan.rows] == ["HC01", "HC02"]
+    assert scan.from_name == 2 and scan.no_subject == 0
+    assert [r.subject for r in scan_runs({"ddk": [run]}, rule="stem").rows] == [
+        "HC01_ddk",
+        "HC02_ddk",
+    ]

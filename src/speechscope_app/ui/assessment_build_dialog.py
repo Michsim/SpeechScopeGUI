@@ -79,11 +79,15 @@ from .widgets.status_header import Pill
 
 
 class ChoiceCard(QFrame):
-    """Karta s přepínačem a popisem; klik kamkoli do karty ji vybere, dvojklik potvrdí."""
+    """Karta s přepínačem a popisem; klik kamkoli do karty ji vybere, dvojklik potvrdí.
+
+    Bez kolečka přepínače, výběr ukazuje jen modré zvýraznění karty (`indicator=True` ho vrátí)."""
 
     activated = Signal()  # dvojklik
 
-    def __init__(self, title: str, hint: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, title: str, hint: str, parent: QWidget | None = None, *, indicator: bool = False
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("card")
         self.setProperty("role", "option")
@@ -93,12 +97,16 @@ class ChoiceCard(QFrame):
         layout.setSpacing(2)
         self.radio = QRadioButton(title)
         self.radio.setObjectName("card_title")
+        if not indicator:
+            self.radio.setStyleSheet(
+                "QRadioButton::indicator { width: 0; height: 0; } QRadioButton { spacing: 0; }"
+            )
         self.radio.toggled.connect(self._toggled)
         layout.addWidget(self.radio)
         desc = QLabel(hint)
         desc.setObjectName("muted")
         desc.setWordWrap(True)
-        desc.setContentsMargins(24, 0, 0, 0)
+        desc.setContentsMargins(24 if indicator else 0, 0, 0, 0)
         layout.addWidget(desc)
 
     def _toggled(self, checked: bool) -> None:

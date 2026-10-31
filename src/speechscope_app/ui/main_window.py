@@ -60,10 +60,14 @@ from ..backend.norm_build import (
     CANCELLED,
     ERROR,
     OK,
+    PENDING,
     RUNNING,
+    Extension,
     NormPlan,
+    extend_plan,
     finish_plan,
     load_plan,
+    task_of_key,
 )
 from ..backend.norms import all_norms, outdated_features, register_custom_tasks
 from ..backend.protocol import Protocol, all_protocols, slugify
@@ -297,6 +301,7 @@ class MainWindow(QMainWindow):
         self.norms_page.resume_requested.connect(self.resume_norm)
         self.norms_page.discard_requested.connect(self.discard_norm)
         self.norms_page.recompute_requested.connect(self.recompute_norm)
+        self.norms_page.add_controls_requested.connect(self.add_controls)
         self.norms_page.thresholds_requested.connect(lambda: self.edit_quality_thresholds())
         self.assessment_page.new_from_recordings_requested.connect(
             self.new_assessment_from_recordings
@@ -871,7 +876,18 @@ class MainWindow(QMainWindow):
 
     # --- nová norma -------------------------------------------------------------
 
-    def make_new_norm_dialog(self) -> NewNormDialog:
+    def norm_source_runs(self) -> list[RunInfo]:
+        """Hotové běhy výpočtu feature, ze kterých jde normu sestavit nebo doplnit
+        (ne běžící, ne jen segmentace či přepis, ne běhy jiné normy)."""
+        out = []
+        for run in list_runs(self.settings.work_root):
+            if run.status == "running" or run.prepare or run.norm or not run.rows:
+                continue
+            if (run.dir / "features.csv").is_file():
+                out.append(run)
+        return out
+
+    def make_new_norm_dialog(self, extend: NormPlan | None = None) -> NewNormDialog:
         combo = self.batch_page.language
         languages = [str(combo.itemData(i)) for i in range(combo.count())]
         return NewNormDialog(
@@ -881,11 +897,15 @@ class MainWindow(QMainWindow):
             languages=languages,
             language=self.batch_page.language_code() or "cs",
             rate_lookup=self.settings.seconds_per_audio_minute,
+            runs=self.norm_source_runs(),
+            extend=extend,
+            patients={p.key for p in self.catalog.patients() if p.visits},
             parent=self,
         )
 
     def new_norm(self) -> None:
-        """Průvodce Nová norma; po Spustit dávky po úlohách do fronty."""
+        """Průvodce Nová norma; po Spustit dávky po úlohách do fronty, z hotových běhů
+        se norma sestaví hned."""
         if self.library is None:
             QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
             return
@@ -894,7 +914,44 @@ class MainWindow(QMainWindow):
             self.start_norm(dialog.plan())
 
     def start_norm(self, plan: NormPlan) -> int:
+        """Zařadí dávky plánu; plán bez dávek k výpočtu (z hotových běhů) rovnou sestaví."""
+        if not plan.remaining():
+            plan.save()
+            self._finish_norm(plan)
+            return 0
         return self.start_plan("norm", plan)
+
+    def add_controls(self, folder: Path) -> int:
+        """Přidat kontroly k vlastní normě (průvodce v režimu doplnění)."""
+        if self._plan_busy("norm", folder):
+            self.statusBar().showMessage(tr("Dávka normy ještě běží."), 6000)
+            return 0
+        plan = load_plan(folder)
+        if plan is None:
+            self.statusBar().showMessage(tr("Norma nemá uložené zdroje, doplnit nejde."), 8000)
+            return 0
+        dialog = self.make_new_norm_dialog(extend=plan)
+        if not dialog.exec():
+            return 0
+        ext, replace = dialog.extension()
+        return self.extend_norm(plan, ext, replace=replace)
+
+    def extend_norm(self, plan: NormPlan, ext: Extension, *, replace: bool) -> int:
+        """Přidá kontroly do plánu; z hotových běhů normu hned sestaví znovu, nahrávky
+        zařadí jako dávky (norma zůstane použitelná). Vrátí počet zařazených dávek."""
+        added, skipped = extend_plan(plan, ext, replace=replace)
+        if not added:
+            self.statusBar().showMessage(
+                tr("Nic se nepřidalo: všech {n} nahrávek už v normě je.").format(n=skipped), 8000
+            )
+            return 0
+        pending = [t for t in plan.tasks if t.added and t.status == PENDING]
+        if not pending:
+            plan.save()
+            self._finish_norm(plan)
+            return 0
+        self._drop_queued("norm", plan.folder)
+        return self.start_plan("norm", plan, only=pending)
 
     # --- plány dávek (norma) ---------------------------------------------------
 
@@ -914,15 +971,16 @@ class MainWindow(QMainWindow):
                 select=select.name.removesuffix(PLAN_SUFFIX) if select is not None else None
             )
 
-    def start_plan(self, kind: str, plan) -> int:  # noqa: ANN001
-        """Uloží plán a zařadí jeho nespočítané dávky; vrátí, kolik jich zařadil."""
+    def start_plan(self, kind: str, plan, only: list | None = None) -> int:  # noqa: ANN001
+        """Uloží plán a zařadí jeho nespočítané dávky (nebo jen `only`); vrátí, kolik
+        jich zařadil."""
         plan.save()
         queued = {(j.plan, j.plan_task) for j in self._queue if j.plan_kind == kind}
         running = getattr(self, "_running_plan", None) if self.run_page.runner.running else None
         running_key = (running[1], running[2]) if running and running[0] == kind else None
         jobs = [
             self._plan_job(kind, plan, task)
-            for task in plan.remaining()
+            for task in (plan.remaining() if only is None else only)
             if (plan.key, task.key) not in queued and (plan.key, task.key) != running_key
         ]
         self._submit_all(jobs)
@@ -980,7 +1038,7 @@ class MainWindow(QMainWindow):
         assessment = ""
         if running and running[0] == "assessment" and getattr(self, "_running_group", True):
             assessment = Path(running[1]).name.removesuffix(PLAN_SUFFIX)
-        task = str(running[2]).split("@", 1)[0] if running else ""  # klíč dávky bez data
+        task = task_of_key(str(running[2])) if running else ""  # klíč dávky bez data a pořadí
         return {
             "norm": self._running_norm_text(),
             "assessment": assessment,
@@ -1034,7 +1092,7 @@ class MainWindow(QMainWindow):
         kind = self._running_plan[0] if self._running_plan else ""
         plan = self._plan_status(status, run_dir)
         self._running_plan = None
-        if plan is not None and plan.all_finished and plan.all_ok:
+        if plan is not None and plan.complete:
             self._finish_plan(kind, plan)
         self._plans_changed(kind)
 
@@ -1307,10 +1365,17 @@ class MainWindow(QMainWindow):
             if confirm:
                 answer = QMessageBox.question(
                     self,
-                    tr("Zrušit přepočet"),
-                    tr(
-                        "Zrušit přepočet normy {name}? Dosavadní norma zůstane, dávky "
-                        "ve frontě se zruší, spočítané běhy zůstanou ve Výsledcích."
+                    tr("Zrušit přidání kontrol") if plan.extending else tr("Zrušit přepočet"),
+                    (
+                        tr(
+                            "Zrušit přidání kontrol k normě {name}? Norma zůstane beze změny, "
+                            "dávky ve frontě se zruší, spočítané běhy zůstanou ve Výsledcích."
+                        )
+                        if plan.extending
+                        else tr(
+                            "Zrušit přepočet normy {name}? Dosavadní norma zůstane, dávky "
+                            "ve frontě se zruší, spočítané běhy zůstanou ve Výsledcích."
+                        )
                     ).format(name=plan.info.display_name),
                 )
                 if answer != QMessageBox.StandardButton.Yes:

@@ -630,9 +630,38 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `NormInfo.protocols` (úloha → protokol) a verzi knihovny. Rozpracovaná
   norma má Dopočítat zbývající (`resume_norm`, přeskočí, co běží nebo čeká),
   Sestavit z hotových (`build_norm`) a Zahodit… (`discard_norm`, plán do
-  Koše, běhy zůstávají). Do složek s nahrávkami se nic nezapisuje. Zbývá:
-  varianta z hotových běhů, Přidat kontroly… a varování na Hodnocení, když
-  pacient nemá protokol z `NormInfo.protocols`.
+  Koše, běhy zůstávají). Do složek s nahrávkami se nic nezapisuje.
+- **Norma z hotových běhů a Přidat kontroly** (31. 10. 2026, mockup
+  https://claude.ai/artifact/VtrL28QPS7Hz2ydEWWGC25, `docs/mockups/normy-porovnani-dimenze/`
+  mimo git, část 1): průvodce má v kroku 1 karty Z nahrávek · Z hotových běhů (bez kolečka
+  přepínače, jen modré zvýraznění, `ChoiceCard` stejně i v Novém hodnocení; detail na Normách je v posuvné ploše
+  s minimální šířkou podle obsahu, tlačítka hlavičky mají minimální šířku podle textu)
+  (`set_source(RUNS)`, `set_runs(task, runs)` přes `PickRunsDialog`, tabulka `runs_table`
+  úloha · běhy · protokol (štítek „2 protokoly“) · nahrávek · kontrol podle živého `scan_runs`,
+  filtr „Jen řádky, kde sloupec = hodnota (n z m)“ `set_group_filter`; kroky 1 a 3 jsou
+  v `QScrollArea`, jinak minimální výška okna přetekla obrazovku a Windows hlásily
+  `QWindowsWindow::setGeometry`; `PickRunsDialog` má přepínač Analýzy · Hodnocení (výchozí
+  Analýzy, rozhodnuto: hodnocení jsou většinou pacienti), hledání podle běhu i pacienta,
+  Vybrat vše · Nic pro viditelné řádky; souhrn varuje, když je kontrola zároveň pacientem
+  z katalogu (`patients`, `patients_in_norm`); běh bez sloupce pacienta dá kontrolu z názvu
+  souboru podle pravidla z kroku 2 (`RunRow.from_name`); běhy z `MainWindow.norm_source_runs`: hotové výpočty
+  feature, ne normy, ne jen segmentace či přepis). Rozhodnuto: jiný protokol nebo verze feature
+  mezi běhy jedné úlohy jen varuje (`runs_problems`). Backend: týž `NormPlan`, každý zdrojový
+  běh je dávka OK s `run_dir`, víc běhů jedné úlohy = `TaskPlan.part` (klíč `úloha#n`,
+  `task_of_key`); `plan_from_runs`, `scan_runs` (novější běh vyhrává u téže nahrávky),
+  `controls_from_scan`. `finish_plan` bere jen řádky z `NormPlan.files` podle sloupce `path`
+  (`_select_rows`; tabulka bez jediné nahrávky plánu = starší běh, zůstane celá), věk a pohlaví
+  z tabulky kontrol přebijí metadata, duplicitní nahrávka = pozdější dávka. Plán bez dávek
+  k výpočtu `start_norm` rovnou sestaví. **Přidat kontroly…** na Normách (`add_controls_requested`
+  → `MainWindow.add_controls`, týž průvodce s `extend=plan`, jen dva kroky jako v mockupu 1b:
+  protokoly normy, tabulka kontrol se štítkem po úlohách nová · už v normě · přeskočí se ·
+  nahradí se (`addition_state`) a nad ní přeskočit · nahradit `set_replace`, `extension()`)
+  → `extend_plan`: dávky
+  s `added` a `replaces`; z běhů se norma sestaví hned, z nahrávek se zařadí jen přidané dávky
+  (`start_plan(only=…)`), norma je do sloučení rozpracovaná („přidávají se kontroly“,
+  `NormPlan.extending`, `complete` nečeká na starší spadlé dávky), Zrušit přidání… =
+  `cancel_recompute` přidané dávky zahodí. Na Pacientech štítek „jiný protokol než norma: úlohy“
+  v hlavičce (`protocol_mismatch`, oba protokoly v tooltipu).
 - **Přepočet normy** (30. 10. 2026): `plan.json` zůstává ve složce normy i po
   sestavení (do `.ssnorm` nejde, importovaná a přibalená norma přepočet nemá).
   Na Normách Přepočítat… (`recompute_requested` → `MainWindow.recompute_norm`),
