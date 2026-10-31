@@ -22,7 +22,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontMetrics, QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -45,6 +45,7 @@ from ...backend import tasks
 from ...backend.history import KINDS, RunGroup, RunInfo
 from ...i18n import tr
 from .. import theme
+from ..widgets.clean_table import card, cell, pill, style_table
 from ..widgets.run_history import STATUS_ROLES, Entry, _format_seconds, entry_contains
 from .results import ResultsPage
 from .run import RunPage
@@ -93,31 +94,6 @@ def _when(started: datetime | None, today: date | None = None) -> str:
     if day.year != today.year:
         return f"{day.day}. {day.month}. {day.year}"
     return f"{day.day}. {day.month}."
-
-
-def _cell_widget(*widgets: QWidget) -> QWidget:
-    """Obsah buňky (štítek, průběh) vlevo, průhledný pro myš: dvojklik dostane tabulka."""
-    holder = QWidget()
-    holder.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    layout = QHBoxLayout(holder)
-    layout.setContentsMargins(8, 0, 8, 0)
-    layout.setSpacing(6)
-    for widget in widgets:
-        layout.addWidget(widget, 0, Qt.AlignmentFlag.AlignVCenter)  # štítek ne přes celý řádek
-    layout.addStretch(1)
-    return holder
-
-
-def _pill(text: str, role: str) -> QLabel:
-    label = QLabel(text)
-    label.setObjectName("pill")
-    theme.set_role(label, role)
-    # štítek je tučně s odsazením ze stylu, ale ten se uplatní až po zobrazení: šířku
-    # spočítat napřed, jinak se v buňce tabulky ořízne („hotov“)
-    bold = QFont(label.font())
-    bold.setBold(True)
-    label.setMinimumWidth(QFontMetrics(bold).horizontalAdvance(text) + 24)
-    return label
 
 
 def _cells(entry: Entry) -> list[str]:
@@ -287,27 +263,8 @@ class RunsPage(QWidget):
         # uhlazená tabulka (podoba A, mockup https://claude.ai/artifact/J8iCqC36qpFSDbyip27jb6):
         # bílá karta, záhlaví malými písmeny, štítky stavu a úlohy, průběh v řádku, šipka ›
         self.table = QTableWidget()
-        self.table.setColumnCount(len(COLUMNS))
-        self.table.setHorizontalHeaderLabels([c.upper() for c in COLUMNS])
-        self.table.setFrameShape(QFrame.Shape.NoFrame)
-        self.table.setStyleSheet(
-            f"QTableWidget {{ background: {theme.CARD}; border: none; }}"
-            f"QTableWidget::item {{ border-bottom: 1px solid {theme.BORDER}; padding-left: 8px; }}"
-            f"QTableWidget::item:selected {{ background: {theme.ACCENT_SOFT}; }}"
-            f"QHeaderView::section {{ background: {theme.NEUTRAL_SOFT}; color: {theme.MUTED};"
-            f" border: none; border-bottom: 1px solid {theme.BORDER}; padding: 8px;"
-            " font-weight: 600; }"
-        )
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(44)
-        self.table.setShowGrid(False)
-        self.table.setAlternatingRowColors(False)
-        self.table.setWordWrap(False)
+        style_table(self.table, list(COLUMNS), row_height=44, selectable=True)
         header = self.table.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         # sloupce podle obsahu, volné místo až za posledním (název běhu nesmí odsunout
         # ostatní sloupce doprava); název se při délce nad NAME_MAX zkrátí
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
@@ -317,18 +274,13 @@ class RunsPage(QWidget):
         header.setSectionResizeMode(COL_CHEVRON, QHeaderView.ResizeMode.Fixed)
         header.resizeSection(COL_CHEVRON, 32)
         header.setStretchLastSection(False)
-        self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.table.cellDoubleClicked.connect(lambda r, _c: self.open_row(r))
         self.table.itemActivated.connect(lambda item: self.open_row(item.row()))
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._menu)
         QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.table, self._delete_selected)
         QShortcut(QKeySequence(Qt.Key.Key_F2), self.table, self._rename_selected)
-        table_card = QFrame()
-        table_card.setObjectName("card")
-        card_layout = QVBoxLayout(table_card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
-        card_layout.addWidget(self.table)
+        table_card = card(self.table)
         ov.addWidget(table_card, 1)
         self.table_card = table_card
         self.empty = QLabel(tr("Zatím žádný běh. Spusťte analýzu na stránce Analýza nahrávek."))
@@ -437,11 +389,11 @@ class RunsPage(QWidget):
                 elif c == COL_TASK and text:
                     item.setText("")  # pod štítkem nic viditelného, ani ve vybraném řádku
                     self.table.setCellWidget(
-                        r, c, _cell_widget(*(_pill(t, "neutral") for t in text.split(", ")))
+                        r, c, cell(*(pill(t, "neutral") for t in text.split(", ")))
                     )
                 elif c == COL_STATUS:
                     item.setText("")  # pod štítkem nic viditelného, ani ve vybraném řádku
-                    self.table.setCellWidget(r, c, _cell_widget(_pill(text, role)))
+                    self.table.setCellWidget(r, c, cell(pill(text, role)))
                 elif c == COL_FILES and entry.status == "running" and entry.total:
                     item.setText("")  # pod štítkem nic viditelného, ani ve vybraném řádku
                     bar = QProgressBar()
@@ -450,7 +402,7 @@ class RunsPage(QWidget):
                     bar.setRange(0, max(1, entry.total))
                     bar.setValue(entry.processed or 0)
                     count = QLabel(text)
-                    self.table.setCellWidget(r, c, _cell_widget(bar, count))
+                    self.table.setCellWidget(r, c, cell(bar, count))
                 elif c in (2, 5, COL_WHEN, COL_CHEVRON):
                     item.setForeground(QColor(theme.MUTED))
                 self.table.setItem(r, c, item)

@@ -1,8 +1,7 @@
 """Uhlazená tabulka (podoba A): bílá karta, záhlaví velkými písmeny, bez mřížky, štítky.
 
-Stejný vzhled jako přehled běhů na Výsledcích (`pages/runs.py`) a tabulka nahrávek
-na Analýze. Zatím ho používají dialogy kontroly kvality; přehled běhů má vlastní
-kopii stylu (převod na tenhle modul je samostatný refaktoring).
+Používá ho přehled běhů na Výsledcích (`pages/runs.py`) a dialogy kontroly
+kvality; vzhled odpovídá i tabulce nahrávek na Analýze.
 """
 
 from __future__ import annotations
@@ -24,22 +23,36 @@ from .. import theme
 ROW_HEIGHT = 40
 
 
-def style_table(table: QTableWidget, headers: list[str], *, row_height: int = ROW_HEIGHT) -> None:
-    """Záhlaví velkými písmeny, řádky bez mřížky s čárou dole, bez výběru buněk."""
+def style_table(
+    table: QTableWidget,
+    headers: list[str],
+    *,
+    row_height: int = ROW_HEIGHT,
+    selectable: bool = False,
+) -> None:
+    """Záhlaví velkými písmeny, řádky bez mřížky s čárou dole.
+
+    `selectable` = výběr jednoho celého řádku (přehled běhů, dvojklik a Enter otevřou
+    detail); jinak se nevybírá nic a tabulka nebere fokus (dialogy s poli v buňkách).
+    """
     table.setColumnCount(len(headers))
     table.setHorizontalHeaderLabels([h.upper() for h in headers])
     table.setFrameShape(QFrame.Shape.NoFrame)
     table.setStyleSheet(
         f"QTableWidget {{ background: {theme.CARD}; border: none; }}"
         f"QTableWidget::item {{ border-bottom: 1px solid {theme.BORDER}; padding-left: 8px; }}"
-        f"QTableWidget::item:selected {{ background: {theme.ACCENT_SOFT}; color: {theme.TEXT}; }}"
+        f"QTableWidget::item:selected {{ background: {theme.ACCENT_SOFT}; }}"
         f"QHeaderView::section {{ background: {theme.NEUTRAL_SOFT}; color: {theme.MUTED};"
         f" border: none; border-bottom: 1px solid {theme.BORDER}; padding: 8px;"
         " font-weight: 600; }"
     )
     table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-    table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-    table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    if selectable:
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+    else:
+        table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     table.verticalHeader().setVisible(False)
     table.verticalHeader().setDefaultSectionSize(row_height)
     table.setShowGrid(False)
@@ -47,7 +60,8 @@ def style_table(table: QTableWidget, headers: list[str], *, row_height: int = RO
     table.setTextElideMode(Qt.TextElideMode.ElideRight)
     header = table.horizontalHeader()
     header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-    header.setHighlightSections(False)
+    if not selectable:
+        header.setHighlightSections(False)
     for col in range(len(headers)):
         header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
     header.setStretchLastSection(True)
