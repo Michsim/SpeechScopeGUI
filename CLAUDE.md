@@ -228,8 +228,11 @@ s jednotkou ze závorky popisu; čísla vpravo, desetinná místa podle velikost
 stav štítkem `StatusDelegate`; chybný řádek má span přes feature a text chyby kreslí
 `ErrorSpanDelegate` za zmrazenou částí; `FooterBar` = průměr ± SD z řádků bez chyby;
 přepínač skupin feature `set_feature_group`; klik na záhlaví číselného sloupce = `ColumnCard`
-nad tabulkou (histogram, průměr ± SD, medián, rozsah, počet, ‹ ›, `open_card`, `close_card`,
-`step_card`); výběr stylem `TABLE_STYLE`, jinak Windows 11 kreslil čárku u každé buňky;
+jako panel vpravo vedle tabulky přes její výšku (od 31. 10. 2026 podoba B, mockup
+https://claude.ai/artifact/7kwbvudwbeWkc7ZMh49iqG, `docs/mockups/vysledky-karta/` mimo git;
+dřív karta nad tabulkou brala ~190 px a na 1366 × 768 zbylo 6 řádků; `CARD_WIDTH`;
+histogram, průměr ± SD, medián, rozsah, počet, ‹ předchozí · další ›, `open_card`,
+`close_card`, `step_card`); výběr stylem `TABLE_STYLE`, jinak Windows 11 kreslil čárku u každé buňky;
 `widgets/frozen_table.py`; šířky sloupců se měří z hlavičky a prvních
 `SAMPLE_ROWS` řádků, celý jen sloupec s názvem souboru, u 500 × 135 buněk trvalo
 měření všech 10 s), hledání sloupce, popis sloupce

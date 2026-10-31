@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyledItemDelegate,
     QTableView,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -202,7 +203,9 @@ class ValuesModel(QAbstractTableModel):
 
     def _meta(self, key: str, index: dict) -> ColumnMeta:
         if key == STATUS:
-            return ColumnMeta(STATUS, tr("stav"), tooltip=tr("hotovo, poznámka, kvalita nebo chyba"))
+            return ColumnMeta(
+                STATUS, tr("stav"), tooltip=tr("hotovo, poznámka, kvalita nebo chyba")
+            )
         if key == "file":
             return ColumnMeta(key, tr("nahrávka"), tooltip="file")
         info = index.get(key)
@@ -726,8 +729,16 @@ class Histogram(QWidget):
         painter.end()
 
 
+CARD_WIDTH = 280  # panel statistiky vpravo vedle tabulky
+
+
 class ColumnCard(QFrame):
-    """Karta jednoho sloupce nad tabulkou: popis, histogram, průměr ± SD, medián, rozsah."""
+    """Panel jednoho sloupce vpravo vedle tabulky: popis, histogram, průměr ± SD, medián, rozsah.
+
+    Podoba B (31. 10. 2026, mockup https://claude.ai/artifact/7kwbvudwbeWkc7ZMh49iqG,
+    `docs/mockups/vysledky-karta/` mimo git): panel přes celou výšku tabulky, tabulka
+    přijde jen o šířku, ne o řádky. Dřív karta nad tabulkou brala ~190 px výšky.
+    """
 
     closed = Signal()
     step_requested = Signal(int)  # -1 předchozí, +1 další sloupec
@@ -735,51 +746,66 @@ class ColumnCard(QFrame):
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("card")
-        theme.set_role(self, "accent")
+        theme.set_role(self, "panel")
+        self.setStyleSheet(
+            f"QFrame#card {{ border-top: 4px solid {theme.ACCENT}; }}"
+            "QFrame#card QLabel { background: transparent; border: none; }"
+        )
+        self.setFixedWidth(CARD_WIDTH)
         self.key = ""
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 12, 12, 12)
-        layout.setSpacing(20)
-        info = QVBoxLayout()
-        info.setSpacing(2)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 12, 12, 12)
+        layout.setSpacing(8)
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        names = QVBoxLayout()
+        names.setSpacing(0)
         self.group_label = QLabel("")
         self.group_label.setObjectName("muted")
         self.name_label = QLabel("")
+        self.name_label.setWordWrap(True)
         font = self.name_label.font()
         font.setBold(True)
-        font.setPointSizeF(font.pointSizeF() * 1.2)
+        font.setPointSizeF(font.pointSizeF() * 1.15)
         self.name_label.setFont(font)
+        names.addWidget(self.group_label)
+        names.addWidget(self.name_label)
+        head.addLayout(names, 1)
+        self.close_btn = QToolButton()
+        self.close_btn.setText("×")
+        self.close_btn.setAutoRaise(True)
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_btn.setToolTip(tr("Zavřít kartu sloupce"))
+        close_font = self.close_btn.font()
+        close_font.setPointSizeF(close_font.pointSizeF() * 1.4)
+        self.close_btn.setFont(close_font)
+        self.close_btn.clicked.connect(lambda: self.closed.emit())
+        head.addWidget(self.close_btn, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(head)
         self.description = QLabel("")
         self.description.setWordWrap(True)
-        self.key_label = QLabel("")
-        self.key_label.setObjectName("muted")
-        self.key_label.setWordWrap(True)
-        for widget in (self.group_label, self.name_label, self.description, self.key_label):
-            info.addWidget(widget)
-        info.addStretch(1)
-        info_box = QWidget()
-        info_box.setLayout(info)
-        info_box.setFixedWidth(260)
-        layout.addWidget(info_box)
-        middle = QVBoxLayout()
-        middle.setSpacing(2)
+        self.description.setObjectName("muted")
+        layout.addWidget(self.description)
         self.histogram = Histogram()
-        middle.addWidget(self.histogram, 1)
+        self.histogram.setMinimumHeight(110)
+        self.histogram.setMinimumWidth(0)
+        layout.addWidget(self.histogram)
         scale = QHBoxLayout()
         self.low_label = QLabel("")
         self.low_label.setObjectName("muted")
-        self.legend = QLabel(tr("tmavě vybraná nahrávka · čárkovaně průměr"))
-        self.legend.setObjectName("muted")
-        self.legend.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.high_label = QLabel("")
         self.high_label.setObjectName("muted")
         scale.addWidget(self.low_label)
-        scale.addWidget(self.legend, 1)
+        scale.addStretch(1)
         scale.addWidget(self.high_label)
-        middle.addLayout(scale)
-        layout.addLayout(middle, 1)
+        layout.addLayout(scale)
+        self.legend = QLabel(tr("tmavě vybraná nahrávka · čárkovaně průměr"))
+        self.legend.setObjectName("muted")
+        self.legend.setWordWrap(True)
+        self.legend.setStyleSheet("font-size: 8.5pt;")
+        layout.addWidget(self.legend)
         grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
+        grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(4)
         self.stat_labels: dict[str, QLabel] = {}
         for row, (key, caption) in enumerate(
@@ -800,22 +826,24 @@ class ColumnCard(QFrame):
             grid.addWidget(name, row, 0)
             grid.addWidget(value, row, 1)
             self.stat_labels[key] = value
+        grid.setColumnStretch(1, 1)
         layout.addLayout(grid)
-        buttons = QVBoxLayout()
-        buttons.setSpacing(4)
-        self.close_btn = QPushButton("×")
-        self.close_btn.setToolTip(tr("Zavřít kartu sloupce"))
-        self.close_btn.clicked.connect(lambda: self.closed.emit())
-        self.prev_btn = QPushButton("‹")
+        self.key_label = QLabel("")
+        self.key_label.setObjectName("muted")
+        self.key_label.setWordWrap(True)
+        self.key_label.setStyleSheet("font-size: 8.5pt;")
+        layout.addWidget(self.key_label)
+        layout.addStretch(1)
+        buttons = QHBoxLayout()
+        buttons.setSpacing(6)
+        self.prev_btn = QPushButton(tr("‹ předchozí"))
         self.prev_btn.setToolTip(tr("Předchozí sloupec"))
         self.prev_btn.clicked.connect(lambda: self.step_requested.emit(-1))
-        self.next_btn = QPushButton("›")
+        self.next_btn = QPushButton(tr("další ›"))
         self.next_btn.setToolTip(tr("Další sloupec"))
         self.next_btn.clicked.connect(lambda: self.step_requested.emit(1))
-        for btn in (self.close_btn, self.prev_btn, self.next_btn):
-            btn.setFixedWidth(36)
-            buttons.addWidget(btn)
-        buttons.addStretch(1)
+        buttons.addWidget(self.prev_btn, 1)
+        buttons.addWidget(self.next_btn, 1)
         layout.addLayout(buttons)
 
     def show_column(
@@ -863,6 +891,7 @@ class ColumnCard(QFrame):
 
 
 __all__ = [
+    "CARD_WIDTH",
     "STATUS",
     "BandHeader",
     "ColumnCard",
