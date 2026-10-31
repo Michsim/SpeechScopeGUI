@@ -44,11 +44,29 @@ class FrozenTableView(QTableView):
         self.horizontalHeader().setResizeContentsPrecision(SAMPLE_ROWS)
 
     def resizeColumnsToContents(self) -> None:  # noqa: N802
+        """Šířky z hlavičky a prvních `SAMPLE_ROWS` řádků, první sloupec (název) celý.
+
+        Vlastní měření místo Qt: `sizeHintForColumn` bere omezení řádků jen pod
+        viditelnými řádky, a dokud tabulka nebyla vidět (detail běhu se plní ještě
+        skrytý), změřil Qt všechny buňky. U normy 500 × 150 trvalo první otevření
+        4,3 s místo 0,3 s (31. 10. 2026).
+        """
+        model = self.model()
+        if model is None:
+            return
         header = self.horizontalHeader()
-        super().resizeColumnsToContents()
-        header.setResizeContentsPrecision(-1)
-        self.resizeColumnToContents(0)
-        header.setResizeContentsPrecision(SAMPLE_ROWS)
+        rows = model.rowCount()
+        sample = range(min(rows, SAMPLE_ROWS))
+        for column in range(model.columnCount()):
+            if self.isColumnHidden(column):
+                continue
+            width = header.sectionSizeHint(column)
+            measured = range(rows) if column == 0 else sample
+            for row in measured:
+                if self.columnSpan(row, column) > 1:
+                    continue  # text chyby přes sloupce feature šířku neurčuje
+                width = max(width, self.sizeHintForIndex(model.index(row, column)).width())
+            self.setColumnWidth(column, width)
 
     @property
     def frozen_count(self) -> int:

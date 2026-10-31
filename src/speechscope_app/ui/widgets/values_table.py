@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
 
 from ... import contract
 from ...backend import meta, quality
+from ...backend import quality as quality_mod
 from ...backend.library import FeatureInfo
 from ...backend.quality import Issue
 from ...i18n import tr
@@ -152,6 +153,11 @@ def format_mean_sd(stats: ColumnStats, decimals: int, sep: str = " ± ") -> str:
     return f"{format_number(stats.mean, d)}{sep}{format_number(stats.sd, d)}"
 
 
+def _missing(value: Any) -> bool:
+    """Prázdná buňka ze seznamu hodnot (None nebo NaN), bez pd.isna na každou buňku."""
+    return value is None or (isinstance(value, float) and math.isnan(value))
+
+
 def problem_mask(frame: pd.DataFrame, column: str) -> pd.Series:
     if column not in frame.columns:
         return pd.Series(False, index=frame.index)
@@ -177,6 +183,15 @@ class ValuesModel(QAbstractTableModel):
         self.quality: list[list[Issue]] = (
             quality if quality is not None else [[] for _ in range(len(frame))]
         )
+        # Hodnoty jako obyčejné seznamy: data() se volá pro každou kreslenou buňku a čtení
+        # přes pandas .iloc stálo ~13 µs na buňku (500 × 150 buněk = 0,5 s na jeden průchod).
+        self._values: dict[str, list[Any]] = {str(c): frame[c].tolist() for c in frame.columns}
+        self._error_rows: list[bool] = self._errors.tolist()
+        self._note_rows: list[bool] = self._notes.tolist()
+        self._levels: list[str] = [
+            quality_mod.level_of([i for i in issues if i.check.key != quality_mod.NOTES_KEY])
+            for issues in self.quality
+        ]
         self.highlight = ""  # sloupec s otevřenou kartou
         self.footer = footer or {}
         index = column_index(catalog or [])
@@ -200,6 +215,8 @@ class ValuesModel(QAbstractTableModel):
         for key in lead + meta_cols + feature_cols + tech:
             self.columns.append(self._meta(key, index))
         self._positions = {c.key: i for i, c in enumerate(self.columns)}
+        sections = [i for i, c in enumerate(self.columns) if c.feature is not None]
+        self._span = (sections[0], sections[-1] - sections[0] + 1) if sections else None
 
     def _meta(self, key: str, index: dict) -> ColumnMeta:
         if key == STATUS:
@@ -262,11 +279,15 @@ class ValuesModel(QAbstractTableModel):
 
     def feature_span(self) -> tuple[int, int] | None:
         """První sloupec feature a jejich počet (pro text chyby přes řádek)."""
-        sections = [i for i, c in enumerate(self.columns) if c.feature is not None]
-        return (sections[0], sections[-1] - sections[0] + 1) if sections else None
+        return self._span
 
     def is_error(self, row: int) -> bool:
-        return bool(self._errors.iloc[row]) if 0 <= row < len(self.frame) else False
+        return self._error_rows[row] if 0 <= row < len(self._error_rows) else False
+
+    def value(self, key: str, row: int) -> Any:
+        """Hodnota buňky ze seznamu (bez pandas); chybějící sloupec = None."""
+        values = self._values.get(key)
+        return values[row] if values is not None and 0 <= row < len(values) else None
 
     def set_highlight(self, key: str) -> None:
         self.highlight = key
@@ -286,20 +307,19 @@ class ValuesModel(QAbstractTableModel):
 
     def quality_level(self, row: int) -> str:
         """Nejhorší kontrola kvality řádku bez poznámek knihovny: `bad`, `warn` nebo prázdné."""
-        issues = self.quality[row] if 0 <= row < len(self.quality) else []
-        return quality.level_of([i for i in issues if i.check.key != quality.NOTES_KEY])
+        return self._levels[row] if 0 <= row < len(self._levels) else ""
 
     def _status(self, row: int) -> tuple[str, str, str]:
-        if self._errors.iloc[row]:
-            return tr("chyba"), "missing", str(self.frame["error"].iloc[row])
+        if self._error_rows[row]:
+            return tr("chyba"), "missing", str(self.value("error", row))
         issues = self.quality[row] if 0 <= row < len(self.quality) else []
         level = self.quality_level(row)
         if level == quality.BAD:
             return tr("nepoužitelná"), "missing", quality.summary(issues)
         if level == quality.WARN:
             return tr("kvalita"), "warn", quality.summary(issues)
-        if self._notes.iloc[row]:
-            return tr("poznámka"), "warn", str(self.frame["notes"].iloc[row])
+        if self._note_rows[row]:
+            return tr("poznámka"), "warn", str(self.value("notes", row))
         return tr("hotovo"), "ok", ""
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
@@ -315,26 +335,27 @@ class ValuesModel(QAbstractTableModel):
             if role == Qt.ItemDataRole.ToolTipRole:
                 return tip or None
             return None
-        if col.feature is not None and self._errors.iloc[row]:
-            span = self.feature_span()
+        error = self._error_rows[row]
+        if col.feature is not None and error:
+            span = self._span
             at_start = span is not None and index.column() == span[0]
             if role in (ERROR_TEXT_ROLE, Qt.ItemDataRole.ToolTipRole) and at_start:
-                return str(self.frame["error"].iloc[row])
+                return str(self.value("error", row))
             if role == Qt.ItemDataRole.DisplayRole:
                 return ""  # text kreslí ErrorSpanDelegate, šířku sloupce nesmí ovlivnit
         if role == Qt.ItemDataRole.DisplayRole:
-            value = self.frame[col.key].iloc[row]
-            if pd.isna(value):
+            value = self._values[col.key][row]
+            if _missing(value):
                 return ""
             if col.numeric and isinstance(value, (int, float)):
                 return format_number(float(value), col.decimals)
             return str(value)
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            if col.numeric and not (col.feature is not None and self._errors.iloc[row]):
+            if col.numeric and not (col.feature is not None and error):
                 return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         if role == Qt.ItemDataRole.ForegroundRole:
-            if col.feature is not None and self._errors.iloc[row]:
+            if col.feature is not None and error:
                 return QColor("#991b1b")
             if col.key in LEAD_META or col.key in TECH_COLUMNS:
                 return QColor(theme.MUTED)
@@ -344,18 +365,18 @@ class ValuesModel(QAbstractTableModel):
             font.setBold(True)
             return font
         if role == Qt.ItemDataRole.BackgroundRole:
-            if self._errors.iloc[row]:
+            if error:
                 return ERROR_ROW
-            level = self.quality_level(row)
+            level = self._levels[row]
             if level == quality.BAD:
                 return BAD_ROW
-            if self._notes.iloc[row] or level == quality.WARN:
+            if self._note_rows[row] or level == quality.WARN:
                 return NOTE_ROW
             if self.highlight and col.key == self.highlight:
                 return QColor(SELECTED_COLUMN)
             return None
         if role == Qt.ItemDataRole.ToolTipRole and col.key == "file" and "path" in self.frame:
-            return str(self.frame["path"].iloc[row])
+            return str(self.value("path", row))
         return None
 
     def headerData(  # noqa: N802
@@ -483,11 +504,13 @@ class BandHeader(QHeaderView):
         band.setPointSizeF(small.pointSizeF() * 0.95)
         return bold, small, band
 
-    def sizeHint(self) -> QSize:  # noqa: N802
-        hint = super().sizeHint()
+    def _height(self) -> int:
+        """Výška dvoupatrového záhlaví: pruh feature, název tučně a jednotka."""
         bold, small, _band = self._fonts()
-        height = self.BAND + QFontMetrics(bold).height() + QFontMetrics(small).height() + 14
-        return QSize(hint.width(), height)
+        return self.BAND + QFontMetrics(bold).height() + QFontMetrics(small).height() + 14
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(super().sizeHint().width(), self._height())
 
     def sectionSizeFromContents(self, logical: int) -> QSize:  # noqa: N802
         model = self.model()
@@ -503,7 +526,9 @@ class BandHeader(QHeaderView):
             QFontMetrics(small).horizontalAdvance(unit),
             QFontMetrics(self.font()).horizontalAdvance(footer),
         )
-        return QSize(width + 24, self.sizeHint().height())
+        # výška přímo, ne přes sizeHint(): ten se ptá Qt na všechny sloupce a ten zase
+        # sem, takže měření šířek rostlo s druhou mocninou počtu sloupců
+        return QSize(width + 24, self._height())
 
     def paintSection(self, painter: QPainter, rect: QRect, logical: int) -> None:  # noqa: N802
         model = self.model()

@@ -182,3 +182,34 @@ def test_column_stats_and_decimals() -> None:
     assert decimals_for(pd.Series([118.4, 196.2])) == 0
     assert decimals_for(pd.Series([7.9, 8.4])) == 2
     assert decimals_for(pd.Series([3, 4])) == 0
+
+
+def test_column_widths_sample_rows_even_when_hidden(qtbot: QtBot) -> None:
+    """Šířky sloupců z prvních SAMPLE_ROWS řádků i ve skryté tabulce, název celý.
+
+    Qt ve skryté tabulce měřil všechny buňky (norma 500 × 150: 4,3 s při prvním otevření).
+    """
+    from speechscope_app.ui.widgets.frozen_table import SAMPLE_ROWS, FrozenTableView
+    from speechscope_app.ui.widgets.values_table import ValuesModel
+
+    n = 300
+    frame = pd.DataFrame(
+        {
+            "file": [f"r{i:03d}.wav" for i in range(n - 1)] + ["velmi_dlouhy_nazev_nahravky.wav"],
+            "a": [1.5] * n,
+            "b": [2.5] * n,
+        }
+    )
+    view = FrozenTableView()
+    qtbot.addWidget(view)  # nikdy nezobrazená, jako detail běhu plněný z přehledu
+    model = ValuesModel(frame)
+    view.setModel(model)
+    calls: list[int] = []
+    original = view.sizeHintForIndex
+    view.sizeHintForIndex = lambda index: (calls.append(index.column()), original(index))[1]
+    view.resizeColumnsToContents()
+    assert calls.count(0) == n  # název nahrávky se měří celý
+    assert all(calls.count(c) == SAMPLE_ROWS for c in range(1, model.columnCount()))
+    longest = view.sizeHintForIndex(model.index(n - 1, 0)).width()
+    assert view.columnWidth(0) >= longest
+    assert model.value("a", 0) == 1.5 and model.value("neni", 0) is None
