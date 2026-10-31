@@ -24,7 +24,6 @@ from . import __version__, i18n
 from .backend.library import CHILD_ENV
 from .backend.settings import APP, ORG, AppSettings
 from .ui import theme
-from .ui.main_window import MainWindow
 
 
 def app_icon() -> QIcon:
@@ -64,8 +63,21 @@ def main(argv: list[str] | None = None) -> int:
     qt_dir = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
     if translator.load(QLocale(language), "qtbase", "_", qt_dir):
         app.installTranslator(translator)
+    # Úvodní okno hned, dotazy na knihovnu souběžně napřed (běží i během importu
+    # hlavního okna); hlavní okno se ukáže až celé hotové.
+    from .ui.splash import make_splash
+
+    splash = make_splash(__version__)
+    splash.show()
+    app.processEvents()
+    lib = settings.make_library()
+    if lib is not None:
+        lib.prefetch()
+    from .ui.main_window import MainWindow
+
     window = MainWindow(settings)
     window.show()
+    splash.finish(window)
     if "--smoke" in args:
         QTimer.singleShot(500, app.quit)
     return app.exec()

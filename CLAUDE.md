@@ -770,6 +770,14 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `EnvironmentPage.set_work_dir(scan=…)`); naplní je `_page_shown` jako dřív, dotazy odjinud
   (`count`, `current`, `select_assessment`, `recompute_plan`…) přes `_ensure_loaded`. Start ve
   vývoji 13 s → 5,4 s, z toho 3,7 s synchronní dotazy na knihovnu.
+- **Úvodní okno a souběžné dotazy** (31. 10. 2026, místo cache katalogu, ta zamítnuta: nic
+  se nesmí dodatečně překreslovat): `main.py` ukáže hned `ui/splash.py` („Načítám…“, 0,25 s)
+  a před importem hlavního okna zavolá `Library.prefetch()`: `list --json`,
+  `list --providers --json` a `models list --json` běží ve vláknech souběžně (1,9 s místo
+  3,7 s) a `Library.run` si hotový výsledek vezme podle celé příkazové řádky
+  (`_prefetched`), místo aby pustil nový podproces. Hlavní okno se ukáže celé hotové
+  (`splash.finish`). Start do okna 6,5 s → 3,8 s ve vývoji. V exe zvážit i splash
+  PyInstalleru ze spouštěče.
 - `segments.model=auto` bere jen hotovou cache. Protokol, který potřebuje
   segmentaci, musí mít v `config` `segments.model` nastavený; samostatná
   segmentace (Jen segmentace) `auto` nenabízí.

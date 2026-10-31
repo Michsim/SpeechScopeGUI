@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import sys
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,31 @@ from . import command
 #: Značka v prostředí každého podprocesu knihovny. Když ji GUI najde ve
 #: vlastním prostředí, běží jako podproces sebe sama a musí hned skončit.
 CHILD_ENV = "SPEECHSCOPE_APP_CHILD"
+
+
+#: Dotazy puštěné napřed (`Library.prefetch`) podle celé příkazové řádky. Běží ve
+#: vláknech souběžně; `Library.run` si výsledek vezme místo nového podprocesu.
+_prefetched: dict[tuple[str, ...], Future[subprocess.CompletedProcess[str]]] = {}
+_executor: ThreadPoolExecutor | None = None
+
+
+def _run_argv(argv: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=subprocess_env(),
+        creationflags=creation_flags(),
+        timeout=timeout,
+        check=False,
+    )
+
+
+def forget_prefetched() -> None:
+    """Zahodí nevyzvednuté dotazy (testy; jiná knihovna v nastavení je stejně mine)."""
+    _prefetched.clear()
 
 
 class LibraryError(RuntimeError):
@@ -188,22 +214,34 @@ class Library:
     # --- nízká úroveň ---------------------------------------------------------
 
     def run(self, args: list[str], *, timeout: float = 120) -> subprocess.CompletedProcess[str]:
+        """Podproces knihovny; když týž dotaz běží napřed (`prefetch`), počká na něj."""
+        argv = self.argv(args)
+        future = _prefetched.pop(tuple(argv), None)
         try:
-            return subprocess.run(
-                self.argv(args),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=subprocess_env(),
-                creationflags=creation_flags(),
-                timeout=timeout,
-                check=False,
-            )
+            if future is not None:
+                return future.result(timeout=timeout)
+            return _run_argv(argv, timeout)
         except FileNotFoundError as exc:
             raise LibraryError(f"knihovnu nejde spustit: {self.command[0]}") from exc
-        except subprocess.TimeoutExpired as exc:
+        except (subprocess.TimeoutExpired, TimeoutError) as exc:
             raise LibraryError(f"knihovna neodpověděla do {timeout:.0f} s") from exc
+
+    def prefetch(self) -> None:
+        """Pustí napřed a souběžně dotazy, které okno potřebuje při startu (katalog
+        feature, providery, modely). Za sebou trvaly 3,7 s, souběžně asi jako nejdelší
+        z nich, a běží i během importu GUI. Výsledky si vezmou `features`, `providers`
+        a `models`, jako by je spustily samy; nic se neukládá mimo paměť."""
+        global _executor
+        if _executor is None:
+            _executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="prefetch")
+        for args in (
+            command.list_args(models_dir=self.models_dir, lang=self.lang),
+            command.providers_args(models_dir=self.models_dir, lang=self.lang),
+            command.models_list_args(models_dir=self.models_dir, lang=self.lang),
+        ):
+            argv = self.argv(args)
+            if tuple(argv) not in _prefetched:
+                _prefetched[tuple(argv)] = _executor.submit(_run_argv, argv, 120)
 
     def run_json(self, args: list[str], *, ok_codes: tuple[int, ...] = (0,)) -> Any:
         proc = self.run(args)
