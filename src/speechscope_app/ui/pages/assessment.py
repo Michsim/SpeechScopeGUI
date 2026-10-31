@@ -357,6 +357,7 @@ class AssessmentPage(QWidget):
         super().__init__(parent)
         self._index: VisitIndex | None = None
         self._store: AssessmentStore | None = None
+        self._loaded = False  # seznam načtený aspoň jednou (`refresh`); při startu líně
         self._catalog: Catalog | None = None
         self._entries: list[Entry] = []  # všechna hodnocení, nejnovější první
         self._groups: list[list[Entry]] = []  # karta pacienta → jeho vyšetření (nejnovější první)
@@ -1095,12 +1096,21 @@ class AssessmentPage(QWidget):
         else:
             self._index.set_work_root(root)
 
-    def set_assessments_dir(self, folder: Path) -> None:
+    def set_assessments_dir(self, folder: Path, *, load: bool = True) -> None:
+        """Úložiště hodnocení; `load=False` seznam nenačte (start aplikace: stránka
+        se naplní až při zobrazení, `_ensure_loaded` u dotazů odjinud)."""
         if self._catalog is None:
             self._catalog = Catalog(None)  # bez hlavního okna (testy): katalog v paměti
         self._store = AssessmentStore(folder, self._catalog)
         self._prefs = self._catalog.patient_prefs()
-        self.refresh()
+        if load:
+            self.refresh()
+        else:
+            self._loaded = False
+
+    def _ensure_loaded(self) -> None:
+        if not self._loaded:
+            self.refresh()
 
     def set_norms_dir(self, folder: Path) -> None:
         self._norms_dir = folder
@@ -1263,6 +1273,7 @@ class AssessmentPage(QWidget):
 
     def refresh(self, select: str | None = None) -> None:
         """Znovu načte hodnocení a běhy; výběr zůstane na témže hodnocení (podle id)."""
+        self._loaded = True
         current = self.current_assessment()
         keep = select or (current.id if current is not None else None)
         recordings = []
@@ -1403,6 +1414,7 @@ class AssessmentPage(QWidget):
         return sum(1 for c in self._cards if isinstance(c, PatientCard) and c.pending)
 
     def count(self) -> int:
+        self._ensure_loaded()
         return self.visits.count()
 
     def current_plan(self) -> AssessmentPlan | None:
@@ -1522,6 +1534,7 @@ class AssessmentPage(QWidget):
 
     def select_assessment(self, assessment_id: str) -> bool:
         """Vybere pacienta a v jeho řadě dané vyšetření (a ukáže detail)."""
+        self._ensure_loaded()
         self.show_detail()
         offset = len(self._shown_plans)
         for row, entries in enumerate(self._groups):
@@ -1607,6 +1620,7 @@ class AssessmentPage(QWidget):
         return self.save_from(dialog)
 
     def recompute_plan(self, assessment_id: str) -> tuple[AssessmentPlan | None, list[str]]:
+        self._ensure_loaded()
         """Plán přepočtu hodnocení (nebo důvody, proč nejde), pro hlavní okno."""
         for assessment, visit, missing in self._entries:
             if assessment.id == assessment_id and self._store is not None:

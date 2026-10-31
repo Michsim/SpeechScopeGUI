@@ -323,9 +323,12 @@ class EnvironmentPage(QWidget):
             self._set_status("neutral", tr(NOT_CHECKED), tr(NOT_CHECKED_HINT))
         self._clear_cards()
 
-    def set_work_dir(self, work_dir: Path) -> None:
+    def set_work_dir(self, work_dir: Path, *, scan: bool = True) -> None:
+        """`scan=False` složku neprojde (start aplikace: tisíce souborů, spočítá se
+        až při zobrazení stránky přes `refresh_cache`)."""
         self._work_dir = work_dir
-        self.refresh_cache()
+        if scan:
+            self.refresh_cache()
 
     def set_folders(self, models_dir: Path, work_root: Path) -> None:
         self.models_path.setText(str(models_dir))

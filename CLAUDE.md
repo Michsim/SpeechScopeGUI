@@ -764,6 +764,12 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   (`open_entry` z Pacientů, `open_run` po dávce, `show_running`) zůstávají synchronní.
   Testy po `open_row` čekají `qtbot.waitUntil(lambda: not runs.loading())`. Načítání
   na pozadí ve vlákně (varianta B) jen podle měření z kliniky.
+- **Líný start** (31. 10. 2026, krok 1 rychlejšího startu): skryté stránky se při startu
+  neplní, `_apply_folders` předá `load=`/`scan=` jen u právě zobrazené stránky
+  (`AssessmentPage.set_assessments_dir(load=…)`, `NormsPage.set_norms_dir(load=…)`,
+  `EnvironmentPage.set_work_dir(scan=…)`); naplní je `_page_shown` jako dřív, dotazy odjinud
+  (`count`, `current`, `select_assessment`, `recompute_plan`…) přes `_ensure_loaded`. Start ve
+  vývoji 13 s → 5,4 s, z toho 3,7 s synchronní dotazy na knihovnu.
 - `segments.model=auto` bere jen hotovou cache. Protokol, který potřebuje
   segmentaci, musí mít v `config` `segments.model` nastavený; samostatná
   segmentace (Jen segmentace) `auto` nenabízí.

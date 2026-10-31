@@ -326,6 +326,7 @@ class NormsPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._folder: Path | None = None
+        self._loaded = False  # seznam načtený aspoň jednou (`reload`); při startu líně
         self._norms: list[Norm] = []
         self._plans: list[NormPlan] = []
         self._library: Library | None = None
@@ -611,9 +612,18 @@ class NormsPage(QWidget):
 
     # --- napojení -------------------------------------------------------------
 
-    def set_norms_dir(self, folder: Path) -> None:
+    def set_norms_dir(self, folder: Path, *, load: bool = True) -> None:
+        """`load=False` seznam nenačte (start aplikace: stránka se naplní při zobrazení,
+        `_ensure_loaded` u dotazů odjinud)."""
         self._folder = folder
-        self.reload()
+        if load:
+            self.reload()
+        else:
+            self._loaded = False
+
+    def _ensure_loaded(self) -> None:
+        if not self._loaded:
+            self.reload()
 
     def set_library(self, library: Library | None) -> None:
         self._library = library
@@ -636,6 +646,7 @@ class NormsPage(QWidget):
 
         Nahoře rozpracované (počítají se), pak vlastní, nakonec přibalené.
         """
+        self._loaded = True
         keep = select or self._current_path()
         self._plans = pending_plans(self._folder) if self._folder is not None else []
         self._norms = all_norms(self._folder) if self._folder is not None else []
@@ -675,20 +686,25 @@ class NormsPage(QWidget):
         return norm.path if norm is not None else None
 
     def count(self) -> int:
+        self._ensure_loaded()
         return self.list.count()
 
     def card(self, row: int) -> NormCard | PlanCard | None:
+        self._ensure_loaded()
         return self._cards[row] if 0 <= row < len(self._cards) else None
 
     def current_plan(self) -> NormPlan | None:
+        self._ensure_loaded()
         row = self.list.currentRow()
         return self._plans[row] if 0 <= row < len(self._plans) else None
 
     def current(self) -> Norm | None:
+        self._ensure_loaded()
         row = self.list.currentRow() - len(self._plans)
         return self._norms[row] if 0 <= row < len(self._norms) else None
 
     def select(self, path: Path) -> bool:
+        self._ensure_loaded()
         paths = [p.folder for p in self._plans] + [n.path for n in self._norms]
         for row, candidate in enumerate(paths):
             if candidate == path:

@@ -538,19 +538,24 @@ class MainWindow(QMainWindow):
     def _apply_folders(self) -> None:
         """Složky z nastavení do všech stránek, které je ukazují nebo používají."""
         models_dir, work_root = self.settings.models_dir, self.settings.work_root
+        # Skryté stránky se naplní až při zobrazení (`_page_shown`), start tak
+        # nečeká na vyhodnocení pacientů ani na průchod složkou work.
+        shown = self.pages.currentWidget()
         self.results_page.set_work_root(work_root)
         self.assessment_page.set_catalog(self.catalog)
         self.assessment_page.set_work_root(work_root)
-        self.assessment_page.set_assessments_dir(self.settings.assessments_dir())
+        self.assessment_page.set_assessments_dir(
+            self.settings.assessments_dir(), load=shown is self.assessment_page
+        )
         self.assessment_page.set_eval_defaults(
             self.settings.eval_window, self.settings.eval_same_sex
         )
         self.assessment_page.set_norm_choice(self.settings.norm_choice)
         self.assessment_page.set_norms_dir(self.settings.norms_dir())
-        self.norms_page.set_norms_dir(self.settings.norms_dir())
+        self.norms_page.set_norms_dir(self.settings.norms_dir(), load=shown is self.norms_page)
         self.run_page.set_work_root(work_root)
         self.batch_page.set_work_root(work_root)
-        self.env_page.set_work_dir(work_root / "work")
+        self.env_page.set_work_dir(work_root / "work", scan=shown is self.env_page)
         self.env_page.set_folders(models_dir, work_root)
         self.home_page.set_folders(models_dir, work_root)
 
