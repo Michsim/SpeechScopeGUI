@@ -202,7 +202,7 @@ class ValuesModel(QAbstractTableModel):
 
     def _meta(self, key: str, index: dict) -> ColumnMeta:
         if key == STATUS:
-            return ColumnMeta(STATUS, tr("stav"), tooltip=tr("ok, poznámka nebo chyba"))
+            return ColumnMeta(STATUS, tr("stav"), tooltip=tr("hotovo, poznámka, kvalita nebo chyba"))
         if key == "file":
             return ColumnMeta(key, tr("nahrávka"), tooltip="file")
         info = index.get(key)
@@ -297,7 +297,7 @@ class ValuesModel(QAbstractTableModel):
             return tr("kvalita"), "warn", quality.summary(issues)
         if self._notes.iloc[row]:
             return tr("poznámka"), "warn", str(self.frame["notes"].iloc[row])
-        return tr("ok"), "ok", ""
+        return tr("hotovo"), "ok", ""
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
         if not index.isValid():

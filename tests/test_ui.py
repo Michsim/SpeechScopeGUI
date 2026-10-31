@@ -95,7 +95,7 @@ def test_window_runs_batch_end_to_end(
     run = window.run_page
     assert run.files.rowCount() == 4
     statuses = [run.files.item(r, run.col_status).text() for r in range(4)]
-    assert sorted(statuses) == ["chyba", "ok", "ok", "ok"]
+    assert sorted(statuses) == ["chyba", "hotovo", "hotovo", "hotovo"]
     assert window.nav.item(PAGE_RUN).badge() == ""  # po dávce bez štítku
     assert run.headline.text().startswith("Hotovo za")
     assert settings.seconds_per_file("fonace-zakladni") is not None
@@ -103,7 +103,7 @@ def test_window_runs_batch_end_to_end(
     # kontrola kvality: faleška dá „short“ nahrávce 3 s, pod žlutým prahem fonace
     model = window.results_page.table.model()
     statuses = {model.frame["file"].iloc[r]: model._status(r)[0] for r in range(4)}
-    assert statuses["p03_short.wav"] == "kvalita" and statuses["p01.wav"] == "ok"
+    assert statuses["p03_short.wav"] == "kvalita" and statuses["p01.wav"] == "hotovo"
     assert "délka nahrávky 3 s < 5 s" in model._status(list(statuses).index("p03_short.wav"))[2]
     pills = [p.text() for p in window.results_page.header._pill_widgets]
     assert "1 podezřelých" in pills and "1 s chybou" in pills
@@ -149,7 +149,7 @@ def test_window_runs_batch_end_to_end(
     run.show_recorded(run.history.current())
     assert run.files.rowCount() == 4
     replayed = sorted(run.files.item(r, run.col_status).text() for r in range(4))
-    assert replayed == ["chyba", "ok", "ok", "ok"]
+    assert replayed == ["chyba", "hotovo", "hotovo", "hotovo"]
     assert "hotovo" in run.summary.text() and run.log.toPlainText()
 
 

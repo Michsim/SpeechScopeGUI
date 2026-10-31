@@ -32,7 +32,7 @@ from ..i18n import tr
 from . import theme
 from .widgets.clean_table import card, cell, fit_widget_column, pill, style_table
 
-LEVEL_TEXT = {quality.BAD: "nepoužitelná", quality.WARN: "podezřelá", "": "ok"}
+LEVEL_TEXT = {quality.BAD: "nepoužitelná", quality.WARN: "podezřelá", "": "v pořádku"}
 LEVEL_ROLES = {quality.BAD: "missing", quality.WARN: "warn", "": "ok"}
 
 

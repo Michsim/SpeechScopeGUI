@@ -522,7 +522,7 @@ class RunPage(QWidget):
                 self._set_cell(
                     event.index,
                     self.col_status,
-                    tr("ok") if event.ok else tr("chyba"),
+                    tr("hotovo") if event.ok else tr("chyba"),
                     color=theme.OK if event.ok else theme.MISSING,
                 )
                 self._set_cell(event.index, self.col_note, event.msg or "", tooltip=event.msg)

@@ -2831,7 +2831,7 @@ class AssessmentPage(QWidget):
             issues = quality.assess(rec.data, rec.task)
             level = quality.level_of(issues)
             quality_text = {quality.BAD: tr("nepoužitelná"), quality.WARN: tr("podezřelá")}.get(
-                level, tr("ok") if quality.COLUMN_TOTAL in rec.data else ""
+                level, tr("v pořádku") if quality.COLUMN_TOTAL in rec.data else ""
             )
             cells = [task, rec.file, started or rec.run.display_name, with_norm, quality_text]
             for col, text in enumerate(cells):

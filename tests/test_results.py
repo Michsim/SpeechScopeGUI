@@ -63,7 +63,7 @@ def test_results_page_descriptions_search_and_detail(
     assert model.headerData(col, horizontal) == columns[0].rsplit(".", 1)[1].upper()
     assert model.headerData(col, horizontal, BAND_ROLE)  # pruh feature nad sloupcem
     status = model.position(STATUS)
-    assert [model.index(r, status).data() for r in range(3)] == ["ok", "chyba", "poznámka"]
+    assert [model.index(r, status).data() for r in range(3)] == ["hotovo", "chyba", "poznámka"]
     assert page.rerun_btn.isVisibleTo(page)  # je řádek s chybou a protocol.yaml
 
     # hledání sloupce nechá název nahrávky, chybu a poznámku

@@ -57,7 +57,7 @@ def test_run_page_fills_provider_columns(
     statuses = {
         page.files.item(r, 0).text(): page.files.item(r, page.col_status).text() for r in range(4)
     }
-    assert statuses["p02_bad.wav"] == "chyba" and statuses["p01.wav"] == "ok"
+    assert statuses["p02_bad.wav"] == "chyba" and statuses["p01.wav"] == "hotovo"
     assert page.files.item(list(statuses).index("p02_bad.wav"), page.col_note).text()
     assert progress[0] == "0/4" and progress[-1] == "" and "4/4" in progress
     assert page.seconds_per_file() is not None
@@ -93,7 +93,7 @@ def test_run_page_shows_running_stage_from_events(qtbot: QtBot) -> None:
     feed(contract.StageEvent(index=0, provider="nlp", status="error", seconds=1, msg="prázdný"))
     assert page.files.item(0, 2).text() == "✗" and page.files.item(0, 2).toolTip() == "prázdný"
     feed(contract.FileEvent(index=0, path="C:/x/a.wav", status="ok", msg="nlp=prázdný"))
-    assert page.files.item(0, page.col_status).text() == "ok"
+    assert page.files.item(0, page.col_status).text() == "hotovo"
     assert page.files.item(0, page.col_note).text() == "nlp=prázdný"
     assert page.current.text() == ""
     assert "1 z 2 hotovo" in page.timing.text()
