@@ -153,12 +153,32 @@ QHeaderView::section {{
 QTableCornerButton::section {{ background: #f9fafb; border: none; }}
 
 /* vstupy */
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
+QLineEdit, QSpinBox, QDoubleSpinBox {{
     background: {CARD}; border: 1px solid {BORDER}; border-radius: 6px; padding: 5px 8px;
     selection-background-color: {ACCENT}; selection-color: white;
 }}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: {ACCENT}; }}
-QComboBox::drop-down {{ border: none; width: 22px; }}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: {ACCENT}; }}
+/* rozbalovací seznamy (widgets/combo_style.py, mockup 31. 10. 2026): šipka, 36 px,
+   otevřený seznam jako karta; řádky seznamu kreslí ComboDelegate */
+QComboBox {{
+    background: {CARD}; border: 1px solid #d1d5db; border-radius: 8px;
+    padding: 6px 30px 6px 11px; min-height: 22px;
+    selection-background-color: {ACCENT_SOFT}; selection-color: {TEXT};
+    combobox-popup: 0;
+}}
+QComboBox:hover {{ border-color: #9ca3af; }}
+QComboBox:focus, QComboBox:on {{ border-color: {ACCENT}; }}
+QComboBox:disabled {{ background: #f9fafb; color: #9ca3af; border-color: {BORDER}; }}
+QComboBox::drop-down {{
+    subcontrol-origin: padding; subcontrol-position: center right; width: 28px; border: none;
+}}
+QComboBox::down-arrow {{ image: url("{ARROW_DOWN}"); width: 12px; height: 12px; }}
+QComboBox::down-arrow:on {{ image: url("{ARROW_UP}"); }}
+QComboBox::down-arrow:disabled {{ image: url("{ARROW_OFF}"); }}
+QComboBox QAbstractItemView {{
+    background: {CARD}; border: 1px solid {BORDER}; border-radius: 10px; padding: 5px;
+    outline: 0; color: {TEXT};
+}}
 QProgressBar {{
     background: {BORDER}; border: none; border-radius: 5px; height: 10px; text-align: center;
     color: transparent;
@@ -190,8 +210,11 @@ def _pt(value: float) -> str:
 
 def stylesheet(scale: float = 1.0) -> str:
     """Stylesheet s velikostmi písma vynásobenými `scale` (1.0 = 11 bodů)."""
+    from .widgets.combo_style import arrow_urls  # až s aplikací (kreslí obrázky šipek)
+
     base = BASE_PT * scale
     return STYLESHEET_TEMPLATE.format(
+        **arrow_urls(),
         TEXT=TEXT,
         BG=BG,
         CARD=CARD,
@@ -246,6 +269,9 @@ def apply(app: QApplication, scale: float = 1.0) -> None:
     font.setPointSizeF(BASE_PT * scale)
     app.setFont(font)
     app.setStyleSheet(stylesheet(scale))
+    from .widgets.combo_style import install
+
+    install(app)  # delegát a okno seznamu pro každý QComboBox
 
 
 def apply_scale(app: QApplication, scale: float) -> None:

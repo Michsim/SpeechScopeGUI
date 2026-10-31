@@ -28,8 +28,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter
+from PySide6.QtCore import QPointF, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -85,6 +85,21 @@ class _CellDelegate(QStyledItemDelegate):
                 painter.fillRect(rect, color)
         super().paint(painter, option, index)
         text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        if self._choices(index):
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            pen = QPen(QColor("#9ca3af"), 1.6)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            x = rect.right() - 14
+            y = rect.center().y()
+            chevron = QPainterPath()
+            chevron.moveTo(x - 4, y - 2)
+            chevron.lineTo(x, y + 2)
+            chevron.lineTo(x + 4, y - 2)
+            painter.drawPath(chevron)
+            painter.restore()
         if index.data(DONE_ROLE):
             painter.save()
             font = QFont(option.font)
@@ -138,6 +153,10 @@ class _CellDelegate(QStyledItemDelegate):
         if not choices:
             return super().createEditor(parent, option, index)
         combo = QComboBox(parent)
+        # v buňce kompaktně (velký styl pole se do řádku nevešel a ořízl text)
+        combo.setStyleSheet(
+            "QComboBox { padding: 2px 24px 2px 8px; min-height: 0; border-radius: 6px; }"
+        )
         combo.addItem(tr("(nevyplněno)"), "")
         for value, label in choices:
             combo.addItem(label, value)
@@ -151,9 +170,19 @@ class _CellDelegate(QStyledItemDelegate):
             text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
             found = editor.findText(text) if text else 0
             editor.setCurrentIndex(max(found, 0))
-            editor.showPopup()
+            # seznam až v dalším kroku smyčky: editor ještě není na obrazovce a seznam
+            # otevřený teď se neukázal (31. 10. 2026)
+            QTimer.singleShot(0, editor.showPopup)
             return
         super().setEditorData(editor, index)
+
+    def updateEditorGeometry(self, editor, option, index) -> None:  # noqa: ANN001, N802
+        if isinstance(editor, QComboBox):
+            rect = option.rect.adjusted(2, 3, 0, -3)
+            rect.setWidth(max(rect.width(), editor.sizeHint().width()))
+            editor.setGeometry(rect)
+            return
+        super().updateEditorGeometry(editor, option, index)
 
     def setModelData(self, editor, model, index) -> None:  # noqa: ANN001, N802
         if isinstance(editor, QComboBox):
@@ -174,6 +203,8 @@ class _CellDelegate(QStyledItemDelegate):
         if extra:
             width = option.fontMetrics.horizontalAdvance(extra) + PAD + 16
             hint.setWidth(max(hint.width(), width))
+        if self._choices(index):
+            hint.setWidth(hint.width() + 22)  # šipka rozbalení vpravo v buňce
         return hint
 
 

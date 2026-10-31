@@ -38,6 +38,8 @@ SUB_ROLE = Qt.ItemDataRole.UserRole + 21  # druhý řádek položky výběru pro
 ROW_ROLE_OFF = "off"  # vypnutý řádek (bez složky, vypnutý vypínač, nehodí se k režimu)
 NAME_WIDTH = 235
 STATUS_WIDTH = 190
+STATUS_MIN = 100
+PROTOCOL_MIN = 240
 COUNT_WIDTH = 92
 
 # Úroveň stavu → barva tečky
@@ -361,13 +363,16 @@ class TaskRowWidget(QFrame):
             layout.addLayout(folder_box, 4)
 
         self.protocol = ProtocolCombo()
+        self.protocol.setMinimumWidth(PROTOCOL_MIN)
         layout.addWidget(self.protocol, 5)
 
         self.status = QLabel("")
         self.status.setObjectName("muted")
-        self.status.setFixedWidth(STATUS_WIDTH)
+        # v užším okně stav ustoupí výběru protokolu (dřív „Fonace, zákla…“ při 1 100 px)
+        self.status.setMinimumWidth(STATUS_MIN)
+        self.status.setMaximumWidth(STATUS_WIDTH)
         self.status.setTextFormat(Qt.TextFormat.RichText)
-        layout.addWidget(self.status)
+        layout.addWidget(self.status, 2)
         if folder:
             self.status.hide()  # v průvodcích stav říká už druhý řádek protokolu
 

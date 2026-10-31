@@ -991,6 +991,17 @@ uv run --with pillow python packaging\make_icon.py   # ikona a wordmark z icon\
   dvojtečky, `split_title`), pod ním šedě technické jméno a výchozí, vpravo pole a ↺; nad
   `SEGMENT_MAX` možností rozbalovací seznam. Dialog prahů kvality má tatáž pole, „pod / nad“
   v záhlaví a u názvu. Spinboxy Qt jinde v aplikaci zůstávají (jen počet dní v Uvolnit místo).
+- **Rozbalovací seznamy** (31. 10. 2026, mockup https://claude.ai/artifact/VDkmusEWGcnrKAdSKCFkHf,
+  `docs/mockups/rozbalovaci-seznamy/` mimo git): styl `QComboBox` v `theme.py` (šipka, 36 px,
+  `combobox-popup: 0` = seznam pod polem, otevřený seznam jako karta) a `widgets/combo_style.py`:
+  šipky kreslené v QPainter do PNG v dočasné složce (`arrow_urls`, do šablony stylu),
+  `ComboPolisher` (filtr událostí z `theme.apply`) dá každému neupravitelnému seznamu
+  `ComboDelegate` (najetí světle modře, vybraná hodnota modře s ✓) a průhledné okno seznamu
+  (`comboPopup`, jen kontejner, jinak seznam ztratil podklad). Výběr protokolu ukazuje
+  v seznamu jen názvy (rozhodnuto). Sloupec s nabídkou v `MetaTable` (úloha) má v buňce
+  šedou šipku, editor v buňce je kompaktní (vlastní styl, `updateEditorGeometry` aspoň na
+  nejdelší položku) a seznam otevře až `QTimer.singleShot(0, showPopup)`; otevřený hned
+  v `setEditorData` se s novým stylem neukázal.
 - **Tabulky všude stejně** (31. 10. 2026, mockup https://claude.ai/artifact/JEpsb6wKch8WBXTYT7yXC8,
   `docs/mockups/tabulky/` mimo git): každá tabulka a strom jde přes `widgets/clean_table.py`
   (`style_table`, `style_tree`, `card`, `set_text(bold/muted/right)`, `set_pill` = štítek přes
