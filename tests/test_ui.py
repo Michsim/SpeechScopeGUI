@@ -1442,3 +1442,21 @@ def test_open_row_switches_at_once_and_last_click_wins(qtbot: QtBot, settings: A
     runs.show_overview()
     qtbot.wait(50)
     assert not runs.in_detail()
+
+
+def test_folder_not_rescanned_on_focus_loss(
+    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pokračovat (ztráta zaměření pole složky) složku znovu neprohledá; jiný text ano."""
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    calls: list[int] = []
+    original = page.rescan
+    monkeypatch.setattr(page, "rescan", lambda: (calls.append(1), original())[1])
+    page.folder.editingFinished.emit()  # stejný text: nic
+    assert calls == []
+    page.folder.setText(str(recordings / "sub"))
+    page.folder.editingFinished.emit()
+    assert calls == [1]

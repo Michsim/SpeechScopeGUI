@@ -200,7 +200,9 @@ class BatchPage(QWidget):
         folder_row = QHBoxLayout()
         self.folder = QLineEdit()
         self.folder.setPlaceholderText(tr("Složka s nahrávkami"))
-        self.folder.editingFinished.connect(self.rescan)
+        # Jen při změně textu: editingFinished přijde i při ztrátě zaměření (Pokračovat)
+        # a znovu prohledat celou složku stálo u 260 nahrávek většinu přechodu na krok 2.
+        self.folder.editingFinished.connect(self._folder_edited)
         browse = QPushButton(tr("Vybrat…"))
         browse.clicked.connect(self._browse)
         folder_row.addWidget(self.folder, 1)
@@ -871,6 +873,10 @@ class BatchPage(QWidget):
         chosen = QFileDialog.getExistingDirectory(self, tr("Složka s nahrávkami"), start)
         if chosen:
             self.set_folder(Path(chosen))
+
+    def _folder_edited(self) -> None:
+        if self.folder.text().strip() != self._scanned_folder:
+            self.rescan()
 
     def rescan(self) -> None:
         text = self.folder.text().strip()
