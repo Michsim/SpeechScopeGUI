@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from .. import contract
@@ -37,7 +38,10 @@ class Manifest:
         return sum(1 for r in recordings if _key(r) in self.rows)
 
 
+@lru_cache(maxsize=65536)
 def _key(path: Path) -> Path:
+    """Absolutní cesta jako klíč. `resolve()` se ptá souborového systému (na 260 nahrávek
+    jich bylo 2 080 za jedno Pokračovat), proto se pro tutéž cestu počítá jen jednou."""
     try:
         return path.resolve()
     except OSError:

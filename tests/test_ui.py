@@ -1460,3 +1460,24 @@ def test_folder_not_rescanned_on_focus_loss(
     page.folder.setText(str(recordings / "sub"))
     page.folder.editingFinished.emit()
     assert calls == [1]
+
+
+def test_meta_table_edit_does_not_rebuild(qtbot: QtBot) -> None:
+    """Změna buňky nepřestaví tabulku a šířky se neměří průběžně (u 260 řádků 10 s)."""
+    from PySide6.QtWidgets import QHeaderView
+
+    from speechscope_app.ui.widgets.meta_table import MetaRow, MetaTable
+
+    table = MetaTable(["nahrávka"])
+    qtbot.addWidget(table)
+    rows = [MetaRow(Path(f"C:/d/{i}.wav"), [f"{i}.wav"], {"group": "PD"}) for i in range(50)]
+    table.set_rows(rows, ["group"])
+    header = table.horizontalHeader()
+    assert all(
+        header.sectionResizeMode(c) == QHeaderView.ResizeMode.Interactive
+        for c in range(table.columnCount())
+    )
+    rebuilt: list[int] = []
+    table._refill_now = lambda: rebuilt.append(1)  # type: ignore[method-assign]
+    table.item(3, 1).setText("HC")
+    assert not rebuilt and table.merged(Path("C:/d/3.wav"))["group"] == "HC"

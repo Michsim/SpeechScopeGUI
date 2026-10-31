@@ -127,6 +127,7 @@ class MetaTable(QTableWidget):
         self._labels = labels  # hlavičky popisky vyhrazených sloupců, jinak klíče
         self._right = set(right_columns)  # pevné sloupce zarovnané vpravo (délka)
         self._rows: list[MetaRow] = []
+        self._index: dict[Path, MetaRow] = {}  # klíč -> řádek (hledání bez procházení)
         self._columns: list[str] = []  # sloupce metadat ze základu
         self._extra: list[str] = []  # sloupce přidané uživatelem
         self._edits: dict[Path, dict[str, str]] = {}
@@ -195,6 +196,7 @@ class MetaTable(QTableWidget):
     def set_rows(self, rows: list[MetaRow], columns: list[str]) -> None:
         """Nový seznam řádků a sloupce základu; úpravy řádků, které zůstaly, platí dál."""
         self._rows = list(rows)
+        self._index = {row.key: row for row in self._rows}
         self._columns = list(columns)
         keys = {row.key for row in rows}
         for gone in [k for k in self._edits if k not in keys]:
@@ -219,13 +221,14 @@ class MetaTable(QTableWidget):
 
     def merged(self, key: Path) -> dict[str, str]:
         """Metadata řádku: základ přepsaný úpravami, pro všechny sloupce tabulky."""
-        row = next((r for r in self._rows if r.key == key), None)
+        row = self._index.get(key)
         base = dict(row.base) if row else {}
         base.update(self._edits.get(key, {}))
         return {c: base.get(c, "") for c in self.columns}
 
     def rows_merged(self) -> dict[Path, dict[str, str]]:
-        return {row.key: self.merged(row.key) for row in self._rows}
+        columns = self.columns
+        return {row.key: self._row_merged(row, columns) for row in self._rows}
 
     def _row_merged(self, row: MetaRow, columns: list[str]) -> dict[str, str]:
         """Jako `merged`, ale bez hledání řádku a s předpočítanými sloupci (kreslení)."""
@@ -390,7 +393,7 @@ class MetaTable(QTableWidget):
 
     def _store(self, key: Path, column: str, value: str) -> str:
         normalized = meta.normalize_value(column, value)
-        row = next((r for r in self._rows if r.key == key), None)
+        row = self._index.get(key)
         original = (row.base if row else {}).get(column, "")
         edits = self._edits.setdefault(key, {})
         if normalized == original:
@@ -421,6 +424,8 @@ class MetaTable(QTableWidget):
                 self._mark(item, row, column)
             finally:
                 self._filling = False
+            if item.column() > 0:
+                self.resizeColumnToContents(item.column())
         self.edited.emit()
 
     def _cell_clicked(self, table_row: int, _column: int) -> None:
@@ -434,9 +439,11 @@ class MetaTable(QTableWidget):
 
     def refill(self) -> None:
         self._filling = True
+        self.setUpdatesEnabled(False)
         try:
             self._refill_now()
         finally:
+            self.setUpdatesEnabled(True)
             self._filling = False
 
     def _header_text(self, column: str) -> str:
@@ -486,6 +493,10 @@ class MetaTable(QTableWidget):
         headers = [h.upper() for h in self._leading] + [
             self._header_text(c).upper() for c in columns
         ]
+        # Šířky se během plnění nepřepočítávají (31. 10. 2026): s ResizeToContents Qt po každé
+        # vložené buňce přeměřil celý sloupec, u 260 nahrávek 1,35 milionu měření a 10 s na
+        # jednu přestavbu. Měří se jednou na konci.
+        self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.clearSpans()
         self.setColumnCount(len(headers))
         self.setHorizontalHeaderLabels(headers)
@@ -554,10 +565,9 @@ class MetaTable(QTableWidget):
         # odsouval délku a metadata daleko doprava; dlouhý název se zkrátí výpustkou.
         # Šířku názvu měří tučné písmo, nadpisy skupin (přes celou šířku) se nepočítají.
         header = self.horizontalHeader()
-        for c in range(len(headers)):
-            header.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+        for c in range(1, len(headers)):
+            self.resizeColumnToContents(c)  # jedno měření sloupce (hlavička i buňky)
         if headers:
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
             head_width = bold_metrics.horizontalAdvance(headers[0]) + 24
             self.setColumnWidth(0, min(NAME_MAX, max(head_width, name_width + 28)))
         header.setStretchLastSection(True)
