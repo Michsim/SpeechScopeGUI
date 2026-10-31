@@ -30,6 +30,7 @@ from ..backend import tasks
 from ..backend.library import FeatureInfo
 from ..i18n import tr
 from . import theme
+from .widgets.clean_table import card, style_group_item, style_tree
 
 HEADER_COLUMNS = ("file", "path", "task", "speechscope_version", "notes", "error")
 
@@ -146,11 +147,9 @@ class RecordingDetailDialog(QDialog):
         layout.addLayout(search_row)
 
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(3)
-        self.tree.setHeaderLabels([tr("feature / sloupec"), tr("hodnota"), tr("popis")])
-        self.tree.setAlternatingRowColors(True)
+        style_tree(self.tree, [tr("feature / sloupec"), tr("hodnota"), tr("popis")])
         self.tree.setRootIsDecorated(True)
-        layout.addWidget(self.tree, 1)
+        layout.addWidget(card(self.tree), 1)
         self._fill(row, catalog)
         self.tree.expandAll()
         self.tree.resizeColumnToContents(0)
@@ -184,6 +183,7 @@ class RecordingDetailDialog(QDialog):
                 groups[group] = QTreeWidgetItem([label, "", group])
                 groups[group].setForeground(2, QColor(theme.MUTED))
                 self.tree.addTopLevelItem(groups[group])
+                style_group_item(groups[group], 3)
             name = info.feature.name
             if info.feature.columns == [name]:
                 # jediný sloupec = feature sama (lingvistika): hodnota rovnou u feature
@@ -203,6 +203,7 @@ class RecordingDetailDialog(QDialog):
             self._add_value(features[name], info.short, raw, info.description)
         if other is not None:
             self.tree.addTopLevelItem(other)
+            style_group_item(other, 3)
 
     def _add_value(self, parent: QTreeWidgetItem, name: str, raw: Any, desc: str) -> None:
         text = format_value(raw)

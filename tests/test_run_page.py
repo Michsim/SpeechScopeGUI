@@ -46,7 +46,10 @@ def test_run_page_fills_provider_columns(
         )
     state = page.runner.state
     assert state.detailed and state.total == 4
-    headers = [page.files.horizontalHeaderItem(c).text() for c in range(page.files.columnCount())]
+    # záhlaví velkými písmeny jako v ostatních uhlazených tabulkách; porovnává se malými
+    headers = [
+        page.files.horizontalHeaderItem(c).text().lower() for c in range(page.files.columnCount())
+    ]
     assert headers[0] == "nahrávka" and headers[-2:] == ["výsledek", "poznámka"]
     # akustika pro pohádku: segmentace, fonémy i přepis (speech_rate), ale ne Stanza
     assert {"segmentace", "fonémy", "přepis"} <= set(headers) and "jaz. rozbor" not in headers

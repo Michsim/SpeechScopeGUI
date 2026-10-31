@@ -95,6 +95,7 @@ from ..assessment_dialog import AssessmentDialog, match_text
 from ..feature_detail import split_unit
 from ..file_actions import file_menu, open_file
 from ..recording_detail import ColumnInfo, RecordingDetailDialog, column_index
+from ..widgets.clean_table import fit_height, fit_widget_column, set_pill, set_text, style_table
 from ..widgets.dimension_tree import (
     BAND_ROLE,
     BAND_STRONG,
@@ -901,11 +902,8 @@ class AssessmentPage(QWidget):
         self.table_title.setObjectName("card_title")
         table_layout.addWidget(self.table_title)
         self.trend_table = QTableWidget()
-        self.trend_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.trend_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        self.trend_table.verticalHeader().setVisible(False)
+        style_table(self.trend_table, [])
         trend_header = self.trend_table.horizontalHeader()
-        trend_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         trend_header.setStretchLastSection(False)
         table_layout.addWidget(self.trend_table)
         trend.addWidget(table_card)
@@ -930,22 +928,14 @@ class AssessmentPage(QWidget):
         rec_title.setObjectName("card_title")
         rec_layout.addWidget(rec_title)
         self.recordings = QTableWidget()
-        self.recordings.setColumnCount(5)
-        self.recordings.setHorizontalHeaderLabels(
-            [tr("úloha"), tr("nahrávka"), tr("běh"), tr("s normou"), tr("kvalita")]
+        style_table(
+            self.recordings,
+            [tr("úloha"), tr("nahrávka"), tr("běh"), tr("s normou"), tr("kvalita")],
+            selectable=True,
         )
-        self.recordings.verticalHeader().setVisible(False)
-        self.recordings.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.recordings.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.recordings.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         rec_header = self.recordings.horizontalHeader()
-        rec_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        rec_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         rec_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        rec_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        rec_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        rec_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        self.recordings.setMaximumHeight(170)
+        rec_header.setStretchLastSection(False)
         self.recordings.cellDoubleClicked.connect(lambda row, _col: self._detail_row(row))
         self.recordings.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.recordings.customContextMenuRequested.connect(self._recording_menu)
@@ -1018,20 +1008,9 @@ class AssessmentPage(QWidget):
         title = QLabel(tr("Dávky hodnocení"))
         title.setObjectName("card_title")
         card_layout.addWidget(title)
-        self.plan_table = QTableWidget()
-        self.plan_table.setColumnCount(4)
-        self.plan_table.setHorizontalHeaderLabels(
-            [tr("úloha"), tr("nahrávek"), tr("protokol"), tr("stav")]
-        )
-        self.plan_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.plan_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        self.plan_table.verticalHeader().setVisible(False)
-        header = self.plan_table.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        from .norms import make_plan_table  # stejná tabulka dávek jako u normy
+
+        self.plan_table = make_plan_table()
         card_layout.addWidget(self.plan_table)
         layout.addWidget(card)
         note = QLabel(
@@ -1053,7 +1032,6 @@ class AssessmentPage(QWidget):
             signal.emit(plan.key)
 
     def _show_plan(self, plan: AssessmentPlan) -> None:
-        from .norms import plan_status_text  # stejné popisky stavů jako u normy
 
         p = plan.patient
         self.plan_header.title.setText(p.subject)
@@ -1064,19 +1042,9 @@ class AssessmentPage(QWidget):
         text, role = plan_pill(plan)
         self.plan_header.set_pills([(text, role, "", None)])
         self.plan_header.set_role(role)
-        self.plan_table.setRowCount(len(plan.tasks))
-        for row, task in enumerate(plan.tasks):
-            cells = [
-                tasks.long_label(task.task),
-                str(len(task.inputs)),
-                task.proto().display_name,
-                plan_status_text(task.status),
-            ]
-            for col, value in enumerate(cells):
-                self.plan_table.setItem(row, col, QTableWidgetItem(value))
-        height = self.plan_table.horizontalHeader().height() + 4
-        height += sum(self.plan_table.rowHeight(r) for r in range(len(plan.tasks)))
-        self.plan_table.setFixedHeight(height)
+        from .norms import fill_plan_table
+
+        fill_plan_table(self.plan_table, plan.tasks)
         running = any(t.status == RUNNING for t in plan.tasks)
         self.build_btn.setEnabled(plan.buildable and not running)
         self.resume_btn.setEnabled(bool(plan.remaining()))
@@ -2223,7 +2191,7 @@ class AssessmentPage(QWidget):
                 text += " \u26a0"
             headers.append(text)
         headers.append(tr("změna za období"))
-        table.setHorizontalHeaderLabels(headers)
+        table.setHorizontalHeaderLabels([h.upper() for h in headers])
         for c, visit in enumerate(timeline.visits, start=1):
             item = table.horizontalHeaderItem(c)
             if item is not None:
@@ -2441,7 +2409,7 @@ class AssessmentPage(QWidget):
                 text += " ⚠"
             headers.append(text)
         headers += [tr("změna za období"), tr("změna v %")]
-        table.setHorizontalHeaderLabels(headers)
+        table.setHorizontalHeaderLabels([h.upper() for h in headers])
         for c, visit in enumerate(timeline.visits, start=2):
             item = table.horizontalHeaderItem(c)
             if item is not None:
@@ -2833,23 +2801,32 @@ class AssessmentPage(QWidget):
             quality_text = {quality.BAD: tr("nepoužitelná"), quality.WARN: tr("podezřelá")}.get(
                 level, tr("v pořádku") if quality.COLUMN_TOTAL in rec.data else ""
             )
-            cells = [task, rec.file, started or rec.run.display_name, with_norm, quality_text]
-            for col, text in enumerate(cells):
-                item = QTableWidgetItem(text)
-                if col == 1:
-                    item.setData(Qt.ItemDataRole.UserRole, rec)
-                    item.setToolTip(str(rec.path) if rec.path else "")
-                if col == 2:
-                    item.setToolTip(rec.run.display_name)
-                if col == 3 and (match is False or outdated):
-                    item.setForeground(QColor(theme.WARN))
-                    item.setToolTip("\n".join(outdated))
-                if col == 4 and level:
-                    item.setForeground(
-                        QColor(theme.MISSING if level == quality.BAD else theme.WARN)
-                    )
-                    item.setToolTip(quality.summary(issues))
-                self.recordings.setItem(row, col, item)
+            table = self.recordings
+            for col in range(table.columnCount()):  # štítky předchozího pacienta pryč
+                if table.cellWidget(row, col) is not None:
+                    table.cellWidget(row, col).hide()
+                    table.removeCellWidget(row, col)
+            if task:
+                set_pill(table, row, 0, task, "neutral")
+            else:
+                set_text(table, row, 0, "")
+            name = set_text(
+                table, row, 1, rec.file, bold=True, tooltip=str(rec.path) if rec.path else ""
+            )
+            name.setData(Qt.ItemDataRole.UserRole, rec)
+            set_text(
+                table, row, 2, started or rec.run.display_name, muted=True,
+                tooltip=rec.run.display_name,
+            )  # fmt: skip
+            if match is False or outdated:
+                set_pill(table, row, 3, with_norm, "warn", tooltip="\n".join(outdated))
+            else:
+                set_text(table, row, 3, with_norm)
+            if quality_text:
+                role = {quality.BAD: "missing", quality.WARN: "warn"}.get(level, "ok")
+                set_pill(table, row, 4, quality_text, role, tooltip=quality.summary(issues))
+            else:
+                set_text(table, row, 4, "")
         notes = []
         if any(visit.count(t) > 1 for t in visit.tasks):
             notes.append(tr("Víc nahrávek jedné úlohy se zprůměruje po jednotlivých feature."))
@@ -2887,6 +2864,9 @@ class AssessmentPage(QWidget):
                     files=", ".join(r.file for r in self._missing)
                 )
             )
+        for col in (0, 3, 4):
+            fit_widget_column(self.recordings, col, extra=16)
+        fit_height(self.recordings, max_rows=5)
         self.recordings_note.setText("\n".join(notes))
         self.recordings_note.setVisible(bool(notes))
 

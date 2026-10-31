@@ -31,7 +31,6 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -67,6 +66,14 @@ from ...backend.norms import (
 from ...i18n import N_, tr
 from .. import theme
 from ..norm_quality_dialog import NormQualityDialog
+from ..widgets.clean_table import (
+    fit_height,
+    fit_widget_column,
+    right_header,
+    set_pill,
+    set_text,
+    style_table,
+)
 from ..widgets.elided_label import ElidedLabel
 from ..widgets.status_header import StatusHeader
 
@@ -97,6 +104,30 @@ def plan_pill(plan: NormPlan) -> tuple[str, str]:
     if plan.recomputing:
         return tr("přepočet {k} z {n}").format(k=k, n=n), "neutral"
     return tr("dávky {k} z {n}").format(k=k, n=n), "neutral"
+
+
+def make_plan_table() -> QTableWidget:
+    """Tabulka dávek rozpracované normy nebo hodnocení (úloha, nahrávek, protokol, stav)."""
+    table = QTableWidget()
+    style_table(table, [tr("úloha"), tr("nahrávek"), tr("protokol"), tr("stav")])
+    right_header(table, 1)
+    header = table.horizontalHeader()
+    header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+    header.setStretchLastSection(False)
+    return table
+
+
+def fill_plan_table(table: QTableWidget, plan_tasks) -> None:  # noqa: ANN001
+    """Řádek na dávku, stav štítkem jako v Průběhu; výška podle řádků."""
+    table.setRowCount(len(plan_tasks))
+    for row, task in enumerate(plan_tasks):
+        set_text(table, row, 0, tasks.long_label(task.task), bold=True)
+        set_text(table, row, 1, str(len(task.inputs)), right=True)
+        set_text(table, row, 2, task.proto().display_name, muted=True)
+        text, role = PLAN_STATUS.get(task.status, (task.status, "neutral"))
+        set_pill(table, row, 3, tr(text), role)
+    fit_widget_column(table, 3, extra=16)
+    fit_height(table)
 
 
 def format_age_range(age_range: tuple[float, float] | None) -> str:
@@ -411,8 +442,8 @@ class NormsPage(QWidget):
         table_title.setObjectName("card_title")
         table_layout.addWidget(table_title)
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(
+        style_table(
+            self.table,
             [
                 tr("úloha"),
                 tr("kontrol"),
@@ -420,17 +451,12 @@ class NormsPage(QWidget):
                 tr("věk"),
                 tr("sloupců"),
                 tr("vyřazeno"),
-            ]
+            ],
         )
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in range(1, 6):
-            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(False)
+        right_header(self.table, 1, 2, 4, 5)
         table_layout.addWidget(self.table)
         right_layout.addWidget(table_card)
 
@@ -499,21 +525,7 @@ class NormsPage(QWidget):
         title = QLabel(tr("Dávky normy"))
         title.setObjectName("card_title")
         card_layout.addWidget(title)
-        self.plan_table = QTableWidget()
-        self.plan_table.setColumnCount(4)
-        self.plan_table.setHorizontalHeaderLabels(
-            [tr("úloha"), tr("nahrávek"), tr("protokol"), tr("stav")]
-        )
-        self.plan_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.plan_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        self.plan_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.plan_table.verticalHeader().setVisible(False)
-        header = self.plan_table.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.plan_table = make_plan_table()
         card_layout.addWidget(self.plan_table)
         layout.addWidget(card)
         self.plan_note = QLabel("")
@@ -591,19 +603,7 @@ class NormsPage(QWidget):
         text, role = plan_pill(plan)
         self.plan_header.set_pills([(text, role, "", None)])
         self.plan_header.set_role(role)
-        self.plan_table.setRowCount(len(plan.tasks))
-        for row, task in enumerate(plan.tasks):
-            cells = [
-                tasks.long_label(task.task),
-                str(len(task.inputs)),
-                task.proto().display_name,
-                plan_status_text(task.status),
-            ]
-            for col, value in enumerate(cells):
-                self.plan_table.setItem(row, col, QTableWidgetItem(value))
-        height = self.plan_table.horizontalHeader().height() + 4
-        height += sum(self.plan_table.rowHeight(r) for r in range(len(plan.tasks)))
-        self.plan_table.setFixedHeight(height)
+        fill_plan_table(self.plan_table, plan.tasks)
         running = any(t.status == RUNNING for t in plan.tasks)
         self.build_btn.setEnabled(plan.buildable and not running)
         self.resume_btn.setEnabled(bool(plan.remaining()))
@@ -833,24 +833,16 @@ class NormsPage(QWidget):
     def _fill_table(self, summaries: list[TaskSummary]) -> None:
         self.table.setRowCount(len(summaries))
         for row, s in enumerate(summaries):
-            cells = [
-                tasks.long_label(s.task),
-                str(s.subjects),
-                f"{s.female} / {s.male}",
-                format_age_range(s.age_range),
-                str(s.columns),
-                str(s.excluded) if s.excluded else "–",
-            ]
-            for col, text in enumerate(cells):
-                item = QTableWidgetItem(text)
-                if col:
-                    item.setTextAlignment(
-                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-                    )
-                self.table.setItem(row, col, item)
-        height = self.table.horizontalHeader().height() + 4
-        height += sum(self.table.rowHeight(r) for r in range(self.table.rowCount()))
-        self.table.setFixedHeight(height)
+            set_text(self.table, row, 0, tasks.long_label(s.task), bold=True)
+            set_text(self.table, row, 1, str(s.subjects), right=True)
+            set_text(self.table, row, 2, f"{s.female} / {s.male}", right=True)
+            set_text(self.table, row, 3, format_age_range(s.age_range), muted=True, right=True)
+            set_text(self.table, row, 4, str(s.columns), right=True)
+            set_text(
+                self.table, row, 5, str(s.excluded) if s.excluded else "–",
+                muted=not s.excluded, right=True,
+            )  # fmt: skip
+        fit_height(self.table)
 
     @staticmethod
     def _about_text(norm: Norm) -> str:

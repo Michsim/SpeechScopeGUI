@@ -73,6 +73,7 @@ from ..backend.protocol import Protocol
 from ..i18n import tr
 from . import theme
 from .new_norm_dialog import SEX_CHOICES, TaskRow, format_duration
+from .widgets.clean_table import card, set_text, style_table
 from .widgets.meta_table import MetaRow, MetaTable
 from .widgets.status_header import Pill
 
@@ -134,9 +135,9 @@ class NewAssessmentChoiceDialog(QDialog):
         group = QButtonGroup(self)
         group.addButton(self.recordings)
         group.addButton(self.runs)
-        for card in (card1, card2):
-            card.activated.connect(self.accept)
-            layout.addWidget(card)
+        for choice in (card1, card2):
+            choice.activated.connect(self.accept)
+            layout.addWidget(choice)
         self.recordings.setChecked(True)
         layout.addStretch(1)
         footer = QHBoxLayout()
@@ -582,17 +583,11 @@ class AssessmentBuildWidget(QWidget):
         self.summary_text.setWordWrap(True)
         layout.addWidget(self.summary_text)
         self.batches = QTableWidget()
-        self.batches.setColumnCount(3)
-        self.batches.setHorizontalHeaderLabels([tr("úloha"), tr("dávka"), tr("odhad")])
-        self.batches.verticalHeader().setVisible(False)
-        self.batches.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.batches.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        style_table(self.batches, [tr("úloha"), tr("dávka"), tr("odhad")])
         header = self.batches.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        layout.addWidget(self.batches)
+        header.setStretchLastSection(False)
+        layout.addWidget(card(self.batches))
         self.total = QLabel("")
         layout.addWidget(self.total)
         self.warnings = QLabel("")
@@ -648,7 +643,7 @@ class AssessmentBuildWidget(QWidget):
                 label += f" · {plan.visit}"
             elif self._multi:
                 label += tr(" · bez data")
-            self.batches.setItem(r, 0, QTableWidgetItem(label))
+            set_text(self.batches, r, 0, label, bold=True)
             self.batches.setItem(
                 r,
                 1,
@@ -667,7 +662,7 @@ class AssessmentBuildWidget(QWidget):
             else:
                 known = False
                 estimate = tr("po prvním běhu")
-            self.batches.setItem(r, 2, QTableWidgetItem(estimate))
+            set_text(self.batches, r, 2, estimate, muted=True)
         height = self.batches.horizontalHeader().height() + 4
         height += sum(self.batches.rowHeight(i) for i in range(len(plans)))
         self.batches.setFixedHeight(height)

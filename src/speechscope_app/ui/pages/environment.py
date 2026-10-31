@@ -35,6 +35,8 @@ from ...backend.query import AsyncQuery, parse_json
 from ...i18n import N_, tr
 from .. import theme
 from ..cache_dialog import CacheDialog
+from ..widgets.clean_table import card as table_card
+from ..widgets.clean_table import style_table
 
 NOT_CHECKED = N_("Prostředí zatím nebylo zkontrolováno.")
 NOT_CHECKED_HINT = N_("Stiskni Zkontrolovat nebo F5.")
@@ -241,22 +243,17 @@ class EnvironmentPage(QWidget):
         # modely
         layout.addWidget(_label(tr("Modely"), "section"))
         self.models = QTableWidget()
-        self.models.setColumnCount(4)
-        self.models.setHorizontalHeaderLabels(["", tr("Model"), tr("K čemu slouží"), tr("Cesta")])
-        self.models.verticalHeader().hide()
-        self.models.setShowGrid(False)
-        self.models.setAlternatingRowColors(True)
-        self.models.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        self.models.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.models.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        style_table(self.models, ["", tr("model"), tr("k čemu slouží"), tr("cesta")])
+        self.models.horizontalHeader().setStretchLastSection(False)
         self.models.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         header = self.models.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.models.setColumnWidth(0, 28)
-        layout.addWidget(self.models)
+        self.models.setColumnWidth(0, 32)
+        self.models_card = table_card(self.models)
+        layout.addWidget(self.models_card)
 
         # akcelerace
         layout.addWidget(_label(tr("Akcelerace"), "section"))
@@ -454,7 +451,7 @@ class EnvironmentPage(QWidget):
         for card in (*self.provider_cards.values(), *self.gpu_cards.values()):
             card.clear()
         self.models.setRowCount(0)
-        self.models.hide()
+        self.models_card.hide()
 
     def _show(self, version: str, report: dict[str, Any]) -> None:
         providers = report.get("providers", {})
@@ -514,7 +511,7 @@ class EnvironmentPage(QWidget):
 
     def _show_models(self, models: dict[str, Any]) -> None:
         self.models.setRowCount(len(models))
-        self.models.setVisible(bool(models))
+        self.models_card.setVisible(bool(models))
         for r, (key, m) in enumerate(models.items()):
             present = bool(m.get("present"))
             path = str(m.get("path", ""))
@@ -526,12 +523,11 @@ class EnvironmentPage(QWidget):
             path_item = QTableWidgetItem(PureWindowsPath(path).name if path else "")
             path_item.setForeground(QColor(theme.MUTED))
             path_item.setToolTip(path)
-            cells = (
-                dot,
-                QTableWidgetItem(str(m.get("name", key))),
-                QTableWidgetItem(str(m.get("used_by", ""))),
-                path_item,
-            )
+            name = QTableWidgetItem(str(m.get("name", key)))
+            bold = name.font()
+            bold.setBold(True)
+            name.setFont(bold)
+            cells = (dot, name, QTableWidgetItem(str(m.get("used_by", ""))), path_item)
             for c, item in enumerate(cells):
                 self.models.setItem(r, c, item)
         self._fit_models()

@@ -641,7 +641,7 @@ def test_trend_view_for_patient_with_two_visits(qtbot: QtBot, settings: AppSetti
     assert [r.dimension.key for r in shown] == ["voice", "pauses"]
     assert len(page.trend_grid.charts) == 2
     assert page.trend_table.rowCount() == 2 and page.trend_table.columnCount() == 4
-    headers = [page.trend_table.horizontalHeaderItem(c).text() for c in range(4)]
+    headers = [page.trend_table.horizontalHeaderItem(c).text().lower() for c in range(4)]
     assert headers == ["dimenze", "14. 10. 2025", "14. 10. 2026", "změna za období"]
     assert page.trend_table.item(0, 0).text() == "Kvalita hlasu"
     # 2025 má jen čtení, 2026 jen fonaci: v tabulce mezery místo nul
@@ -670,8 +670,8 @@ def test_trend_view_for_patient_with_two_visits(qtbot: QtBot, settings: AppSetti
     assert page.trend_table.columnCount() == 6
     assert page.trend_table.item(0, 0).text() == "Kvalita hlasu"
     assert page.trend_table.columnSpan(0, 0) == 6  # řádek skupiny přes celou šířku
-    assert page.trend_table.horizontalHeaderItem(1).text() == "jednotka"
-    assert page.trend_table.horizontalHeaderItem(5).text() == "změna v %"
+    assert page.trend_table.horizontalHeaderItem(1).text().lower() == "jednotka"
+    assert page.trend_table.horizontalHeaderItem(5).text().lower() == "změna v %"
     assert "SD proti normě" in page.trend_note.text()
     out = page.save_image(settings.work_root / "hodnoty.png")
     assert out is not None and out.is_file()

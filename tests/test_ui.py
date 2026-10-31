@@ -88,6 +88,7 @@ def test_window_runs_batch_end_to_end(
     assert runs.visible_rows() == []
     runs.search.clear()
     runs.open_row(0)
+    qtbot.waitUntil(lambda: not runs.loading())  # tabulka se načte v dalším kroku
     assert runs.in_detail() and runs.tab() == "values" and runs.crumb.text() == "Fonace, základní"
     assert not runs.prev_btn.isEnabled() and not runs.next_btn.isEnabled()
     assert read_run(run_dir).status == "ok"
@@ -1383,3 +1384,61 @@ def test_analysis_warns_about_short_recordings(
     answer[0] = QMessageBox.StandardButton.Yes
     page.run_btn.click()
     assert len(started) == 1
+
+
+def test_progress_replayed_only_on_progress_tab(
+    qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Otevření běhu na Hodnotách Průběh nepřehrává (zdržovalo kliknutí), záložka Průběh ano."""
+    from test_visits import make_run
+
+    settings.work_root.mkdir(parents=True)
+    make_run(
+        settings.work_root,
+        "2026-10-14_10-12-00_fonace",
+        [{"file": "a.wav", "path": "C:/d/a.wav", "task": "phonation"}],
+    )
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    runs = window.runs_page
+    replayed: list = []
+    monkeypatch.setattr(window.run_page, "show_recorded", lambda info: replayed.append(info))
+    runs.refresh_list()
+    runs.open_row(0)
+    qtbot.waitUntil(lambda: not runs.loading())
+    assert runs.tab() == "values" and replayed == []
+    runs.set_tab("progress")
+    assert len(replayed) == 1
+    runs.set_tab("values")
+    runs.set_tab("progress")
+    assert len(replayed) == 1  # podruhé se nepřehrává
+
+
+def test_open_row_switches_at_once_and_last_click_wins(qtbot: QtBot, settings: AppSettings) -> None:
+    """Klik v přehledu hned ukáže detail s „Načítám…“; rychlé proklikání ukáže poslední běh."""
+    from test_visits import make_run
+
+    settings.work_root.mkdir(parents=True)
+    for name, file in (
+        ("2026-10-14_10-12-00_fonace", "a.wav"),
+        ("2026-10-15_09-00-00_cteni", "b.wav"),
+    ):
+        make_run(
+            settings.work_root, name, [{"file": file, "path": f"C:/d/{file}", "task": "phonation"}]
+        )
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    runs, results = window.runs_page, window.results_page
+    runs.refresh_list()
+    runs.open_row(0)
+    assert runs.in_detail() and runs.loading() and results.empty.text() == "Načítám…"
+    runs.open_row(1)  # druhý klik dřív, než se první načetl
+    qtbot.waitUntil(lambda: not runs.loading())
+    assert results.current_dir() == runs._rows[1].dir
+    qtbot.wait(50)
+    assert results.current_dir() == runs._rows[1].dir  # první klik se už nedokončil
+    # zpět na přehled před načtením: detail se znovu neotevře
+    runs.open_row(0)
+    runs.show_overview()
+    qtbot.wait(50)
+    assert not runs.in_detail()

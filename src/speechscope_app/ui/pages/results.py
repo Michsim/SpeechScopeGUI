@@ -113,8 +113,9 @@ class ResultsPage(QWidget):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(12, 0, 0, 0)
         right_layout.setSpacing(8)
-        # stavová karta: název běhu, souhrn, štítky s počty, Otevřít složku
-        self.header = StatusHeader()
+        # stavová karta: název běhu, štítky s počty a tlačítka v jednom řádku, souhrn pod
+        # nimi na jeden řádek (jako hlavička pacienta; dřív tři řádky nad tabulkou)
+        self.header = StatusHeader(subtitle_below=True, pills_inline=True)
         self.title_label = self.header.title
         self.title_label.setText(tr("Výsledky"))
         self.summary = self.header.subtitle
@@ -234,7 +235,8 @@ class ResultsPage(QWidget):
         self.footer.setToolTip(tr("Z nahrávek bez chyby v aktuálním filtru."))
         self.footer.hide()
         card_layout.addWidget(self.footer)
-        self.empty = QLabel(tr("Vyber běh v historii vlevo."))
+        self._empty_text = tr("Vyber běh v historii vlevo.")
+        self.empty = QLabel(self._empty_text)
         self.empty.setObjectName("muted")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(self.empty)
@@ -310,7 +312,26 @@ class ResultsPage(QWidget):
             self._show_group(entry, prefer=run_dir)
         return True
 
+    def show_loading(self, title: str) -> None:
+        """Okamžitá odezva po kliknutí v přehledu: název běhu a „Načítám…“ místo tabulky.
+
+        Tabulka se načte až v dalším kroku smyčky událostí (`RunsPage.open_row`), na
+        pomalém počítači tak klik hned přepne stránku a okno nevisí na staré.
+        """
+        self.title_label.setText(title)
+        self.header.set_role("neutral")
+        self.header.set_pills([])
+        self.summary.setText(tr("Načítám…"))
+        self.summary.setToolTip("")
+        self.open_btn.setEnabled(False)
+        self.detail_btn.setEnabled(False)
+        self.rerun_btn.hide()
+        self.close_card()
+        self.empty.setText(tr("Načítám…"))
+        self._show_table(False)
+
     def show_run(self, entry: RunInfo | RunGroup) -> None:
+        self.empty.setText(self._empty_text)
         if isinstance(entry, RunGroup):
             self._show_group(entry)
             return

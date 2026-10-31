@@ -36,9 +36,19 @@ class Pill(QLabel):
 class StatusHeader(QFrame):
     """`subtitle_below=True` (Pacienti, 31. 10. 2026): podtitul na vlastním řádku pod
     nadpisem i tlačítky, přes celou šířku a na jeden řádek s výpustkou; vedle tlačítek
-    se v úzkém okně lámal do tří řádků a hlavička rostla."""
+    se v úzkém okně lámal do tří řádků a hlavička rostla.
 
-    def __init__(self, parent: QWidget | None = None, *, subtitle_below: bool = False) -> None:
+    `pills_inline=True` (Výsledky › Hodnoty, 31. 10. 2026): štítky hned za nadpisem
+    v řádku s tlačítky, ne na vlastním řádku pod podtitulem; karta má dva řádky místo
+    tří a tabulce zůstane víc výšky."""
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        subtitle_below: bool = False,
+        pills_inline: bool = False,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("card")
         theme.set_role(self, "neutral")
@@ -61,7 +71,16 @@ class StatusHeader(QFrame):
         text.addWidget(self.title)
         if not subtitle_below:
             text.addWidget(self.subtitle)
-        top.addLayout(text, 1)
+        # štítky pod titulkem přes celou šířku karty a zalamované: sedm dimenzí
+        # v jedné řadě vedle tlačítek tlačilo minimální šířku okna přes obrazovku
+        self.pills = FlowLayout(spacing=6)
+        if pills_inline:
+            self.title.setWordWrap(False)
+            top.addLayout(text, 0)
+            top.addLayout(self.pills, 1)  # za nadpisem, volné místo až před tlačítky
+            top.setAlignment(self.pills, Qt.AlignmentFlag.AlignVCenter)
+        else:
+            top.addLayout(text, 1)
         self.buttons = QHBoxLayout()
         self.buttons.setSpacing(8)
         top.addLayout(self.buttons, 0)
@@ -72,10 +91,8 @@ class StatusHeader(QFrame):
         outer.addLayout(top)
         if subtitle_below:
             outer.addWidget(self.subtitle)
-        # štítky pod titulkem přes celou šířku karty a zalamované: sedm dimenzí
-        # v jedné řadě vedle tlačítek tlačilo minimální šířku okna přes obrazovku
-        self.pills = FlowLayout(spacing=6)
-        outer.addLayout(self.pills)
+        if not pills_inline:
+            outer.addLayout(self.pills)
         self.body = QVBoxLayout()
         self.body.setSpacing(4)
         outer.addLayout(self.body)

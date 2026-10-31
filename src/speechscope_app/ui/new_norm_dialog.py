@@ -14,6 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -55,6 +56,7 @@ from ..backend.protocol import Protocol
 from ..i18n import tr
 from . import theme
 from .custom_task_dialog import CustomTaskDialog
+from .widgets.clean_table import card, set_text, style_table
 from .widgets.status_header import Pill
 
 SEX_CHOICES = (("", "–"), (meta.FEMALE, "žena"), (meta.MALE, "muž"))
@@ -375,15 +377,20 @@ class NewNormDialog(QDialog):
         self.counts.setObjectName("muted")
         layout.addWidget(self.counts)
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(
-            [tr("kontrola"), tr("věk"), tr("pohlaví"), tr("nahrávky"), tr("stav")]
+        style_table(
+            self.table,
+            [tr("kontrola"), tr("věk"), tr("pohlaví"), tr("nahrávky"), tr("stav")],
+            row_height=44,  # místo na výběr pohlaví
         )
-        self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(36)  # místo na výběr pohlaví
-        self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        # věk se píše přímo do buňky (style_table úpravy vypíná)
+        self.table.setEditTriggers(
+            QTableWidget.EditTrigger.DoubleClicked
+            | QTableWidget.EditTrigger.EditKeyPressed
+            | QTableWidget.EditTrigger.AnyKeyPressed
+        )
+        self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         header = self.table.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         header.resizeSection(1, 80)
@@ -392,7 +399,7 @@ class NewNormDialog(QDialog):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.table.itemChanged.connect(self._age_edited)
-        layout.addWidget(self.table, 1)
+        layout.addWidget(card(self.table), 1)
         note = QLabel(
             tr(
                 "Kontrolu bez věku nebo pohlaví jde použít, jen se nevybere podle věkového "
@@ -430,6 +437,9 @@ class NewNormDialog(QDialog):
         for r, (subject, control) in enumerate(self._controls.items()):
             name = QTableWidgetItem(subject)
             name.setFlags(name.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            bold = name.font()
+            bold.setBold(True)
+            name.setFont(bold)
             self.table.setItem(r, 0, name)
             age = QTableWidgetItem("" if control.age is None else f"{control.age:g}")
             age.setData(Qt.ItemDataRole.UserRole, subject)
@@ -447,6 +457,7 @@ class NewNormDialog(QDialog):
                 " · ".join(f"{contract.TASK_SHORT.get(t, t)} {n}" for t, n in tasks.items())
             )
             recs.setFlags(recs.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            recs.setForeground(QColor(theme.MUTED))
             self.table.setItem(r, 3, recs)
             state = QTableWidgetItem(self._state_text(control, tasks, all_tasks))
             state.setFlags(state.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -556,17 +567,11 @@ class NewNormDialog(QDialog):
         self.summary_text.setWordWrap(True)
         layout.addWidget(self.summary_text)
         self.batches = QTableWidget()
-        self.batches.setColumnCount(3)
-        self.batches.setHorizontalHeaderLabels([tr("úloha"), tr("dávka"), tr("odhad")])
-        self.batches.verticalHeader().setVisible(False)
-        self.batches.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.batches.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        style_table(self.batches, [tr("úloha"), tr("dávka"), tr("odhad")])
         header = self.batches.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        layout.addWidget(self.batches)
+        header.setStretchLastSection(False)
+        layout.addWidget(card(self.batches))
         self.total = QLabel("")
         layout.addWidget(self.total)
         self.warnings = QLabel("")
@@ -605,7 +610,7 @@ class NewNormDialog(QDialog):
         for r, row in enumerate(rows):
             proto = row.current_protocol()
             assert proto is not None
-            self.batches.setItem(r, 0, QTableWidgetItem(row.label.text()))
+            set_text(self.batches, r, 0, row.label.text(), bold=True)
             self.batches.setItem(
                 r,
                 1,
@@ -623,7 +628,7 @@ class NewNormDialog(QDialog):
             else:
                 known = False
                 estimate = tr("po prvním běhu")
-            self.batches.setItem(r, 2, QTableWidgetItem(estimate))
+            set_text(self.batches, r, 2, estimate, muted=True)
         height = self.batches.horizontalHeader().height() + 4
         height += sum(self.batches.rowHeight(i) for i in range(len(rows)))
         self.batches.setFixedHeight(height)

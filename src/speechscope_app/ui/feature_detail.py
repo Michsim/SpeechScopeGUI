@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from .. import contract
 from ..backend.library import FeatureInfo
 from ..i18n import tr
+from .widgets.clean_table import card, style_table
 
 _UNIT = re.compile(r"^(?P<text>.*?)\s*\((?P<unit>[^()]{1,24})\)\s*$")
 
@@ -75,17 +76,12 @@ class FeatureDetailDialog(QDialog):
         layout.addWidget(self.search)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels([tr("sloupec"), tr("jednotka"), tr("popis")])
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setAlternatingRowColors(True)
+        style_table(self.table, [tr("sloupec"), tr("jednotka"), tr("popis")], selectable=True)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        layout.addWidget(self.table, 1)
+        layout.addWidget(card(self.table), 1)
         self._fill(info)
 
         self.footer = QLabel(

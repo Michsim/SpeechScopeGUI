@@ -114,7 +114,9 @@ signály; uhlazená tabulka podoby A: záhlaví velkými písmeny, štítky úlo
 sloupce podle obsahu, název běhu nejvýš `NAME_MAX`). Dvojklik nebo Enter na řádek = detail (`open_row`, `open_entry`, `open_run`): „‹ Výsledky“
 (Esc), šipky na sousední běh (`step`) a záložky Hodnoty · Průběh (`set_tab`): Hodnoty =
 `ResultsPage`, Průběh = `RunPage`, obě vložené přes `set_embedded` (bez nadpisu a
-historie). U vyšetření je řada úloh `ResultsPage.task_bar` přenesená nad záložky a platí
+historie). Přehled běhů
+stylují sdílené `widgets/clean_table.py` (`style_table(selectable=True)`, `pill`, `cell`,
+`card`). U vyšetření je řada úloh `ResultsPage.task_bar` přenesená nad záložky a platí
 pro obě (`ResultsPage.task_shown` → `RunsPage._task_shown` přehraje Průběh té úlohy,
 výchozí běžící úloha `prefer_running`; `open_run` otevře danou úlohu). Běžící běh má Hodnoty neaktivní (features.csv se během běhu neotvírá),
 Průběh jiného běhu během výpočtu neaktivní. Spustit a pruh na Domů otevřou detail na
@@ -214,11 +216,14 @@ konci s vypnutým překreslováním, jinak 500 nahrávek trvalo 46 s; odhad čas
 s potvrzením, fronta dalších dávek: Spustit během běhu zařadí, po konci
 se pustí další, `Job` v `main_window.py`; stavová karta `widgets/status_header.py` nahoře (štítky v zalamovaném
 `widgets/flow_layout.py`, řada štítků jinak tlačila minimální šířku okna přes
-obrazovku), tabulka nahrávek v kartě, výsledek jako štítek přes buňku; starý štítek
+obrazovku), tabulka nahrávek v kartě (od 31. 10. 2026 uhlazená přes `clean_table.style_table`: záhlaví
+velkými, bez mřížky a střídání řádků, název tučně, poznámka šedě), výsledek jako štítek přes buňku; starý štítek
 se před výměnou skryje, Qt ho maže až z fronty událostí) · Výsledky (historie běhů ze složek v Dokumentech přes
 `backend/history.py` a `run.json` jako karty (`widgets/run_history.py`, `RunCard`
 se štítkem stavu, API `count/card/current_row/select_row`), stavová karta se
-štítky počtů (klik přepne filtr), tabulka vybraného běhu v kartě se zmrazeným prvním
+štítky počtů (klik přepne filtr; od 31. 10. 2026 dvouřádková jako hlavička pacienta:
+`StatusHeader(subtitle_below=True, pills_inline=True)`, název, štítky a tlačítka v řádku,
+souhrn pod nimi), tabulka vybraného běhu v kartě se zmrazeným prvním
 sloupcem (od 31. 10. 2026 podoba „A + karta sloupce“, mockup
 https://claude.ai/artifact/3zTRx5diHQquy8ZjSMU6WW, `docs/mockups/vysledky-hodnoty/` mimo git;
 `widgets/values_table.py`: `ValuesModel` ukazuje nahrávka · stav · pacient zmrazené vlevo
@@ -235,7 +240,12 @@ histogram, průměr ± SD, medián, rozsah, počet, ‹ předchozí · další �
 `close_card`, `step_card`); výběr stylem `TABLE_STYLE`, jinak Windows 11 kreslil čárku u každé buňky;
 `widgets/frozen_table.py`; šířky sloupců se měří z hlavičky a prvních
 `SAMPLE_ROWS` řádků, celý jen sloupec s názvem souboru, u 500 × 135 buněk trvalo
-měření všech 10 s), hledání sloupce, popis sloupce
+měření všech 10 s; od 31. 10. 2026 měří `FrozenTableView.resizeColumnsToContents` samo
+přes `sizeHintForIndex`, protože Qt ve skryté tabulce, tedy u detailu plněného z přehledu,
+omezení řádků ignoroval a první otevření normy 500 × 150 trvalo 4,3 s, teď 0,2 s;
+`ValuesModel` drží hodnoty jako seznamy (`value(key, row)`, `_levels`, `_span`) místo
+pandas `.iloc` v `data()`, a `BandHeader.sectionSizeFromContents` bere výšku z `_height()`,
+ne ze `sizeHint()`, který se ptal na všechny sloupce, takže měření rostlo kvadraticky), hledání sloupce, popis sloupce
 v tooltipu z `list --json`, detail nahrávky (`ui/recording_detail.py`),
 Spočítat znovu chybné = nová dávka `Job.merge_into`, řádky se vrátí do
 původní tabulky přes `backend/results.merge_results`) · Prostředí navíc
@@ -736,6 +746,24 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
 - Podproces vždy s `PYTHONUTF8=1` (`library.subprocess_env`). Bez toho
   knihovna při přesměrovaném stdout na Windows spadne na cp1252.
 - Vždy posílat `--models-dir` a `--log-file`.
+- **Nahrávky nikdy na příkazovou řádku** (31. 10. 2026): Windows ji omezují na 32 767 znaků
+  a dávka se stovkami nahrávek v hlubší složce se vůbec nespustila (QProcess -1, v historii
+  „chyba“ bez tabulky; 500 cest po ~75 znacích). `MainWindow._launch` píše vždy
+  `manifest.csv` do složky běhu (`write_normalized`: absolutní cesty, úloha, případná
+  metadata) a knihovně předá `--manifest` a jako cestu jen složku běhu, u `extract`
+  i `segment`/`transcribe`. Knihovna z cesty bere jen základ relativních cest.
+- **Průběh se přehrává líně** (31. 10. 2026): otevření běhu na Hodnotách už nepřehrává
+  `events.jsonl` (stálo ~0,2 s z každého kliknutí u 500 nahrávek); `RunsPage._defer_recorded`
+  si běh zapamatuje a `set_tab(PROGRESS)` ho přehraje (`_show_pending_recorded`). Štítek
+  výsledku v tabulce Průběhu kreslí `clean_table.PillDelegate` z textu a `PILL_ROLE`, ne
+  widget v buňce. Kliknutí na běh s 500 nahrávkami: 0,7–1,3 s → 0,15–0,3 s.
+- **Okamžitá odezva kliknutí** (31. 10. 2026, varianta A bez vláken): `RunsPage.open_row`
+  (klik, Enter, ‹ ›) hned přepne na detail s `ResultsPage.show_loading` („Načítám…“)
+  a běh otevře až v dalším kroku smyčky (`QTimer.singleShot(0)` → `_finish_open`);
+  `_open_generation` zahodí starší klik i otevření po návratu na přehled. Ostatní cesty
+  (`open_entry` z Pacientů, `open_run` po dávce, `show_running`) zůstávají synchronní.
+  Testy po `open_row` čekají `qtbot.waitUntil(lambda: not runs.loading())`. Načítání
+  na pozadí ve vlákně (varianta B) jen podle měření z kliniky.
 - `segments.model=auto` bere jen hotovou cache. Protokol, který potřebuje
   segmentaci, musí mít v `config` `segments.model` nastavený; samostatná
   segmentace (Jen segmentace) `auto` nenabízí.
@@ -838,8 +866,15 @@ uv run --with pillow python packaging\make_icon.py   # ikona a wordmark z icon\
   (`widgets/param_form.py`) je řádek seznamu: vlevo popis z knihovny bez jednotky (titulek do
   dvojtečky, `split_title`), pod ním šedě technické jméno a výchozí, vpravo pole a ↺; nad
   `SEGMENT_MAX` možností rozbalovací seznam. Dialog prahů kvality má tatáž pole, „pod / nad“
-  v záhlaví a u názvu. Uhlazené tabulky dialogů kvality jdou přes `widgets/clean_table.py`
-  (`style_table`, `card`, `pill`, `cell`, `fit_widget_column`); přehled běhů má zatím vlastní
-  kopii stylu. Spinboxy Qt jinde v aplikaci zůstávají.
+  v záhlaví a u názvu. Spinboxy Qt jinde v aplikaci zůstávají (jen počet dní v Uvolnit místo).
+- **Tabulky všude stejně** (31. 10. 2026, mockup https://claude.ai/artifact/JEpsb6wKch8WBXTYT7yXC8,
+  `docs/mockups/tabulky/` mimo git): každá tabulka a strom jde přes `widgets/clean_table.py`
+  (`style_table`, `style_tree`, `card`, `set_text(bold/muted/right)`, `set_pill` = štítek přes
+  buňku s neviditelným textem položky, `fit_widget_column`, `fit_height`, `right_header`,
+  `style_group_item`): záhlaví velkými písmeny, bez mřížky a střídání řádků, čára mezi řádky,
+  řádek 40 px (44 tam, kde je v buňce pole), hlavní sloupec tučně, vedlejší šedě, stavy
+  štítkem. Dávky rozpracované normy i hodnocení sdílejí `norms.make_plan_table` /
+  `fill_plan_table`. Vlastní styl ve stejné podobě mají jen Hodnoty, `MetaTable`, strom
+  dimenzí a `TrendMap`. Testy porovnávají záhlaví přes `.lower()`.
 - Změny GUI nejdřív navrhnout (text, mockup), pak psát; snímek před
   commitem. Návrhy jsou v `docs/navrh-gui-2.md`.

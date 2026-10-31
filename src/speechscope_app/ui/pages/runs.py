@@ -21,7 +21,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -156,6 +156,8 @@ class RunsPage(QWidget):
         self._live_dir: Path | None = None
         self._task_run: RunInfo | None = None  # zvolená úloha vyšetření (řada úloh)
         self._tab = VALUES
+        self._recorded_pending: RunInfo | None = None  # Průběh k přehrání při přepnutí
+        self._open_generation = 0  # odložené otevření z přehledu; novější klik ruší starší
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(28, 24, 28, 24)
@@ -263,7 +265,7 @@ class RunsPage(QWidget):
         # uhlazená tabulka (podoba A, mockup https://claude.ai/artifact/J8iCqC36qpFSDbyip27jb6):
         # bílá karta, záhlaví malými písmeny, štítky stavu a úlohy, průběh v řádku, šipka ›
         self.table = QTableWidget()
-        style_table(self.table, list(COLUMNS), row_height=44, selectable=True)
+        style_table(self.table, list(COLUMNS), selectable=True)
         header = self.table.horizontalHeader()
         # sloupce podle obsahu, volné místo až za posledním (název běhu nesmí odsunout
         # ostatní sloupce doprava); název se při délce nad NAME_MAX zkrátí
@@ -557,20 +559,46 @@ class RunsPage(QWidget):
         if not isinstance(self._detail, RunGroup) or not self._detail.contains(run.dir):
             return
         self._task_run = run
-        if not self.run_page.runner.running:
-            self.run_page.show_recorded(run)
+        self._defer_recorded(run)
         if self._tab == VALUES and self._is_live(self._detail):
             self.set_tab(PROGRESS)
         else:
             self._update_detail_chrome()
 
     def open_row(self, row: int, tab: str | None = None) -> None:
+        """Klik nebo Enter v přehledu (i ‹ › v detailu): hned přepnout, načíst až potom.
+
+        Na pomalém počítači klik okamžitě ukáže detail s „Načítám…“ a tabulka se načte
+        v dalším kroku smyčky událostí (31. 10. 2026, varianta A, bez vláken). Ostatní
+        cesty (z Pacientů, po dávce) otevírají synchronně přes `open_entry`.
+        """
         if not 0 <= row < len(self._rows):
             return
-        self.open_entry(self._rows[row], tab)
+        entry = self._rows[row]
+        self._open_generation += 1
+        generation = self._open_generation
+        self._detail = entry
+        self._task_run = None
+        self._recorded_pending = None  # Průběh předchozího běhu už nepatří
+        self.table.selectRow(row)
+        if not self._is_live(entry):
+            self.results_page.show_loading(entry.display_name)
+        self.stack.setCurrentIndex(1)
+        self.set_tab(tab or (PROGRESS if self._is_live(entry) else VALUES))
+        QTimer.singleShot(0, lambda: self._finish_open(generation, entry, tab))
+
+    def _finish_open(self, generation: int, entry: Entry, tab: str | None) -> None:
+        if generation != self._open_generation or not self.in_detail():
+            return  # mezitím jiný klik, nebo zpět na přehled
+        self.open_entry(entry, tab or self._tab)
+
+    def loading(self) -> bool:
+        """Pro testy: čeká odložené otevření z přehledu?"""
+        return self.results_page.summary.text() == tr("Načítám…")
 
     def open_entry(self, entry: Entry, tab: str | None = None, prefer: Path | None = None) -> None:
         """Detail běhu: Hodnoty z `ResultsPage`, Průběh z `RunPage` (přehrání z events)."""
+        self._open_generation += 1  # synchronní otevření ruší odložené z přehledu
         row = self._row_of(entry)
         self._detail = entry
         self._task_run = None
@@ -580,8 +608,8 @@ class RunsPage(QWidget):
             self.results_page.show_run(entry)
         if isinstance(entry, RunGroup) and prefer is not None and entry.contains(prefer):
             self.results_page._show_group(entry, prefer)  # konkrétní úloha vyšetření
-        if not isinstance(entry, RunGroup) and not self.run_page.runner.running:
-            self.run_page.show_recorded(entry)
+        if not isinstance(entry, RunGroup):
+            self._defer_recorded(entry)
         if row >= 0:
             self.table.selectRow(row)
         self.stack.setCurrentIndex(1)
@@ -626,11 +654,29 @@ class RunsPage(QWidget):
         self.set_tab(VALUES)
 
     def show_overview(self) -> None:
+        self._open_generation += 1  # rozdělané otevření se už nedokončí
         self.stack.setCurrentIndex(0)
+
+    def _defer_recorded(self, run: RunInfo) -> None:
+        """Průběh běhu se přehraje až na záložce Průběh, ne při každém otevření Hodnot.
+
+        Přehrání events.jsonl u 500 nahrávek stálo ~0,2 s z každého kliknutí, i když
+        uživatel Průběh neotevřel (31. 10. 2026).
+        """
+        self._recorded_pending = run
+        if self._tab == PROGRESS and self.stack.currentIndex() == 1:
+            self._show_pending_recorded()
+
+    def _show_pending_recorded(self) -> None:
+        run, self._recorded_pending = self._recorded_pending, None
+        if run is not None and not self.run_page.runner.running:
+            self.run_page.show_recorded(run)
 
     def set_tab(self, tab: str) -> None:
         if tab == VALUES and self._is_live(self._detail):
             tab = PROGRESS  # tabulka běžícího běhu se neotvírá
+        if tab == PROGRESS:
+            self._show_pending_recorded()
         self._tab = tab
         self.detail_stack.setCurrentWidget(self.results_page if tab == VALUES else self.run_page)
         self._update_detail_chrome()

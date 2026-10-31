@@ -31,6 +31,7 @@ from ..i18n import tr
 from . import theme
 from .feature_detail import FeatureDetailDialog
 from .recording_detail import column_index, filter_tree
+from .widgets.clean_table import card, style_group_item, style_tree
 
 
 class ProtocolDetailDialog(QDialog):
@@ -117,13 +118,11 @@ class ProtocolDetailDialog(QDialog):
         layout.addWidget(self.search)
 
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(2)
-        self.tree.setHeaderLabels([tr("feature / sloupec"), tr("popis")])
-        self.tree.setAlternatingRowColors(True)
+        style_tree(self.tree, [tr("feature / sloupec"), tr("popis")])
         self.tree.setToolTip(tr("Dvojklik na feature ukáže její sloupce v tabulce."))
         self.tree.itemDoubleClicked.connect(self._item_double_clicked)
         self._features_by_name = {f.name: f for f in pool}
-        layout.addWidget(self.tree, 1)
+        layout.addWidget(card(self.tree), 1)
         self._fill(proto, pool, chosen)
         # skupiny rozbalené, feature s více sloupci sbalené: seznam zůstane přehledný
         for g in range(self.tree.topLevelItemCount()):
@@ -173,6 +172,7 @@ class ProtocolDetailDialog(QDialog):
                 groups[group] = QTreeWidgetItem([contract.GROUP_LABELS.get(group, group), group])
                 groups[group].setForeground(1, QColor(theme.MUTED))
                 self.tree.addTopLevelItem(groups[group])
+                style_group_item(groups[group], 2)
             item = QTreeWidgetItem([name.removeprefix(group + "."), feature.description or ""])
             item.setToolTip(0, name)
             item.setData(0, Qt.ItemDataRole.UserRole, name)
@@ -217,3 +217,4 @@ class ProtocolDetailDialog(QDialog):
                 )
                 self.params_item.addChild(child)
             self.tree.addTopLevelItem(self.params_item)
+            style_group_item(self.params_item, 2)

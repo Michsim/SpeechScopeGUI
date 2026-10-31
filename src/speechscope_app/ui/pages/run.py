@@ -21,7 +21,6 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics
 from PySide6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -45,6 +44,7 @@ from ...backend.runner import Runner
 from ...i18n import tr
 from .. import theme
 from ..file_actions import open_file, show_file_menu
+from ..widgets.clean_table import PILL_ROLE, PillDelegate, card, style_table
 from ..widgets.run_history import STATUS_ROLES, RunHistory
 from ..widgets.status_header import StatusHeader
 
@@ -170,25 +170,16 @@ class RunPage(QWidget):
         self.header.add_button(self.cancel_btn)
         layout.addWidget(self.header)
 
-        # tabulka nahrávek v kartě
-        self.files_card = QFrame()
-        self.files_card.setObjectName("card")
-        files_layout = QVBoxLayout(self.files_card)
-        files_layout.setContentsMargins(8, 6, 8, 6)
+        # tabulka nahrávek v kartě, uhlazená jako ostatní (podoba A, `widgets/clean_table.py`):
+        # záhlaví velkými písmeny, bez mřížky a střídání řádků, stav štítkem
         self.files = QTableWidget()
-        self.files.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.files.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.files.verticalHeader().setVisible(False)
-        self.files.verticalHeader().setDefaultSectionSize(30)
-        self.files.setShowGrid(False)
-        self.files.setAlternatingRowColors(True)
-        self.files.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._pill_delegate = PillDelegate(self.files)
         self.files.cellDoubleClicked.connect(lambda row, _col: self.open_recording(row))
         self.files.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.files.customContextMenuRequested.connect(self._files_menu)
         self._row_paths: dict[int, Path] = {}
         self._set_columns([])
-        files_layout.addWidget(self.files)
+        self.files_card = card(self.files)
         layout.addWidget(self.files_card, 2)
 
         # fronta dalších dávek (jen když něco čeká)
@@ -308,8 +299,11 @@ class RunPage(QWidget):
             tr("výsledek"),
             tr("poznámka"),
         ]
-        self.files.setColumnCount(len(labels))
-        self.files.setHorizontalHeaderLabels(labels)
+        style_table(self.files, labels, row_height=40, selectable=True)
+        self.files.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        for col in range(len(labels)):  # sloupec stavu se posouvá podle počtu providerů
+            self.files.setItemDelegateForColumn(col, None)
+        self.files.setItemDelegateForColumn(self.col_status, self._pill_delegate)
         header = self.files.horizontalHeader()
         # Šířky se přepočítávají výslovně (_fit_columns) po naplnění a po každé nahrávce;
         # ResizeToContents by je počítal po každé změněné buňce, u 500 nahrávek desítky sekund.
@@ -326,7 +320,7 @@ class RunPage(QWidget):
         metrics = QFontMetrics(font)
         widest = max(
             metrics.horizontalAdvance(tr(text))
-            for text in ("čeká", "běží", "ok", "chyba", "zrušeno", "nedokončeno", "neproběhlo")
+            for text in ("čeká", "běží", "hotovo", "chyba", "zrušeno", "nedokončeno", "neproběhlo")
         )
         return widest + 48  # okraje štítku 2×9 px, okraje buňky 2×4 px, rezerva
 
@@ -401,32 +395,24 @@ class RunPage(QWidget):
             item.setForeground(QColor(color))
         if tooltip:
             item.setToolTip(tooltip)
+        if col == self.COL_FILE:  # název nahrávky tučně jako v ostatních tabulkách
+            font = item.font()
+            font.setBold(True)
+            item.setFont(font)
+        elif col == self.col_note:
+            item.setForeground(QColor(theme.MUTED))
         self.files.setItem(row, col, item)
-        if col == self.col_status:
-            item.setForeground(QColor(0, 0, 0, 0))  # text nese jen logika, vidět je štítek
-            self._status_pill(row, text, color)
+        if col == self.col_status:  # štítek kreslí PillDelegate z textu a role
+            item.setData(
+                PILL_ROLE,
+                {
+                    theme.OK: "ok",
+                    theme.MISSING: "missing",
+                    theme.ACCENT: "accent",
+                    theme.WARN: "warn",
+                }.get(color or "", "neutral"),
+            )
         return item
-
-    def _status_pill(self, row: int, text: str, color: str | None) -> None:
-        """Výsledek jako štítek přes buňku; text v buňce zůstává (logika, testy)."""
-        role = {
-            theme.OK: "ok",
-            theme.MISSING: "missing",
-            theme.ACCENT: "accent",
-            theme.WARN: "warn",
-        }.get(color or "", "neutral")
-        holder = QWidget()
-        box = QHBoxLayout(holder)
-        box.setContentsMargins(4, 2, 4, 2)
-        pill = QLabel(text)
-        pill.setObjectName("pill")
-        theme.set_role(pill, role)
-        box.addWidget(pill, 0, Qt.AlignmentFlag.AlignVCenter)
-        box.addStretch(1)
-        old = self.files.cellWidget(row, self.col_status)
-        if old is not None:
-            old.hide()  # Qt ho maže až z fronty událostí; do té doby by zůstal vidět
-        self.files.setCellWidget(row, self.col_status, holder)
 
     def _stage_cell(self, stage: contract.StageEvent, elapsed: float | None = None) -> None:
         if stage.provider not in self._providers:
@@ -861,7 +847,7 @@ class RunPage(QWidget):
         else:
             n_err = len(state.errors)
             self.headline.setText(
-                tr("Hotovo za {time}: {ok} z {total} ok").format(
+                tr("Hotovo za {time}: {ok} z {total} hotových").format(
                     time=spent, ok=state.processed - n_err, total=state.total
                 )
                 + (tr(", {n} s chybou").format(n=n_err) if n_err else "")
