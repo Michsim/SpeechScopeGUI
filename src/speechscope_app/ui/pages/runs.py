@@ -41,12 +41,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...backend import compare as cmp
 from ...backend import tasks
 from ...backend.history import KINDS, RunGroup, RunInfo
 from ...i18n import tr
 from .. import theme
 from ..widgets.clean_table import card, cell, pill, style_table
 from ..widgets.run_history import STATUS_ROLES, Entry, _format_seconds, entry_contains
+from .compare import ComparePage
 from .results import ResultsPage
 from .run import RunPage
 
@@ -262,6 +264,32 @@ class RunsPage(QWidget):
         bar.addWidget(self.delete_btn)
         ov.addLayout(bar)
 
+        # porovnání: Ctrl+klik na víc běhů → „vybráno n · Porovnat…“ (mockup
+        # https://claude.ai/artifact/LaQwfCHYfEx4kptyEDoWk3)
+        self.compare_bar = QFrame()
+        self.compare_bar.setObjectName("card")
+        theme.set_role(self.compare_bar, "accent")
+        cb = QHBoxLayout(self.compare_bar)
+        cb.setContentsMargins(12, 6, 12, 6)
+        cb.setSpacing(10)
+        self.compare_count = QLabel("")
+        bold = self.compare_count.font()
+        bold.setBold(True)
+        self.compare_count.setFont(bold)
+        cb.addWidget(self.compare_count)
+        self.compare_reason = QLabel("")
+        self.compare_reason.setObjectName("muted")
+        cb.addWidget(self.compare_reason, 1)
+        self.compare_clear_btn = QPushButton(tr("Zrušit výběr"))
+        self.compare_clear_btn.clicked.connect(lambda: self.table.clearSelection())
+        cb.addWidget(self.compare_clear_btn)
+        self.compare_btn = QPushButton(tr("Porovnat…"))
+        theme.set_role(self.compare_btn, "primary")
+        self.compare_btn.clicked.connect(lambda: self.compare_selected())
+        cb.addWidget(self.compare_btn)
+        ov.addWidget(self.compare_bar)
+        self.compare_bar.hide()
+
         # uhlazená tabulka (podoba A, mockup https://claude.ai/artifact/J8iCqC36qpFSDbyip27jb6):
         # bílá karta, záhlaví malými písmeny, štítky stavu a úlohy, průběh v řádku, šipka ›
         self.table = QTableWidget()
@@ -276,6 +304,9 @@ class RunsPage(QWidget):
         header.setSectionResizeMode(COL_CHEVRON, QHeaderView.ResizeMode.Fixed)
         header.resizeSection(COL_CHEVRON, 32)
         header.setStretchLastSection(False)
+        # víc řádků (Ctrl/Shift+klik) kvůli porovnání; jinak se chová jako jeden výběr
+        self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+        self.table.itemSelectionChanged.connect(self._update_compare_bar)
         self.table.cellDoubleClicked.connect(lambda r, _c: self.open_row(r))
         self.table.itemActivated.connect(lambda item: self.open_row(item.row()))
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -352,6 +383,24 @@ class RunsPage(QWidget):
         self.detail_stack.addWidget(run_page)
         dl.addWidget(self.detail_stack, 1)
         self.stack.addWidget(detail)
+
+        # --- porovnání -----------------------------------------------------------------------
+        compare_view = QWidget()
+        cl = QVBoxLayout(compare_view)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(8)
+        compare_nav = QHBoxLayout()
+        self.compare_back_btn = QPushButton(tr("‹ Výsledky"))
+        self.compare_back_btn.setFlat(True)
+        self.compare_back_btn.setToolTip(tr("Zpět na přehled běhů (Esc)"))
+        self.compare_back_btn.clicked.connect(lambda: self.show_overview())
+        compare_nav.addWidget(self.compare_back_btn)
+        compare_nav.addStretch(1)
+        cl.addLayout(compare_nav)
+        self.compare_page = ComparePage()
+        cl.addWidget(self.compare_page, 1)
+        QShortcut(QKeySequence(Qt.Key.Key_Escape), compare_view, lambda: self.show_overview())
+        self.stack.addWidget(compare_view)
 
         self.history.rebuilt.connect(self.refresh_list)
         self.history.filter_changed.connect(lambda _k: self._sync_filter())
@@ -475,10 +524,21 @@ class RunsPage(QWidget):
         row = self.table.rowAt(pos.y())
         if not 0 <= row < len(self._rows):
             return
-        self.table.selectRow(row)
+        selected = self.selected_entries()
+        if self._rows[row] not in selected or len(selected) < 2:
+            self.table.selectRow(row)  # klik mimo víc vybraných běhů vybere jen tento
+            selected = [self._rows[row]]
         entry = self._rows[row]
         menu = QMenu(self)
         menu.addAction(tr("Otevřít")).triggered.connect(lambda: self.open_row(row))
+        problem = self.compare_problem(selected)
+        compare = menu.addAction(tr("Porovnat skupiny…") if len(selected) == 1 else tr("Porovnat…"))
+        compare.setEnabled(not problem)
+        compare.setToolTip(problem)
+        menu.setToolTipsVisible(True)
+        compare.triggered.connect(
+            lambda: self.open_compare([e for e in selected if isinstance(e, RunInfo)])
+        )
         folder = menu.addAction(tr("Otevřít složku"))
         folder.triggered.connect(lambda: self._open_folder(entry))
         if self.history.can_rename(entry):
@@ -656,6 +716,66 @@ class RunsPage(QWidget):
     def show_overview(self) -> None:
         self._open_generation += 1  # rozdělané otevření se už nedokončí
         self.stack.setCurrentIndex(0)
+
+    # --- porovnání ---------------------------------------------------------------------
+
+    def selected_entries(self) -> list[Entry]:
+        rows = sorted({i.row() for i in self.table.selectionModel().selectedRows()})
+        return [self._rows[r] for r in rows if 0 <= r < len(self._rows)]
+
+    def compare_problem(self, entries: list[Entry]) -> str:
+        """Proč vybrané běhy nejde porovnat; prázdné = jde."""
+        if any(isinstance(e, RunGroup) for e in entries):
+            return tr("vyšetření pacienta nejde porovnat, vyberte jednotlivé běhy")
+        runs = [e for e in entries if isinstance(e, RunInfo)]
+        if any(r.status == "running" or not r.rows or r.prepare for r in runs):
+            return tr("vyberte hotové běhy s tabulkou výsledků")
+        problem = cmp.task_problem(runs)
+        if problem:
+            return problem
+        if len(runs) == 1:
+            try:
+                columns = cmp.group_columns([cmp.read_table(runs[0])])
+            except (OSError, ValueError):
+                columns = {}
+            if not columns:
+                return tr("jeden běh jde porovnat jen podle sloupce skupiny, tento ho nemá")
+        return ""
+
+    def _update_compare_bar(self) -> None:
+        entries = self.selected_entries()
+        show = len(entries) >= 2  # jeden běh = běžný klik; skupiny v něm přes pravé tlačítko
+        self.compare_bar.setVisible(show)
+        if not show:
+            return
+        problem = self.compare_problem(entries)
+        self.compare_count.setText(tr("vybráno {n}").format(n=len(entries)))
+        if problem:
+            self.compare_reason.setText(problem)
+        else:
+            mode = tr("skupiny podle běhu") if len(entries) > 1 else tr("skupiny podle sloupce")
+            names = {tasks.label(e.task) for e in entries if isinstance(e, RunInfo) and e.task}
+            self.compare_reason.setText(f"{', '.join(sorted(names))} · {mode}")
+        self.compare_btn.setEnabled(not problem)
+        self.compare_btn.setToolTip(problem)
+
+    def compare_selected(self) -> bool:
+        """Otevře porovnání vybraných běhů (Porovnat…)."""
+        entries = self.selected_entries()
+        if self.compare_problem(entries):
+            return False
+        return self.open_compare([e for e in entries if isinstance(e, RunInfo)])
+
+    def open_compare(self, runs: list[RunInfo]) -> bool:
+        if not runs:
+            return False
+        self.compare_page.set_catalog(self.results_page.catalog())
+        self.compare_page.set_runs(runs)
+        self.stack.setCurrentIndex(2)
+        return True
+
+    def in_compare(self) -> bool:
+        return self.stack.currentIndex() == 2
 
     def _defer_recorded(self, run: RunInfo) -> None:
         """Průběh běhu se přehraje až na záložce Průběh, ne při každém otevření Hodnot.

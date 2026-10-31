@@ -713,6 +713,43 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `dimensions.yaml`). Testy `tests/test_tasks.py`, průvodce v `test_norms_page`,
   dialog a strom v `test_assessment`; `conftest` registr před každým testem maže.
 
+## Porovnání skupin (31. 10. 2026)
+- Mockup https://claude.ai/artifact/LaQwfCHYfEx4kptyEDoWk3 (`docs/mockups/porovnani-skupin/`
+  mimo git). Na Výsledcích Ctrl/Shift+klik na 2 a víc běhů → lišta „vybráno n · Porovnat…“
+  (`RunsPage.compare_bar`, `compare_problem`: jen hotové běhy výpočtu, stejná základní úloha,
+  ne vyšetření pacienta); jeden běh se sloupcem skupiny přes pravé tlačítko „Porovnat
+  skupiny…“. Porovnání je třetí obrazovka `RunsPage` (`open_compare`, `in_compare`, Esc zpět),
+  obsah `ui/pages/compare.py` (`ComparePage`), výpočet `backend/compare.py`; nic se neukládá,
+  Export CSV… s metodou v řádcích `#`.
+- Rozhodnuto: skupiny **podle běhu** (výchozí), podle **sloupce metadat** jen ručně (hodnoty
+  napříč běhy, spojí se podle hodnoty, zaškrtávátka s počty, pod 3 osoby nezaškrtnuté);
+  **průměr po osobě** výchozí (bez `subject` po nahrávkách, štítek); metoda
+  **neparametrická** výchozí (Mann-Whitney / Kruskal-Wallis, Cliffovo δ / ε², hodnoty
+  medián), **parametrická** (Welchův t-test / Welchova ANOVA, Hedgesovo g / η², průměr),
+  **podle normality** (Shapiro-Wilk ve všech skupinách, u q značka testu); normalita vždy
+  ve sloupci; FDR (Benjamini-Hochberg) přes feature, u víc skupin párová porovnání s FDR
+  v rámci feature; jen společné feature (`only_in` ve štítku), jiná verze feature = ⚠;
+  pod `MIN_N` = 3 bez testu; chybné a nepoužitelné nahrávky vynechané (vypínač
+  „I nepoužitelné“). Řazení podle |efektu|.
+- Nová závislost **scipy** (rozhodnuto 31. 10. 2026). Při spuštěné aplikaci `uv add`
+  neprojde (zamčený `speechscope-app.exe`): `uv add --no-sync` + `uv pip install`, testy
+  `uv run --no-sync`. V instalátoru ověřit, že PyInstaller scipy přibalí (hook má).
+- Dlouhé názvy skupin (běhy) jsou v tabulce, grafu a panelu písmena A, B, C (`short`,
+  `SHORT_MAX`), celý název v hlavičce; stejné názvy běhů odliší datum (`run_names`).
+  Sloupec feature bere zbylé místo a zkrátí se, n je v tooltipu buňky; panel popisuje
+  skupiny pod sebou (úzký). Testy `tests/test_compare.py`.
+- Úprava 1. 11. 2026 (mockup část 4 a 5): buňka feature jako v Hodnotách „feature · **sloupec**
+  jednotka“ (`feature_parts`, `feature_label`; obecné jméno feature jako `stats` dostane i
+  skupinu, `GENERIC_FEATURES`), popis z knihovny jen v tooltipu a pod nadpisem panelu; rich text
+  přes buňku, text položky prázdný a skutečný v `TEXT_ROLE` (výběr řádku jinak prosvítal).
+  Přepínač **Řadit: podle efektu · podle feature**: podle feature nadpis feature přes celou šířku
+  (`setSpan`, `_row_items`, pořadí feature = nejmenší pořadí jejích sloupců v katalogu). Panel
+  z widgetů: krabice s „n · medián“ vpravo, test jedním řádkem (p/q přes `html.escape`, jinak
+  „<0.001“ zmizí jako značka), efekt s pruhem a slovem, tabulka skupin se dvojicí podle metody
+  (medián a IQR, nebo x̄ a SD; druhá v tooltipu, čtyři čísla se do panelu nevešla), normalita
+  štítky, párová porovnání; tabulky v panelu `_narrow` (bez vodorovného posuvníku, šířku určuje
+  panel).
+
 ## Kontrola kvality nahrávek (31. 10. 2026)
 - **Knihovna měří, GUI soudí.** Knihovna má od 31. 10. 2026 feature
   `acoustic.recording.duration` (`total`, `voiced` = součet znělých rámců SWIPE,
