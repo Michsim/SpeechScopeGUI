@@ -5,24 +5,20 @@ from __future__ import annotations
 import datetime as dt
 import sys
 from dataclasses import dataclass, field
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
 from pandas import errors as pd_errors
 from PySide6.QtCore import QProcess, Qt, QTimer
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
-    QLabel,
     QMainWindow,
     QMessageBox,
     QStackedWidget,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -91,8 +87,7 @@ from .pages.results import ResultsPage
 from .pages.run import RunPage
 from .pages.runs import RunsPage
 from .settings_dialog import SettingsDialog
-from .widgets.elided_label import ElidedLabel
-from .widgets.sidebar_nav import SidebarNav
+from .widgets.sidebar_nav import SidebarNav, parse_progress
 
 # Pořadí v nabídce: od každodenního (analýza) k jednorázovému (prostředí).
 (
@@ -204,42 +199,16 @@ class MainWindow(QMainWindow):
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.nav.currentRowChanged.connect(self._page_shown)
 
-        sidebar = QWidget()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(200)
-        side = QVBoxLayout(sidebar)
-        side.setContentsMargins(0, 0, 0, 0)
-        side.setSpacing(0)
-        brand_panel = QWidget()
-        brand_panel.setObjectName("brand_panel")
-        brand_layout = QVBoxLayout(brand_panel)
-        brand_layout.setContentsMargins(14, 14, 14, 10)
-        brand_layout.setSpacing(4)
-        brand = QLabel()
-        brand.setObjectName("brand")
-        wordmark = QPixmap(str(resources.files("speechscope_app") / "assets" / "wordmark.png"))
-        if wordmark.isNull():
-            brand.setText(tr("SpeechScope"))
-        else:
-            # škálovat na fyzické pixely, jinak je logo na HiDPI rozmazané
-            dpr = self.devicePixelRatioF()
-            scaled = wordmark.scaledToWidth(
-                round(172 * dpr), Qt.TransformationMode.SmoothTransformation
-            )
-            scaled.setDevicePixelRatio(dpr)
-            brand.setPixmap(scaled)
-        brand_layout.addWidget(brand)
-        self.brand_sub = ElidedLabel("")  # při větším písmu se zkrátí, nerozšíří panel
-        self.brand_sub.setObjectName("brand_sub")
-        brand_layout.addWidget(self.brand_sub)
-        side.addWidget(brand_panel)
-        side.addWidget(self.nav, 1)
+        self.nav.set_collapsed(self.settings.sidebar_collapsed)
+        self.nav.collapsed_changed.connect(self._sidebar_collapsed)
+        self.nav.environment_clicked.connect(lambda: self.nav.setCurrentRow(PAGE_ENV))
+        self.brand_sub = self.nav.subtitle
 
         central = QWidget()
         layout = QHBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(sidebar)
+        layout.addWidget(self.nav)
         layout.addWidget(self.pages, 1)
         self.setCentralWidget(central)
 
@@ -259,6 +228,7 @@ class MainWindow(QMainWindow):
         self.env_page.report_changed.connect(self.batch_page.set_doctor)
         self.batch_page.set_check_requester(self.env_page.refresh)
         self.env_page.report_changed.connect(self.home_page.set_report)
+        self.env_page.report_changed.connect(self._sidebar_report)
         self.env_page.models_dir_requested.connect(self.change_models_dir)
         self.env_page.work_root_requested.connect(self.change_work_root)
         self.home_page.models_dir_requested.connect(self.change_models_dir)
@@ -347,6 +317,7 @@ class MainWindow(QMainWindow):
         self.home_page.set_state(
             library_ok=self.library is not None, models_ok=recommended != PAGE_ENV
         )
+        self._sidebar_state(self.library is not None, recommended != PAGE_ENV)
         self.nav.setCurrentRow(PAGE_HOME)
         self._refresh_home()
         if self.library is not None:
@@ -589,9 +560,9 @@ class MainWindow(QMainWindow):
             chosen = Path(text)
         self.settings.models_dir = chosen
         self._apply_settings()  # knihovna dostává --models-dir, protokoly se přepočítají
-        self.home_page.set_state(
-            library_ok=self.library is not None, models_ok=self.start_page() != PAGE_ENV
-        )
+        models_ok = self.start_page() != PAGE_ENV
+        self.home_page.set_state(library_ok=self.library is not None, models_ok=models_ok)
+        self._sidebar_state(self.library is not None, models_ok)
         if self.library is not None:
             self.env_page.refresh()
 
@@ -626,11 +597,33 @@ class MainWindow(QMainWindow):
         else:
             self.home_page.clear_running()
             self.runs_page.clear_running()
+        progress = parse_progress(text) if text else None
+        badge = text.split()[0] if progress is not None else text
         if self._queue:
+            badge = f"{badge} +{len(self._queue)}" if badge else f"+{len(self._queue)}"
             text = f"{text} (+{len(self._queue)})" if text else f"+{len(self._queue)}"
-        label = self.nav_labels[PAGE_RUN]
-        self.nav.item(PAGE_RUN).setText(f"{label} · {text}" if text else label)
+        self.nav.set_badge(PAGE_RUN, badge, progress)
         self.setWindowTitle(f"{text} · {self._base_title}" if text else self._base_title)
+
+    def _sidebar_collapsed(self, collapsed: bool) -> None:
+        self.settings.sidebar_collapsed = collapsed
+
+    def _sidebar_state(self, library_ok: bool, models_ok: bool) -> None:
+        """Stav prostředí dole v liště, než doběhne doctor (jako štítek na Domů)."""
+        if not library_ok:
+            self.nav.set_environment("warn", tr("Knihovna není nastavená"))
+        elif not models_ok:
+            self.nav.set_environment("warn", tr("Chybí modely"))
+        else:
+            self.nav.set_environment("", tr("Kontroluji prostředí…"))
+
+    def _sidebar_report(self, report: dict[str, Any] | None) -> None:
+        if report is None:
+            self.nav.set_environment("missing", tr("Knihovnu nejde spustit"))
+        elif report.get("all_ready"):
+            self.nav.set_environment("ok", tr("Prostředí v pořádku"))
+        else:
+            self.nav.set_environment("warn", tr("V prostředí něco chybí"))
 
     def _open_settings(self) -> None:
         language_before = self.settings.ui_language

@@ -93,7 +93,14 @@ Pořadí v nabídce (od 30. 10. 2026, mockup
 https://claude.ai/artifact/UkcxmVZDY3M9n89UQFuhdq, `docs/mockups/domu-pacienti/` mimo
 git): Domů · Analýza nahrávek · Výsledky · Pacienti, dole Protokoly · Normy ·
 Prostředí (`PAGE_HOME` … `PAGE_ENV`; popis stránek Pacienti a Normy je v sekci
-Normy a dimenze). Uvítání mimo nabídku už není. **Výsledky a Výpočet jsou od
+Normy a dimenze). Uvítání mimo nabídku už není. **Levá lišta** (`widgets/sidebar_nav.py`, `SidebarNav`, od 31. 10. 2026
+podoba B se sbalením a světle modrou barvou `theme.SIDEBAR`, mockupy
+https://claude.ai/artifact/WrwYsgM4VjgRZ39WXDFfYP a https://claude.ai/artifact/8Hf6JPLaZd8XZ83FQx3itR,
+`docs/mockups/lista/` mimo git): značka z `mark.png` a název, položky `NavItem` s čárovými
+ikonami kreslenými v QPainter (`draw_icon`, bez SVG), dole nadpis Nastavení, stav prostředí
+tečkou (`set_environment` z `_sidebar_state`/`_sidebar_report`, klik → Prostředí) a Sbalit
+lištu (Ctrl+B, 56 px, `ui/sidebar_collapsed`); Ctrl+1…7 přepíná stránky. Běžící dávka je
+štítek a tenký průběh u Výsledků (`set_badge`, `parse_progress`), text položky se nemění. **Výsledky a Výpočet jsou od
 31. 10. 2026 jedna stránka** (`pages/runs.py`, `RunsPage`, mockup
 https://claude.ai/artifact/9oecmvHjjNY99LeW3vvxZb, `docs/mockups/vysledky-vypocet/` mimo
 git; `PAGE_RUN` = `PAGE_RESULTS`): přehled = oddíl „Běží a ve frontě“ (`set_running`,

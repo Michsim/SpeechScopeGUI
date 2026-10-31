@@ -96,7 +96,7 @@ def test_window_runs_batch_end_to_end(
     assert run.files.rowCount() == 4
     statuses = [run.files.item(r, run.col_status).text() for r in range(4)]
     assert sorted(statuses) == ["chyba", "ok", "ok", "ok"]
-    assert window.nav.item(PAGE_RUN).text() == "Výsledky"  # Výpočet je záložka Výsledků
+    assert window.nav.item(PAGE_RUN).badge() == ""  # po dávce bez štítku
     assert run.headline.text().startswith("Hotovo za")
     assert settings.seconds_per_file("fonace-zakladni") is not None
     assert window.results_page.table.model().rowCount() == 4
@@ -814,7 +814,7 @@ def test_runs_queue_up_and_continue(
     assert "2. v pořadí" in asked[2]
     assert not window.run_page.queue_box.isHidden()
     assert window.run_page.queue_list.count() == 2
-    assert "(+2)" in window.nav.item(PAGE_RUN).text()
+    assert window.nav.item(PAGE_RUN).badge().endswith("+2")
 
     window.remove_queued(1)  # pohádku vyhodit
     assert [j.proto.name for j in window.queued_jobs()] == ["DDK, základní"]
@@ -822,7 +822,7 @@ def test_runs_queue_up_and_continue(
     qtbot.waitUntil(lambda: len(finished) == 2, timeout=30000)
     qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=5000)
     assert not window.queued_jobs() and window.run_page.queue_box.isHidden()
-    assert window.nav.item(PAGE_RUN).text() == "Výsledky"  # Výpočet je záložka Výsledků
+    assert window.nav.item(PAGE_RUN).badge() == ""  # po dávce bez štítku
     assert window.nav.currentRow() == PAGE_RESULTS  # až po poslední dávce
     run_dirs = sorted(p.name for p in settings.work_root.iterdir() if p.name != "work")
     assert any(n.endswith("fonace-zakladni") for n in run_dirs)
@@ -1262,3 +1262,40 @@ def test_recordings_table_grouping_search_and_missing(
     page.search.clear()
     page.recursive.setChecked(False)
     assert page.group_combo.findData(GROUP_FOLDER) < 0 and files.group_by == ""
+
+
+def test_sidebar_collapse_badge_and_environment(qtbot: QtBot, settings: AppSettings) -> None:
+    """Lišta: Ctrl+číslo přepne stránku, sbalení se pamatuje, štítek s průběhem, stav prostředí."""
+    from speechscope_app.ui.widgets.sidebar_nav import COLLAPSED_WIDTH, parse_progress
+
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    nav = window.nav
+    wait_doctor(qtbot, window)
+    assert nav.env.state() == "ok" and nav.env.label() == "Prostředí v pořádku"
+    nav.environment_clicked.emit()
+    assert nav.currentRow() == PAGE_ENV and window.pages.currentIndex() == PAGE_ENV
+    nav.item(PAGE_BATCH).click()
+    assert nav.currentRow() == PAGE_BATCH and nav.item(PAGE_BATCH).isChecked()
+    assert not nav.item(PAGE_ENV).isChecked()
+
+    assert not nav.collapsed() and nav.width() > COLLAPSED_WIDTH
+    nav.toggle.click()
+    assert nav.collapsed() and nav.width() == COLLAPSED_WIDTH and settings.sidebar_collapsed
+    assert nav.brand_names.isHidden()
+    nav.toggle.click()
+    assert not nav.collapsed() and not settings.sidebar_collapsed
+
+    window._show_progress("12/40")
+    assert nav.item(PAGE_RUN).badge() == "12/40"
+    assert nav.item(PAGE_RUN).progress() == pytest.approx(0.3)
+    assert nav.item(PAGE_RUN).text() == "Výsledky"
+    window._show_progress("")
+    assert nav.item(PAGE_RUN).badge() == "" and nav.item(PAGE_RUN).progress() is None
+    assert parse_progress("segmentace") is None and parse_progress("3/0") is None
+
+    settings.sidebar_collapsed = True
+    window2 = MainWindow(settings)
+    qtbot.addWidget(window2)
+    assert window2.nav.collapsed() and window2.nav.width() == COLLAPSED_WIDTH
+

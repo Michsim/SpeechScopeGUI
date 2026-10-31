@@ -225,6 +225,15 @@ class AppSettings:
     def trend_form(self, value: str) -> None:
         self._q.setValue("ui/trend_form", value)
 
+    @property
+    def sidebar_collapsed(self) -> bool:
+        """Levá lišta sbalená na ikony (Ctrl+B)."""
+        return str(self._q.value("ui/sidebar_collapsed", "false")).lower() in ("true", "1")
+
+    @sidebar_collapsed.setter
+    def sidebar_collapsed(self, value: bool) -> None:
+        self._q.setValue("ui/sidebar_collapsed", "true" if value else "false")
+
     def _json_list(self, key: str) -> list[str] | None:
         raw = self._q.value(key, "")
         if not raw:

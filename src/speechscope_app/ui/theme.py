@@ -29,8 +29,10 @@ CARD = "#ffffff"
 BORDER = "#e5e7eb"
 TEXT = "#1f2937"
 MUTED = "#6b7280"
-SIDEBAR = "#1e293b"
-SIDEBAR_TEXT = "#cbd5e1"
+SIDEBAR = "#eef3fb"  # světle modrá lišta (varianta 3, 31. 10. 2026)
+SIDEBAR_EDGE = "#dbe4f3"
+SIDEBAR_BRAND = "#173a6b"  # barva stetoskopu v logu
+SIDEBAR_MUTED = "#7c8ba5"
 
 STYLESHEET_TEMPLATE = """
 QWidget {{
@@ -43,21 +45,16 @@ QMainWindow, QDialog, QStackedWidget > QWidget, QScrollArea, QScrollArea > QWidg
 QMenuBar {{ background: {BG}; border-bottom: 1px solid {BORDER}; }}
 QMenuBar::item:selected {{ background: {ACCENT_SOFT}; border-radius: 4px; }}
 
-/* boční menu */
-QWidget#sidebar {{ background: {SIDEBAR}; }}
-QWidget#brand_panel {{ background: {CARD}; border-bottom: 1px solid {BORDER}; }}
+/* boční lišta (widgets/sidebar_nav.py kreslí položky sama) */
+QWidget#sidebar {{ background: {SIDEBAR}; border-right: 1px solid {SIDEBAR_EDGE}; }}
 QLabel#brand {{
-    color: {SIDEBAR}; font-size: {brand}pt; font-weight: 600; background: transparent;
+    color: {SIDEBAR_BRAND}; font-size: {brand}pt; font-weight: 700; background: transparent;
 }}
-QLabel#brand_sub {{ color: {MUTED}; font-size: {small}pt; background: transparent; }}
-QListWidget#nav {{
-    background: transparent; border: none; outline: none; padding: 0 8px;
+QLabel#brand_sub {{ color: {SIDEBAR_MUTED}; font-size: {small}pt; background: transparent; }}
+QLabel#nav_section {{
+    color: {SIDEBAR_MUTED}; font-size: {small}pt; font-weight: 600; letter-spacing: 1px;
+    background: transparent;
 }}
-QListWidget#nav::item {{
-    color: {SIDEBAR_TEXT}; padding: 9px 12px; margin: 2px 0; border-radius: 6px;
-}}
-QListWidget#nav::item:hover {{ background: rgba(255, 255, 255, 0.07); }}
-QListWidget#nav::item:selected {{ background: {ACCENT}; color: white; }}
 
 /* stránky */
 QLabel#page_title {{ font-size: {title}pt; font-weight: 600; }}
@@ -201,13 +198,15 @@ def stylesheet(scale: float = 1.0) -> str:
         NEUTRAL=NEUTRAL,
         NEUTRAL_SOFT=NEUTRAL_SOFT,
         SIDEBAR=SIDEBAR,
-        SIDEBAR_TEXT=SIDEBAR_TEXT,
+        SIDEBAR_EDGE=SIDEBAR_EDGE,
+        SIDEBAR_BRAND=SIDEBAR_BRAND,
+        SIDEBAR_MUTED=SIDEBAR_MUTED,
         base=_pt(base),
         small=_pt(base * 0.82),
         section=_pt(base * 1.0),
         step=_pt(base * 1.18),
         headline=_pt(base * 1.23),
-        brand=_pt(base * 1.36),
+        brand=_pt(base * 1.2),
         title=_pt(base * 1.64),
     )
 
