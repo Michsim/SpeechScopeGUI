@@ -927,6 +927,11 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   volné místo za posledním sloupcem (`_fit_feature_column`; dřív Stretch jako strom dimenzí).
 
 ## Kontrola kvality nahrávek (31. 10. 2026)
+- **Šířka na velké obrazovce** (1. 11. 2026, dřív půlka prázdná): základ jsou šířky podle obsahu
+  (`_base_widths`), volné místo `_fit_feature_column` rozdělí: feature až po `FEATURE_GROW` = 480 (jen dlouhé
+  názvy), sloupce skupin nejvýš +`NUMBER_EXTRA`, rozdíl nejvýš +`EFFECT_EXTRA` s delším pruhem (`_bars`, `BAR_MIN`
+  až `BAR_MAX`), q se nemění. Co tabulka nevyužije (`_table_wanted`), dostane panel vpravo (`_fit_panel`:
+  aspoň `PANEL_SHARE` = 28 % stránky a `PANEL_WIDTH`, nejvýš `PANEL_SHARE_MAX` = 45 %).
 - **Knihovna měří, GUI soudí.** Knihovna má od 31. 10. 2026 feature
   `acoustic.recording.duration` (`total`, `voiced` = součet znělých rámců SWIPE,
   `voiced_fraction`), `acoustic.recording.snr` (`snr_db` = 90. − 10. percentil

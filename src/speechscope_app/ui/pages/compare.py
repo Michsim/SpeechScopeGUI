@@ -65,7 +65,13 @@ from ..widgets.status_header import Pill
 GROUP_COLORS = ("#2563eb", "#d97706", "#7c3aed", "#0d9488", "#db2777", "#4b5563")
 GROUP_SOFT = ("#e8efff", "#fff4e0", "#f3edff", "#e6f7f5", "#fdeef5", "#f1f2f4")
 GROUP_ROLES = ("accent", "warn", "neutral", "neutral", "neutral", "neutral")
-PANEL_WIDTH = 360
+PANEL_WIDTH = 360  # nejmenší šířka panelu vpravo
+# panel roste s oknem: aspoň 28 % šířky stránky a k tomu, co tabulka nepotřebuje, nejvýš 45 %
+PANEL_SHARE, PANEL_SHARE_MAX = 0.28, 0.45
+# volné místo v tabulce (1. 11. 2026): feature až po FEATURE_GROW, sloupce skupin nejvýš
+# o NUMBER_EXTRA, sloupec rozdílu nejvýš o EFFECT_EXTRA s delším pruhem (BAR_MIN až BAR_MAX);
+# q se nemění (tečka zůstane u čísla), zbytek dostane panel
+FEATURE_GROW, NUMBER_EXTRA, EFFECT_EXTRA, BAR_MIN, BAR_MAX = 480, 60, 160, 36, 140
 FEATURE_MIN, FEATURE_MAX = 160, 320  # sloupec názvu feature v tabulce porovnání
 # feature jako štítek před sloupcem (varianta 2, 1. 11. 2026): šedá feature v modrém
 # označeném řádku zanikala
@@ -488,7 +494,8 @@ class ComparePage(QWidget):
         self.table.horizontalHeader().setSectionsClickable(True)
         self.table.horizontalHeader().sectionClicked.connect(self._header_clicked)
         body.addWidget(card(self.table), 1)
-        body.addWidget(self._build_panel())
+        self._panel = self._build_panel()
+        body.addWidget(self._panel)
         outer.addLayout(body, 1)
 
     @staticmethod
@@ -509,7 +516,7 @@ class ComparePage(QWidget):
         skupin párová porovnání."""
         panel = QFrame()
         panel.setObjectName("card")
-        panel.setFixedWidth(PANEL_WIDTH)
+        panel.setFixedWidth(PANEL_WIDTH)  # roste s oknem v resizeEvent
         outer = QVBoxLayout(panel)
         outer.setContentsMargins(12, 10, 12, 10)
         outer.setSpacing(6)
@@ -1095,6 +1102,7 @@ class ComparePage(QWidget):
                 last = name
             rows.append(r)
         self._row_items = rows
+        self._bars: list[QProgressBar] = []
         table = self.table
         table.blockSignals(True)
         table.clearSpans()
@@ -1143,7 +1151,8 @@ class ComparePage(QWidget):
             if r.tested:
                 bar = QProgressBar()
                 bar.setTextVisible(False)
-                bar.setFixedSize(36, 6)
+                bar.setFixedSize(BAR_MIN, 6)
+                self._bars.append(bar)
                 bar.setRange(0, 100)
                 bar.setValue(int(effect_fraction(r.effect_name, r.effect) * 100))
                 if r.versions:
@@ -1175,6 +1184,10 @@ class ComparePage(QWidget):
                 select_row = row
         table.blockSignals(False)
         fit_widget_column(table, 1 + n_groups)
+        # šířky podle obsahu jako základ; volné místo rozdělí _fit_feature_column
+        self._base_widths = [header.sectionSize(c) for c in range(table.columnCount())]
+        for c in range(1, table.columnCount()):
+            header.setSectionResizeMode(c, QHeaderView.ResizeMode.Interactive)
         self._fit_feature_column()
         if select_row >= 0:
             table.selectRow(select_row)
@@ -1183,12 +1196,16 @@ class ComparePage(QWidget):
             self._show_feature(None)
 
     def _fit_feature_column(self) -> None:
-        """Název feature podle obsahu, nejvýš `FEATURE_MAX`, čísla hned za ním a volné místo
-        až za posledním sloupcem (1. 11. 2026: dřív bral název všechno volné místo jako strom
-        dimenzí). V úzkém okně se napřed zúží název, až na `FEATURE_MIN`."""
+        """Šířky sloupců podle okna (1. 11. 2026). Základ je obsah; v úzkém okně se napřed
+        zúží název feature, až na `FEATURE_MIN`. Volné místo: název feature až po
+        `FEATURE_GROW` (jen když ho dlouhé názvy potřebují), sloupce skupin každý nejvýš
+        o `NUMBER_EXTRA`, rozdíl nejvýš o `EFFECT_EXTRA` s delším pruhem efektu; q zůstává.
+        Co tabulka nepotřebuje, vezme panel vpravo (`_table_wanted`, `_fit_panel`)."""
         table = self.table
         header = table.horizontalHeader()
-        if table.columnCount() == 0:
+        n = table.columnCount()
+        base = getattr(self, "_base_widths", [])
+        if n == 0 or len(base) != n:
             return
         widths = [
             w.sizeHint().width()
@@ -1197,13 +1214,50 @@ class ComparePage(QWidget):
         ]
         label = table.horizontalHeaderItem(0)
         head = header.fontMetrics().horizontalAdvance(label.text()) + 24 if label else 0
-        others = sum(header.sectionSize(c) for c in range(1, table.columnCount()))
-        room = table.viewport().width() - others - 4
         content = max([head, *(w + 16 for w in widths)])
-        width = max(FEATURE_MIN, min(content, FEATURE_MAX, room if room > 0 else FEATURE_MAX))
+        others = sum(base[1:])
+        effect_col = n - 2  # pořadí: feature, skupiny, rozdíl, q
+        groups = list(range(1, effect_col))
+        # nejvíc, co tabulka využije; zbytek stránky patří panelu
+        self._table_wanted = (
+            min(content, FEATURE_GROW) + others + NUMBER_EXTRA * len(groups) + EFFECT_EXTRA + 8
+        )
+        available = table.viewport().width() - 4
+        room = available - others
+        width = max(FEATURE_MIN, min(content, FEATURE_GROW, room if room > 0 else FEATURE_MAX))
+        extra = max(0, available - width - others)
+        per = min(NUMBER_EXTRA, extra // (len(groups) + 2)) if groups else 0
+        effect_extra = min(EFFECT_EXTRA, extra - per * len(groups))
+        sizes = list(base)
+        sizes[0] = width
+        for c in groups:
+            sizes[c] = base[c] + per
+        sizes[effect_col] = base[effect_col] + effect_extra
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         header.setStretchLastSection(False)
-        header.resizeSection(0, width)
+        for c, size in enumerate(sizes):
+            if header.sectionSize(c) != size:
+                header.resizeSection(c, size)
+        bar = max(BAR_MIN, min(BAR_MAX, BAR_MIN + effect_extra * 2 // 3))
+        for item in getattr(self, "_bars", []):
+            item.setFixedWidth(bar)
+        self._fit_panel()
+
+    def _fit_panel(self) -> None:
+        """Panel vpravo: aspoň `PANEL_SHARE` šířky stránky (ne méně než `PANEL_WIDTH`), na
+        velké obrazovce i místo, které tabulka nevyužije, nejvýš `PANEL_SHARE_MAX`."""
+        panel = getattr(self, "_panel", None)
+        if panel is None:
+            return
+        page = self.width()
+        spare = page - getattr(self, "_table_wanted", page) - 72  # okraje a mezera
+        target = max(PANEL_WIDTH, int(page * PANEL_SHARE), min(spare, int(page * PANEL_SHARE_MAX)))
+        if abs(panel.width() - target) > 2:
+            panel.setFixedWidth(target)
+
+    def resizeEvent(self, event) -> None:  # noqa: ANN001, N802
+        super().resizeEvent(event)
+        self._fit_panel()
 
     def eventFilter(self, obj, event) -> bool:  # noqa: ANN001, N802
         if obj is self.table.viewport() and event.type() == QEvent.Type.Resize:
