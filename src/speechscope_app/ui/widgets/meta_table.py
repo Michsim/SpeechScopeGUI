@@ -31,6 +31,7 @@ from pathlib import Path
 from PySide6.QtCore import QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
+    QAbstractItemDelegate,
     QComboBox,
     QFrame,
     QHeaderView,
@@ -249,8 +250,11 @@ class MetaTable(QTableWidget):
         self._search = ""
         self._only_missing = False
         self._filling = False
+        # psaní do vybrané buňky začne úpravu jako v Excelu (1. 11. 2026)
         self.setEditTriggers(
-            QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.EditKeyPressed
+            QTableWidget.EditTrigger.DoubleClicked
+            | QTableWidget.EditTrigger.EditKeyPressed
+            | QTableWidget.EditTrigger.AnyKeyPressed
         )
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
@@ -276,6 +280,7 @@ class MetaTable(QTableWidget):
             " font-weight: 600; }"
         )
         self.setItemDelegate(_CellDelegate(self))
+        self.itemDelegate().closeEditor.connect(self._editor_closed)
         self.itemChanged.connect(self._item_changed)
         self.cellClicked.connect(self._cell_clicked)
         # pravé tlačítko na záhlaví sloupce metadat: Odebrat sloupec
@@ -687,6 +692,44 @@ class MetaTable(QTableWidget):
         finally:
             self.setUpdatesEnabled(True)
             self._filling = False
+
+    # --- výběr a pohyb (1. 11. 2026) ----------------------------------------------------
+
+    def keyPressEvent(self, event) -> None:  # noqa: ANN001, N802
+        """Esc zruší výběr (mimo úpravu buňky, tu zavře editor sám)."""
+        if event.key() == Qt.Key.Key_Escape and self.state() != QTableWidget.State.EditingState:
+            self.clearSelection()
+            self.setCurrentCell(-1, -1)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802
+        """Klik do prázdného místa pod řádky zruší výběr."""
+        if not self.indexAt(event.position().toPoint()).isValid():
+            self.clearSelection()
+            self.setCurrentCell(-1, -1)
+            return
+        super().mousePressEvent(event)
+
+    def _editor_closed(self, _editor, hint) -> None:  # noqa: ANN001
+        """Enter po úpravě: kurzor na buňku pod ní ve stejném sloupci (vyplňování shora dolů).
+
+        Napojené na signál delegáta: přepsání slotu `closeEditor` Qt z Pythonu nevolá."""
+        if hint != QAbstractItemDelegate.EndEditHint.SubmitModelCache:
+            return
+        row, column = self.currentRow(), self.currentColumn()
+        if row >= 0:
+            QTimer.singleShot(0, lambda: self.move_down(row, column))
+
+    def move_down(self, row: int, column: int) -> int:
+        """Další viditelný řádek dat pod `row` (nadpisy skupin a skryté přeskočí); -1 = konec."""
+        for r in range(row + 1, self.rowCount()):
+            if self.isRowHidden(r) or self.is_group_header(r):
+                continue
+            self.setCurrentCell(r, column)
+            return r
+        return -1
 
     def display_header(self, column: str) -> str:
         """Popisek sloupce jako v záhlaví (pro nabídky)."""

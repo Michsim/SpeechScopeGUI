@@ -637,6 +637,41 @@ def test_remove_one_metadata_column_in_analysis(
     assert (recordings / "manifest.csv").read_text(encoding="utf-8").startswith("path;pacient")
 
 
+def test_selection_keeps_metadata_bar_and_enter_moves_down(
+    qtbot: QtBot, settings: AppSettings, recordings: Path
+) -> None:
+    """Úprava buňky nezaseklá: Metadata ▾ zůstává, lišta výběru až od dvou řádků,
+    Esc zruší výběr, Enter po úpravě skočí na buňku pod ní."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QLineEdit
+
+    (recordings / "manifest.csv").write_text("path;pacient\np01.wav;PD001\n", encoding="utf-8")
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.show()
+    page = window.batch_page
+    page.set_folder(recordings)
+    table = page.files
+    col = table.meta_from + table.columns.index("subject")
+    table.setCurrentCell(0, col)
+    assert len(page.selected_rows()) == 1
+    assert page.selection_bar.isHidden() and not page.meta_btn.isHidden()
+    table.selectAll()
+    assert not page.selection_bar.isHidden() and not page.meta_btn.isHidden()
+    qtbot.keyClick(table, Qt.Key.Key_Escape)
+    assert page.selected_rows() == [] and page.selection_bar.isHidden()
+    # Enter po úpravě: kurzor o řádek níž ve stejném sloupci
+    table.setCurrentCell(0, col)
+    table.editItem(table.item(0, col))
+    editor = next(iter(table.viewport().findChildren(QLineEdit)), None)
+    assert editor is not None
+    editor.setText("PD009")
+    qtbot.keyClick(editor, Qt.Key.Key_Return)
+    qtbot.waitUntil(lambda: table.currentRow() == 1, timeout=2000)
+    assert table.currentColumn() == col
+    assert page.files.merged(page.files.keys()[0])["subject"] == "PD009"
+
+
 def test_metadata_edits_and_custom_columns_reach_run(
     qtbot: QtBot, settings: AppSettings, recordings: Path
 ) -> None:

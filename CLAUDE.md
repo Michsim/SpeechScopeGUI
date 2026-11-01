@@ -830,6 +830,12 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `features.puvodni.csv`, nahrazuje přes dočasný soubor a `os.replace` (otevřený Excel = OSError
   a hláška); `restore_original` zálohu vrátí. Porovnání, Hodnocení a Norma z hotových běhů i index
   nahrávek čtou tutéž tabulku, takže údaje vidí bez další úpravy (katalog podle otisku souboru).
+- **Výběr v tabulce metadat** (1. 11. 2026): lišta hledání / Seskupit / Metadata ▾ v kroku 1 Analýzy
+  zůstává vždy, „vybráno n · Vyplnit… · Odebrat · ✕“ (`selection_bar`) se přidá vpravo až od dvou
+  řádků (jeden vybraný úpravou buňky lištu neschová; Vyplnit… je i v pravém tlačítku); `MetaTable`:
+  Esc a klik do prázdna zruší výběr, psaní do buňky začne úpravu (AnyKeyPressed), Enter po úpravě
+  posune kurzor na buňku pod ní (`_editor_closed` na signálu delegáta, slot `closeEditor` přepsaný
+  v Pythonu Qt nevolá; `move_down` přeskočí nadpisy skupin a skryté řádky).
 - **Odebrat jeden sloupec** (1. 11. 2026, varianta 1 + 2): `MetaTable` má pravé tlačítko na záhlaví
   sloupce metadat (`_header_menu` → `request_remove`, dotaz `confirm_remove`) a `remove_column`:
   přidaný sloupec zmizí i s hodnotami, sloupec ze základu (manifest) jen v `_removed` (soubor se

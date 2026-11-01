@@ -214,10 +214,14 @@ class BatchPage(QWidget):
         summary_row.addStretch(1)
         left_layout.addLayout(summary_row)
 
-        # Lišta nad tabulkou: hledání, Seskupit, Vrátit odebrané a Metadata ▾; s výběrem
-        # se místo ní ukáže „vybráno n · Vyplnit… · Odebrat · ✕“.
-        self.bars = QStackedWidget()
+        # Lišta nad tabulkou: hledání, Seskupit, Vrátit odebrané a Metadata ▾ zůstává vždy
+        # (1. 11. 2026: dřív ji výběr schoval a po úpravě buňky nešlo přidat sloupec);
+        # od dvou vybraných řádků se vpravo přidá „vybráno n · Vyplnit… · Odebrat · ✕“.
+        self.bars = QWidget()
         self.bars.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self._bars_layout = QHBoxLayout(self.bars)
+        self._bars_layout.setContentsMargins(0, 0, 0, 0)
+        self._bars_layout.setSpacing(10)
         bar = QWidget()
         bar.setObjectName("metabar")
         bar.setStyleSheet("QWidget#metabar { background: transparent; }")
@@ -296,7 +300,7 @@ class BatchPage(QWidget):
         self.meta_menu.setToolTipsVisible(True)
         self.meta_btn.setMenu(self.meta_menu)
         meta_row.addWidget(self.meta_btn)
-        self.bars.addWidget(bar)
+        self._bars_layout.addWidget(bar, 1)
 
         sel_bar = QFrame()
         sel_bar.setObjectName("card")
@@ -327,7 +331,9 @@ class BatchPage(QWidget):
         clear_sel = QLabel(f"<a href='#' style='color:{theme.ACCENT}'>{tr('✕ zrušit výběr')}</a>")
         clear_sel.linkActivated.connect(lambda _h: self.files.clearSelection())
         sel_row.addWidget(clear_sel)
-        self.bars.addWidget(sel_bar)
+        self._bars_layout.addWidget(sel_bar)
+        sel_bar.hide()
+        self.selection_bar = sel_bar
         left_layout.addWidget(self.bars)
 
         # Tabulka nahrávek: název, délka (a ruční vstupy) jen ke čtení, metadata
@@ -795,6 +801,8 @@ class BatchPage(QWidget):
         menu = file_menu(self, path, self.notice.emit)
         menu.addSeparator()
         n = len(self.selected_rows()) or 1
+        fill = menu.addAction(tr("Vyplnit… ({n})").format(n=n))
+        fill.triggered.connect(lambda: self._ask_fill())
         remove = menu.addAction(tr("Odebrat ze seznamu ({n})").format(n=n))
         remove.triggered.connect(self.remove_selected)
         menu.exec(self.files.viewport().mapToGlobal(pos))
@@ -1036,7 +1044,8 @@ class BatchPage(QWidget):
         self.fill_btn.setEnabled(bool(n))
         self.remove_btn.setEnabled(bool(n))
         self.selection_label.setText(tr("vybráno {n}").format(n=n))
-        self.bars.setCurrentIndex(1 if n else 0)  # s výběrem lišta akcí s výběrem
+        # jeden řádek vybraný úpravou buňky lištu neukáže (akce má pravé tlačítko)
+        self.selection_bar.setVisible(n >= 2)
 
     def remove_selected(self) -> None:
         """Vybrané nahrávky ven ze seznamu; na disku zůstanou, jen se nepočítají."""
