@@ -27,7 +27,7 @@ from speechscope_app.backend.assessments import AssessmentStore
 from speechscope_app.backend.catalog import Catalog
 from speechscope_app.backend.history import RunGroup, read_group, read_run
 from speechscope_app.backend.norm_build import ERROR, OK, TaskPlan, default_protocol
-from speechscope_app.backend.protocol import builtin_protocols
+from speechscope_app.backend.protocol import Protocol, builtin_protocols
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import (
     PAGE_ASSESSMENT,
@@ -155,6 +155,8 @@ def test_wizard_runs_batches_and_creates_assessment(
 
     dialog = window.make_assessment_build_dialog()
     qtbot.addWidget(dialog)
+    assert dialog.mode() == "choose" and not dialog.next_btn.isEnabled()  # nejdřív typ
+    dialog.set_mode("single")
     assert not dialog.next_btn.isEnabled()
     dialog.set_folder("phonation", data)  # manifest rozdělí úlohy a vyplní pacienta
     assert dialog.rows["phonation"].count.text() == "2 ✓"
@@ -165,12 +167,10 @@ def test_wizard_runs_batches_and_creates_assessment(
     assert dialog.date.date().toString("yyyy-MM-dd") == "2026-10-28"
     assert not dialog.prefill_note.isHidden() and "manifest.csv" in dialog.prefill_note.text()
     assert "bez složky" in dialog.rows["reading"].sub.text()
-    assert dialog.next_btn.isEnabled() and dialog.next_btn.text() == "Další › Pacienti"
-    dialog.go_next()  # krok 2 Pacient: formulář a kontrola úloh
-    assert dialog.step() == 1 and not dialog.person_box.isHidden()
-    assert (
-        dialog.next_btn.text() == "Spustit hodnocení" and dialog.summary.figures()[0] == "2 úlohy"
-    )
+    # jedno vyšetření: jedna obrazovka, formulář nad úlohami, Spustit rovnou
+    assert not dialog.person_box.isHidden() and dialog.step() == 0
+    assert dialog.next_btn.isEnabled() and dialog.next_btn.text() == "Spustit hodnocení"
+    assert dialog.summary.figures()[0] == "2 úlohy"
     assert "Čtení –" in dialog.task_checks.text()
     plan = dialog.plan()
     assert [t.task for t in plan.tasks] == ["phonation", "ddk"]
@@ -339,19 +339,20 @@ def test_home_runs_wizard_in_place(qtbot: QtBot, settings: AppSettings, tmp_path
     home.assess_btn.click()
     builder = home.builder
     assert home.step() == 1 and builder is not None and not builder.next_btn.isEnabled()
+    assert builder.mode() == "choose"
+    builder.mode_cards["single"].click()
     builder.subject.setText("P1")
     builder.set_folder("phonation", data)
     assert builder.rows["phonation"].count.text() == "1 ✓" and builder.next_btn.isEnabled()
-    builder.go_next()  # Další › Pacienti
-    assert builder.step() == 1
     builder.go_next()  # Spustit hodnocení
     assert window.nav.currentRow() == PAGE_RUN and home.step() == 0 and home.builder is None
     # nabídka další návštěvy téhož pacienta: průvodce s předvyplněným pacientem
     assert not home.next_visit.isHidden() and "P1" in home.next_visit_text.text()
     home.next_visit_btn.click()
     assert window.nav.currentRow() == PAGE_HOME and home.step() == 1
-    assert home.builder.subject.text() == "P1" and home.next_visit.isHidden()
-    assert not home.builder.rows["phonation"].folder.text()  # složky a datum znovu
+    # další vyšetření = Vývoj v čase s pacientem
+    assert home.builder.mode() == "series" and home.next_visit.isHidden()
+    assert home.builder.series.subject_text() == "P1"
     home.home_btn.click()
     assert home.step() == 0
     page = window.assessment_page
@@ -366,7 +367,7 @@ def test_home_runs_wizard_in_place(qtbot: QtBot, settings: AppSettings, tmp_path
     # dialogová podoba průvodce dál funguje a sdílí widget
     dialog = window.make_assessment_build_dialog()
     qtbot.addWidget(dialog)
-    assert dialog.step() == 0 and dialog.widget.step() == 0 and not dialog.next_btn.isEnabled()
+    assert dialog.mode() == "choose" and not dialog.next_btn.isEnabled()
 
 
 def test_normalize_visit_and_people_helpers(tmp_path: Path) -> None:
@@ -415,6 +416,7 @@ def test_wizard_with_manifest_runs_batches_per_date_and_creates_visits(
     qtbot.addWidget(window)
     dialog = window.make_assessment_build_dialog()
     qtbot.addWidget(dialog)
+    dialog.set_mode("multi")
     dialog.set_folder("phonation", data)
     assert dialog.is_multi() and dialog.step() == 0
     # krok 1 napoví, co čeká v kroku 2
@@ -518,6 +520,7 @@ def test_wizard_many_unassigned_keeps_window_small(
     qtbot.addWidget(window)
     dialog = window.make_assessment_build_dialog()
     qtbot.addWidget(dialog)
+    dialog.set_mode("multi")
     dialog.set_folder("phonation", data)
     dialog.go_next()
     assert dialog.is_multi() and not dialog.unassigned_box.isHidden()
@@ -527,3 +530,82 @@ def test_wizard_many_unassigned_keeps_window_small(
     qtbot.waitUntil(lambda: dialog.unassigned_box.isHidden(), timeout=2000)
     assert dialog.people_counts()[:2] == (12, 12)
     assert dialog.next_btn.text() == "Spustit · 12 hodnocení"
+
+
+def test_series_wizard_runs_visits_of_one_patient(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    """Vývoj v čase: pacient jednou, mřížka datum × úloha, věk z roku narození, dvě hodnocení."""
+    oct_fon = make_folder(tmp_path / "rijen" / "fonace", {"": ["a1.wav", "a2.wav"]})
+    oct_ddk = make_folder(tmp_path / "rijen" / "ddk", {"": ["p1.wav"]})
+    dec_fon = make_folder(tmp_path / "prosinec" / "fon", {"": ["a3.wav"]})
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    dialog = window.make_assessment_build_dialog()
+    qtbot.addWidget(dialog)
+    dialog.mode_cards["series"].click()
+    series = dialog.series
+    assert dialog.mode() == "series" and not dialog.next_btn.isEnabled()
+    series.subject.setCurrentText("P-017")
+    series.sex.setCurrentIndex(series.sex.findData("m"))
+    series.birth_year.setText("1962")
+    # nic se nehádá: datum ručně, ke každé úloze vlastní složka
+    series.set_folder(0, "phonation", oct_fon)
+    series.set_folder(0, "ddk", oct_ddk)
+    assert "datum" in dialog.hint.text().lower() and not dialog.next_btn.isEnabled()
+    series.set_date(0, "14. 10. 2026")
+    second = series.add_visit()
+    series.set_folder(second, "phonation", dec_fon)
+    series.set_date(second, "2026-12-03")
+    assert dialog.next_btn.isEnabled() and dialog.next_btn.text() == "Spustit · 2 hodnocení"
+    assert dialog.summary.figures()[0] == "2 vyšetření"
+    series.set_date(second, "14. 10. 2026")  # stejné datum dvakrát
+    assert not dialog.next_btn.isEnabled() and "Stejné datum" in dialog.hint.text()
+    series.set_date(second, "3. 12. 2026")
+    plan = dialog.plan()
+    assert plan.multi and plan.visits() == 2 and plan.subjects() == ["P-017"]
+    assert sorted(t.key for t in plan.tasks) == [
+        "ddk@2026-10-14",
+        "phonation@2026-10-14",
+        "phonation@2026-12-03",
+    ]
+    ages = {p.visit: p.age for p in plan.people.values()}
+    assert ages == {"2026-10-14": 64.0, "2026-12-03": 64.0}  # z roku narození
+    # Spustit: rok narození k pacientovi do katalogu, po výpočtu dvě hodnocení
+    window._remember_birth_year(dialog.widget)
+    assert window.start_plan("assessment", plan) == 3
+    qtbot.waitUntil(lambda: not plan.path.exists(), timeout=40000)
+    qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=10000)
+    stored = [a for a in window.catalog.assessments() if a.subject == "P-017"]
+    assert sorted(a.date for a in stored) == ["2026-10-14", "2026-12-03"]
+    patient = next(p for p in window._series_patients() if p.subject == "P-017")
+    assert patient.birth_year == 1962 and len(patient.visits) == 2
+    # další vyšetření: pacient z katalogu doplní pohlaví a rok, dosavadní řádky šedě
+    Protocol(name="Fonace, vlastní", task="phonation").save(
+        settings.protocols_dir() / "fonace-vlastni.yaml"
+    )
+    again = window.make_assessment_build_dialog()
+    qtbot.addWidget(again)
+    again.prefill("P-017", 64.0, "m")
+    assert again.mode() == "series" and again.series.birth_year.text() == "1962"
+    # řádek protokolů, dvě z katalogu a jedno nové
+    assert again.series.table.rowCount() == 1 + 2 + 1
+    # protokoly jako minule (z protocol.yaml běhů posledního vyšetření)
+    s2 = again.series
+    used = plan.tasks[0].proto().name
+    assert s2.previous_protocol("phonation") == used == s2.protocol_for("phonation").name
+    assert s2.changed_tasks() == [] and s2.protocol_warning.isHidden()
+    s2.set_protocol("phonation", "Fonace, vlastní")
+    assert s2.changed_tasks() == ["phonation"] and not s2.protocol_warning.isHidden()
+    assert s2.table.item(1, 2).text() == "spočítáno ⚠"
+    s2.set_date(0, "1. 2. 2027")
+    s2.set_folder(0, "phonation", dec_fon)
+    asked: list[str] = []
+    accepted: list[bool] = []
+    again.widget.accepted.connect(lambda: accepted.append(True))
+    again.widget.confirm = lambda text: asked.append(text) or False
+    again.widget.go_next()
+    assert asked and "Fonace" in asked[0] and not accepted  # odmítnuto: nespustí se
+    assert again.widget._task_plans()[0].proto().name == "Fonace, vlastní"
+    s2.revert_protocols()
+    assert s2.changed_tasks() == [] and s2.protocol_for("phonation").name == used

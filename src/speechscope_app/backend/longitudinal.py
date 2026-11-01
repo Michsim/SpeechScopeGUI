@@ -10,6 +10,11 @@ Vyšetření bez data se do vývoje nebere (nejde zařadit na osu); vyšetření
 které se počítalo jinou verzí feature než norma, nese `outdated` a UI ho
 kreslí dutým bodem s ⚠. Dvě vyšetření v jeden den jsou vedle sebe v pořadí
 založení.
+
+Protokol (1. 11. 2026): vyšetření, jehož úloha se počítala jiným protokolem než
+u posledního vyšetření s toutéž úlohou, má `protocol_changes` (`mark_protocols`);
+UI ho značí stejně jako jinou verzi feature (⚠, dutý bod), v Hodnotách jen u
+položek té úlohy.
 """
 
 from __future__ import annotations
@@ -31,6 +36,13 @@ class VisitPoint:
     date: str  # ISO
     age: float | None = None
     outdated: bool = False  # některá položka s jinou verzí feature než norma
+    # úloha → (protokol tohoto vyšetření, protokol posledního vyšetření s úlohou)
+    protocol_changes: dict[str, tuple[str, str]] = field(default_factory=dict)
+
+    @property
+    def flagged(self) -> bool:
+        """Hodnoty nejsou plně srovnatelné: jiná verze feature nebo jiný protokol."""
+        return self.outdated or bool(self.protocol_changes)
 
 
 @dataclass(slots=True)
@@ -91,6 +103,29 @@ class Timeline:
     @property
     def outdated(self) -> list[VisitPoint]:
         return [v for v in self.visits if v.outdated]
+
+    @property
+    def protocol_changed(self) -> list[VisitPoint]:
+        return [v for v in self.visits if v.protocol_changes]
+
+
+def mark_protocols(visits: list[VisitPoint], protocols: dict[str, dict[str, str]]) -> None:
+    """Vyznačí vyšetření, kde se úloha počítala jiným protokolem než naposledy.
+
+    `protocols`: id hodnocení → úloha → název protokolu (z běhů jeho nahrávek).
+    Srovnává se s posledním vyšetřením, které úlohu má; bez záznamu nic.
+    """
+    latest: dict[str, str] = {}
+    for visit in reversed(visits):
+        for task, name in protocols.get(visit.assessment_id, {}).items():
+            if name:
+                latest.setdefault(task, name)
+    for visit in visits:
+        visit.protocol_changes = {
+            task: (name, latest[task])
+            for task, name in sorted(protocols.get(visit.assessment_id, {}).items())
+            if name and latest.get(task) and name != latest[task]
+        }
 
 
 def build_timeline(entries: list[tuple[Assessment, Evaluation]]) -> Timeline:
@@ -204,6 +239,10 @@ class ValueTimeline:
     def outdated(self) -> list[VisitPoint]:
         return [v for v in self.visits if v.outdated]
 
+    @property
+    def protocol_changed(self) -> list[VisitPoint]:
+        return [v for v in self.visits if v.protocol_changes]
+
 
 def build_value_timeline(
     dimensions: list[Dimension],
@@ -272,4 +311,5 @@ __all__ = [
     "build_timeline",
     "build_value_timeline",
     "format_change",
+    "mark_protocols",
 ]

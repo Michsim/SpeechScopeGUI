@@ -19,6 +19,7 @@ a zapisuje se jen z hlavního vlákna.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import math
 import sqlite3
@@ -276,6 +277,20 @@ class Catalog:
             )
             for r in rows
         ]
+
+    def set_birth_year(self, subject: str, year: int | None) -> None:
+        """Rok narození pacienta (Vývoj v čase dopočítá věk); pacient vznikne, když není."""
+        key = patient_key(subject)
+        if not key:
+            return
+        display = " ".join(subject.split())
+        with self._db:
+            self._db.execute(
+                "INSERT INTO patients (key, subject, sex, birth_year, created) "
+                "VALUES (?, ?, '', ?, ?) ON CONFLICT(key) DO UPDATE SET "
+                "birth_year = excluded.birth_year",
+                (key, display, year, dt.datetime.now().isoformat(timespec="seconds")),
+            )
 
     # --- výběr kontrol per pacient ------------------------------------------------------
 

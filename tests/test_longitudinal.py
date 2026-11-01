@@ -11,9 +11,11 @@ from speechscope_app.backend.assessments import Assessment
 from speechscope_app.backend.dimensions import Item, evaluate
 from speechscope_app.backend.longitudinal import (
     ValueRow,
+    VisitPoint,
     build_timeline,
     build_value_timeline,
     format_change,
+    mark_protocols,
 )
 from speechscope_app.backend.norms import BOTH, Norm, NormInfo
 
@@ -115,3 +117,23 @@ def test_build_value_timeline_items_changes_and_versions() -> None:
     single = build_value_timeline(DIMS, [(later, rows_later, {})])
     assert not single.enough and len(single.groups()) == 2
     assert build_value_timeline(DIMS, [(later, {}, {}), (earlier, {}, {})]).groups() == []
+
+
+def test_mark_protocols_against_latest_visit_with_task() -> None:
+    """Jiný protokol než u posledního vyšetření s toutéž úlohou; úloha jen v jednom nic."""
+    visits = [
+        VisitPoint("a", "2026-01-01"),
+        VisitPoint("b", "2026-05-01"),
+        VisitPoint("c", "2026-09-01"),
+    ]
+    mark_protocols(
+        visits,
+        {
+            "a": {"spontaneous": "akustika", "phonation": "fonace"},
+            "b": {"spontaneous": "lingvistika", "reading": "čtení"},
+            "c": {"spontaneous": "lingvistika"},
+        },
+    )
+    assert visits[0].protocol_changes == {"spontaneous": ("akustika", "lingvistika")}
+    assert visits[0].flagged and not visits[0].outdated
+    assert not visits[1].protocol_changes and not visits[2].flagged

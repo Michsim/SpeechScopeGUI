@@ -33,7 +33,7 @@ from ..backend.assessment_build import (
     pending_plans,
 )
 from ..backend.assessment_build import finish_plan as finish_assessment_plan
-from ..backend.assessments import Assessment, AssessmentStore
+from ..backend.assessments import Assessment, AssessmentStore, patient_key
 from ..backend.audio import duration_seconds
 from ..backend.catalog import Catalog
 from ..backend.command import PrepareRequest, extract_args, segment_args, transcribe_args
@@ -78,6 +78,7 @@ from ..backend.work import collect_prepare_outputs, work_dir_for
 from ..i18n import tr
 from . import theme
 from .assessment_build_dialog import AssessmentBuildWidget, AssessmentFromRecordingsDialog
+from .assessment_series import SeriesPatient
 from .models_dialog import ModelsDownloadDialog
 from .models_install_dialog import ModelsInstallDialog
 from .new_norm_dialog import NewNormDialog
@@ -375,6 +376,7 @@ class MainWindow(QMainWindow):
 
     def _start_home_plan(self, builder: AssessmentBuildWidget) -> None:
         plan = builder.plan()
+        self._remember_birth_year(builder)
         self.home_page.show_cards()  # průvodce pryč dřív, než se přepne na Výpočet
         self._last_patient = plan.patient if not plan.multi else None
         if self._last_patient is not None:
@@ -396,6 +398,7 @@ class MainWindow(QMainWindow):
         dialog.prefill(assessment.subject, assessment.age, assessment.sex)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return 0
+        self._remember_birth_year(dialog.widget)
         return self.start_plan("assessment", dialog.plan())
 
     def new_assessment_from_runs(self) -> None:
@@ -1160,7 +1163,34 @@ class MainWindow(QMainWindow):
             "languages": [str(combo.itemData(i)) for i in range(combo.count())],
             "language": self.batch_page.language_code() or "cs",
             "rate_lookup": self.settings.seconds_per_audio_minute,
+            "patients_lookup": self._series_patients,
+            "run_protocol": self._run_protocol,
         }
+
+    def _run_protocol(self, key: str) -> Protocol | None:
+        """Protokol, kterým se počítal běh (`protocol.yaml`); Vývoj v čase: jako minule."""
+        path = self.settings.work_root / key / "protocol.yaml"
+        return Protocol.load(path) if path.is_file() else None
+
+    def _series_patients(self) -> list[SeriesPatient]:
+        """Pacienti z katalogu s dosavadními vyšetřeními (Vývoj v čase: šedé řádky)."""
+        catalog = getattr(self, "catalog", None)
+        if catalog is None:
+            return []
+        visits: dict[str, list[Assessment]] = {}
+        for assessment in catalog.assessments():
+            visits.setdefault(patient_key(assessment.subject), []).append(assessment)
+        return [
+            SeriesPatient(row.subject, row.sex, row.birth_year, visits.get(row.key, []))
+            for row in catalog.patients()
+        ]
+
+    def _remember_birth_year(self, builder: AssessmentBuildWidget) -> None:
+        """Rok narození z Vývoje v čase k pacientovi do katalogu (příště se doplní sám)."""
+        year = builder.birth_year()
+        catalog = getattr(self, "catalog", None)
+        if year is not None and catalog is not None:
+            catalog.set_birth_year(builder.series.subject_text(), year)
 
     def make_assessment_build_dialog(self) -> AssessmentFromRecordingsDialog:
         return AssessmentFromRecordingsDialog(
@@ -1184,6 +1214,7 @@ class MainWindow(QMainWindow):
             return
         dialog = self.make_assessment_build_dialog()
         if dialog.exec():
+            self._remember_birth_year(dialog.widget)
             self.start_plan("assessment", dialog.plan())
 
     def recompute_assessment(self, assessment_id: str, *, confirm: bool = True) -> int:

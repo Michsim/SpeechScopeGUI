@@ -564,6 +564,32 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   na kartu tak nepřepočítává ostatní (60 pacientů dřív ~3,5 s, teď ~50 ms);
   `Selection` si cachuje hodnoty sloupců a průměry po osobách
   (`subject_means`, jeden groupby pro všechny feature).
+- **Typy hodnocení** (1. 11. 2026, mockup https://claude.ai/artifact/MDbiZZGRgG5Wnyzk4GPVfv,
+  `docs/mockups/hodnoceni-typy/` mimo git; rozhodnuto: vyplňuje se ručně, z názvů ani složek se nic
+  neodvozuje, jen z manifestu): průvodce `AssessmentBuildWidget(mode=…)` začíná volbou typu
+  (`CHOOSE`, tři karty `mode_cards`, Začít) a v hlavičce má přepínač `mode_switch`: **Jedno
+  vyšetření** (`SINGLE`, formulář pacienta na stránce zdrojů, jeden krok), **Vývoj v čase**
+  (`SERIES`, `ui/assessment_series.py` `SeriesEditor`: pacient z katalogu nebo nový, pohlaví,
+  rok narození → věk u každého vyšetření `age_for`; mřížka datum × úloha, vyšetření z katalogu
+  šedě „spočítáno“, nová s polem data (prázdné žlutě), věkem a Vybrat…/Změnit… na úlohu, ✕;
+  „Načíst z manifestu…“ jen předvyplní, manifest se sloupcem `task` ve složce doplní ostatní
+  prázdné úlohy téhož vyšetření; `problems()` hlídá datum i duplicitu proti katalogu; dávka na
+  úlohu × datum, rok narození do katalogu `Catalog.set_birth_year` přes
+  `MainWindow._remember_birth_year`, pacienti z `_series_patients`), **Víc pacientů** (`MULTI`,
+  jen s manifestem, dva kroky jako dřív, víc pacientů se už nedetekuje samo). Další vyšetření
+  (`prefill`) otevře Vývoj v čase. Buňky mřížky mají pevnou minimální šířku (`_polished_width`),
+  sizeHint prvků v buňce styl nezná. **Protokoly ve Vývoji** (1. 11. 2026, mockup
+  https://claude.ai/artifact/PiCgr7oP7N8VABhECAQ6gQ, `docs/mockups/vyvoj-protokoly/` mimo git):
+  první řádek mřížky (`PROTOCOL_ROW`) má u úlohy výběr protokolu pro všechna nová vyšetření
+  (u jediné možnosti jen název); výchozí = protokol posledního vyšetření pacienta s úlohou
+  z `protocol.yaml` běhu (`run_protocol` ← `MainWindow._run_protocol`, `_load_previous`,
+  „jako minule“), jinak výchozí přibalený („výchozí · minule nebylo“); protokol z minula je
+  v nabídce i u klinika. Jiný než minule (`changed_tasks`) = oranžově s „minule: …“,
+  „spočítáno ⚠“ v šedých buňkách (tooltip s protokolem), pruh `protocol_warning`
+  s „vrátit jako minule“ (`revert_protocols`) a Spustit se zeptá (`confirm`). Dávky berou
+  `series.protocol_for`. Jazyk průvodce se ve Vývoji přesune nad mřížku (`_place_language`,
+  `head_extra`), ukáže se jen u úloh s přepisem (`needs_language`) a předvyplní se
+  z minulého běhu (`previous_loaded`). **Jiný protokol ve Vývoji na Pacientech** (1. 11. 2026): `longitudinal.mark_protocols` porovná protokol úlohy (`RunInfo.protocol_name` běhů nahrávek, `_visit_protocols`) s posledním vyšetřením, které úlohu má; `VisitPoint.protocol_changes`, `flagged` = jiná verze feature nebo protokol: ⚠ u data, dutý bod (v Hodnotách jen u položek té úlohy), protokoly v tooltipu data (`_protocol_tips`) a poznámka pod tabulkou (`_protocol_notes`). Nezavedeno: otevření Vývoje po Spustit.
 - **Průvodci zjednodušení** (31. 10. 2026, mockup https://claude.ai/artifact/GX5BLKd1EcRkrvUTvvvGrg,
   `docs/mockups/pruvodci-zjednoduseni/` mimo git): Hodnocení z nahrávek ve **dvou krocích**
   (31. 10. 2026 večer, mockup https://claude.ai/artifact/LqdUbs3QgkT4YPuHdsKN6z,

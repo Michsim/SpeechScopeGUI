@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -59,7 +60,6 @@ from ..backend.assessment_build import (
     AssessmentPlan,
     Patient,
     PersonRow,
-    is_multi,
     new_plan,
     patient_from_scan,
     patients_text,
@@ -72,10 +72,12 @@ from ..backend.audio import format_duration as audio_duration
 from ..backend.norm_build import FolderScan, TaskPlan, with_language
 from ..backend.norms import RECOMMENDED_CONTROLS  # noqa: F401  (stejná sada textů)
 from ..backend.protocol import Protocol
-from ..i18n import tr
+from ..i18n import N_, tr
 from . import theme
+from .assessment_series import SeriesEditor, SeriesPatient
 from .new_norm_dialog import SEX_CHOICES, TaskRow, _scrolled, format_duration
 from .widgets.clean_table import card, set_text, style_table
+from .widgets.inputs import Segmented
 from .widgets.status_header import Pill
 from .widgets.task_rows import SummaryBar
 
@@ -165,6 +167,10 @@ class NewAssessmentChoiceDialog(QDialog):
         return "recordings" if self.recordings.isChecked() else "runs"
 
 
+CHOOSE, SINGLE, SERIES, MULTI = "choose", "single", "series", "multi"
+MODE_LABELS = {SINGLE: N_("Jedno vyšetření"), SERIES: N_("Vývoj v čase"), MULTI: N_("Víc pacientů")}
+
+
 def _visit_text(visit: str) -> str:
     """ISO datum jako „14. 10. 2026“; jiný text beze změny."""
     try:
@@ -198,10 +204,14 @@ class AssessmentBuildWidget(QWidget):
         languages: list[str] | None = None,
         language: str = "cs",
         rate_lookup: Callable[[str], float | None] = lambda _slug: None,
+        patients_lookup: Callable[[], list[SeriesPatient]] = list,
+        run_protocol: Callable[[str], Protocol | None] = lambda _key: None,
+        mode: str = CHOOSE,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._dir = assessments_dir
+        self._mode = CHOOSE
         self._rate = rate_lookup
         self._people: dict[Path, PersonRow] = {}  # nahrávka → pacient, datum… z manifestu
         self._overrides: dict[Path, dict[str, str]] = {}  # ruční opravy v kroku 2
@@ -222,7 +232,17 @@ class AssessmentBuildWidget(QWidget):
         arrow.setObjectName("muted")
         steps.addWidget(arrow)
         steps.addWidget(self.step_pills[1])
+        self._step_arrow = arrow
         steps.addStretch(1)
+        # Typ hodnocení (1. 11. 2026, mockup https://claude.ai/artifact/MDbiZZGRgG5Wnyzk4GPVfv):
+        # na začátku tři karty, pak přepínač tady nahoře.
+        self.mode_switch = Segmented([tr(MODE_LABELS[m]) for m in (SINGLE, SERIES, MULTI)])
+        self.mode_switch.currentChanged.connect(
+            lambda label: self.set_mode(
+                next(m for m in (SINGLE, SERIES, MULTI) if tr(MODE_LABELS[m]) == label)
+            )
+        )
+        steps.addWidget(self.mode_switch)
         outer.addLayout(steps)
         self.stack = QStackedWidget()
         outer.addWidget(self.stack, 1)
@@ -232,6 +252,27 @@ class AssessmentBuildWidget(QWidget):
             _scrolled(self._build_sources(protocols, advanced, languages or [], language))
         )
         self.stack.addWidget(_scrolled(self._build_patients()))
+        # jeden pacient: formulář nad úlohami a kontrola úloh pod nimi (jedna obrazovka)
+        self._sources_layout.insertWidget(0, self.person_box)
+        self._sources_layout.insertWidget(self._sources_layout.count() - 1, self.task_checks)
+        self.series = SeriesEditor(
+            list(self.rows),
+            patients_lookup,
+            recursive=lambda: self.recursive.isChecked(),
+            protocols=protocols,
+            advanced=advanced,
+            run_protocol=run_protocol,
+        )
+        self.series.changed.connect(self._update_buttons)
+        self.series.previous_loaded.connect(self._previous_language)
+        # Spustit s jiným protokolem než minule se zeptá (testy podstrčí odpověď)
+        self.confirm: Callable[[str], bool] = self._ask
+        series_page = QWidget()
+        series_layout = QVBoxLayout(series_page)
+        series_layout.setContentsMargins(0, 0, 0, 0)
+        series_layout.addWidget(self.series)
+        self.stack.addWidget(series_page)  # 2
+        self.stack.addWidget(self._build_chooser())  # 3
 
         # Patička: Storno, souhrn (úlohy, nahrávky, zvuk, odhad), stav a Spustit hodnocení.
         foot = QFrame()
@@ -252,8 +293,9 @@ class AssessmentBuildWidget(QWidget):
         theme.set_role(self.next_btn, "primary")
         self.next_btn.clicked.connect(self.go_next)
         footer.addWidget(self.next_btn)
+        self._foot = foot
         outer.addWidget(foot)
-        self._show_step(0)
+        self.set_mode(mode)
 
     # --- krok 1 -------------------------------------------------------------------
 
@@ -264,6 +306,7 @@ class AssessmentBuildWidget(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
+        self._sources_layout = layout
         self.language = QComboBox()
         for code in languages or [language]:
             self.language.addItem(contract.language_label(code), code)
@@ -290,10 +333,11 @@ class AssessmentBuildWidget(QWidget):
         )
         tasks_head.addWidget(info)
         tasks_head.addStretch(1)
-        language_label = QLabel(tr("Jazyk"))
-        language_label.setObjectName("muted")
-        tasks_head.addWidget(language_label)
+        self.language_label = QLabel(tr("Jazyk"))
+        self.language_label.setObjectName("muted")
+        tasks_head.addWidget(self.language_label)
         tasks_head.addWidget(self.language)
+        self._tasks_head = tasks_head
         layout.addLayout(tasks_head)
         # řádky úloh jako na Analýze (widgets/task_rows.py), pod sebou
         rows_box = QWidget()
@@ -378,11 +422,9 @@ class AssessmentBuildWidget(QWidget):
         self.prefill_note.setWordWrap(True)
         self.prefill_note.hide()
         person_layout.addWidget(self.prefill_note)
-        layout.addWidget(self.person_box)
         self.task_checks = QLabel("")
         self.task_checks.setTextFormat(Qt.TextFormat.RichText)
         self.task_checks.setWordWrap(True)
-        layout.addWidget(self.task_checks)
 
         # víc pacientů: vyšetření (pacient × datum), úlohy ve sloupcích
         self.people_box = QWidget()
@@ -475,6 +517,111 @@ class AssessmentBuildWidget(QWidget):
         layout.addStretch(0)
         return page
 
+    def _build_chooser(self) -> QWidget:
+        """Tři karty typu hodnocení; každá vede do svého formuláře."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        question = QLabel(tr("Co chcete hodnotit?"))
+        question.setObjectName("muted")
+        layout.addWidget(question)
+        row = QHBoxLayout()
+        row.setSpacing(14)
+        self.mode_cards: dict[str, QPushButton] = {}
+        texts = {
+            SINGLE: tr("Jeden pacient, jedno datum. Složka s nahrávkami pro každou úlohu."),
+            SERIES: tr(
+                "Jeden pacient, víc vyšetření. Pro každé datum složky po úlohách; věk se "
+                "dopočítá z roku narození."
+            ),
+            MULTI: tr("Studie nebo skupina najednou. Složka s manifestem (pacient, datum, úloha)."),
+        }
+        for mode in (SINGLE, SERIES, MULTI):
+            box = QFrame()
+            box.setObjectName("card")
+            box_layout = QVBoxLayout(box)
+            box_layout.setContentsMargins(16, 14, 16, 14)
+            box_layout.setSpacing(8)
+            title = QLabel(tr(MODE_LABELS[mode]))
+            title.setObjectName("card_title")
+            box_layout.addWidget(title)
+            text = QLabel(texts[mode])
+            text.setObjectName("muted")
+            text.setWordWrap(True)
+            box_layout.addWidget(text, 1)
+            btn = QPushButton(tr("Začít"))
+            theme.set_role(btn, "primary")
+            btn.clicked.connect(lambda _c=False, m=mode: self.set_mode(m))
+            box_layout.addWidget(btn, 0, Qt.AlignmentFlag.AlignLeft)
+            row.addWidget(box, 1)
+            self.mode_cards[mode] = btn
+        layout.addLayout(row)
+        layout.addStretch(1)
+        return page
+
+    def mode(self) -> str:
+        return self._mode
+
+    def set_mode(self, mode: str) -> None:
+        """Typ hodnocení: volba (karty), jedno vyšetření, vývoj v čase, víc pacientů."""
+        self._mode = mode
+        choosing = mode == CHOOSE
+        self.mode_switch.setVisible(not choosing)
+        if not choosing:
+            self.mode_switch.blockSignals(True)
+            self.mode_switch.set_current(tr(MODE_LABELS[mode]))
+            self.mode_switch.blockSignals(False)
+        for widget in (*self.step_pills, self._step_arrow):
+            widget.setVisible(mode == MULTI)
+        self.person_box.setVisible(mode == SINGLE)
+        self.task_checks.setVisible(mode == SINGLE)
+        self.template_btn.setVisible(mode == MULTI)
+        self._foot.setVisible(not choosing)
+        self._multi = mode == MULTI
+        if mode == MULTI:
+            self._refresh_people()
+        if choosing:
+            self.stack.setCurrentIndex(3)
+        elif mode == SERIES:
+            self.series.reload_patients()
+            self.stack.setCurrentIndex(2)
+        else:
+            self.stack.setCurrentIndex(0)
+        self._place_language(mode == SERIES)
+        self.back_btn.setText(tr("Storno"))
+        if mode == SINGLE:
+            self._fill_task_checks()
+            self._update_person_marks()
+        self._update_buttons()
+
+    def _place_language(self, series: bool) -> None:
+        """Výběr jazyka je jeden: u Vývoje v čase nad mřížkou, jinak u úloh."""
+        target = self.series.head_extra if series else self._tasks_head
+        if self.language.parentWidget() is not None and target.indexOf(self.language) >= 0:
+            return
+        for widget in (self.language_label, self.language):
+            for layout in (self.series.head_extra, self._tasks_head):
+                layout.removeWidget(widget)
+            target.addWidget(widget)
+        if not series:
+            self.language_label.show()
+            self.language.show()
+
+    def _previous_language(self, code: str) -> None:
+        """Jazyk z minulého vyšetření pacienta (Vývoj v čase)."""
+        index = self.language.findData(code) if code else -1
+        if index >= 0:
+            self.language.setCurrentIndex(index)
+
+    def _ask(self, text: str) -> bool:
+        answer = QMessageBox.question(
+            self,
+            tr("Jiný protokol než minule"),
+            text + "\n\n" + tr("Přesto spustit?"),
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     def _browse(self, row: TaskRow) -> None:
         folder = QFileDialog.getExistingDirectory(
             self, tr("Složka s nahrávkami: {task}").format(task=row.label.text()), row.folder.text()
@@ -561,7 +708,10 @@ class AssessmentBuildWidget(QWidget):
             self.prefill_note.show()
 
     def prefill(self, subject: str, age: float | None, sex: str) -> None:
-        """Další vyšetření téhož pacienta: pacient, věk a pohlaví; datum a složky prázdné."""
+        """Další vyšetření téhož pacienta: Vývoj v čase s pacientem (1. 11. 2026); pole
+        jednoho vyšetření se vyplní taky, kdyby uživatel typ přepnul."""
+        self.set_mode(SERIES)
+        self.series.set_patient(subject, age, sex)
         self.subject.setText(subject)
         self.age.setText("" if age is None else f"{age:g}")
         self.sex.setCurrentIndex(max(0, self.sex.findData(sex)))
@@ -590,10 +740,9 @@ class AssessmentBuildWidget(QWidget):
         scans = {task: row.scan for task, row in self.rows.items() if row.scan.recordings}
         self._people = people_from_scans(scans)
         self._overrides = {k: v for k, v in self._overrides.items() if k in self._people}
-        self._multi = is_multi(self._merged_people())
-        self.person_box.setVisible(not self._multi)
-        self.task_checks.setVisible(not self._multi)
-        self.people_box.setVisible(self._multi)
+        # Typ si uživatel vybral sám (1. 11. 2026): manifest u jednoho vyšetření jen
+        # předvyplní, víc pacientů je jen v režimu Víc pacientů.
+        self._multi = self._mode == MULTI
         self.template_btn.setEnabled(bool(scans))
         if self._multi:
             self._fill_patients()
@@ -612,7 +761,9 @@ class AssessmentBuildWidget(QWidget):
         return out
 
     def people(self) -> dict[Path, PersonRow]:
-        """Údaje nahrávek z manifestu a ručních oprav (jen u víc pacientů nebo dat)."""
+        """Údaje nahrávek: víc pacientů z manifestu a oprav, vývoj v čase z mřížky."""
+        if self._mode == SERIES:
+            return self.series.people()
         return self._merged_people() if self._multi else {}
 
     def is_multi(self) -> bool:
@@ -636,7 +787,6 @@ class AssessmentBuildWidget(QWidget):
         self._after_people_edit()
 
     def _after_people_edit(self) -> None:
-        self._multi = is_multi(self._merged_people()) or self._multi
         if self._multi:
             self._fill_patients()
         self._update_buttons()
@@ -931,6 +1081,16 @@ class AssessmentBuildWidget(QWidget):
     def _task_plans(self) -> list[TaskPlan]:
         language = str(self.language.currentData() or "")
         plans: list[TaskPlan] = []
+        if self._mode == SERIES:
+            # vývoj v čase: dávka na úlohu a datum, protokol z mřížky (jako minule)
+            for task, by_date in self.series.task_inputs().items():
+                proto = self.series.protocol_for(task)
+                if proto is None:
+                    continue
+                protocol = with_language(proto, language).to_dict()
+                for visit, recs in sorted(by_date.items()):
+                    plans.append(TaskPlan(task, protocol, list(recs), visit=visit))
+            return plans
         for row in self.active_rows():
             proto = row.current_protocol()
             assert proto is not None
@@ -948,7 +1108,8 @@ class AssessmentBuildWidget(QWidget):
     # --- souhrn a Spustit ---------------------------------------------------------
 
     def step(self) -> int:
-        return self.stack.currentIndex()
+        """Krok u Víc pacientů (0 nahrávky, 1 pacienti); ostatní typy mají jednu obrazovku."""
+        return 1 if self.stack.currentIndex() == 1 else 0
 
     def _show_step(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
@@ -956,17 +1117,15 @@ class AssessmentBuildWidget(QWidget):
             theme.set_role(pill, "accent" if i == index else ("ok" if i < index else "neutral"))
         self.back_btn.setText(tr("Storno") if index == 0 else tr("‹ Zpět"))
         if index == 1:
-            if self._multi:
-                self._fill_patients()
-            else:
-                self._fill_task_checks()
-                self._update_person_marks()
+            self._fill_patients()
         self._update_buttons()
 
     def estimate(self) -> tuple[float, bool]:
         """Odhad všech dávek v sekundách a zda je známý pro všechny (podle minut zvuku)."""
         rows = self.active_rows()
         durations = {rec: sec for row in rows for rec, sec in row.scan.durations.items()}
+        if self._mode == SERIES:
+            durations = self.series.durations()
         total, known = 0.0, True
         for plan in self._task_plans():
             rate = self._rate(plan.proto().slug())
@@ -978,6 +1137,22 @@ class AssessmentBuildWidget(QWidget):
         return total, known
 
     def _update_summary(self) -> None:
+        if self._mode == SERIES:
+            n = self.series.new_visit_count()
+            figures = [
+                (
+                    tr("{n} vyšetření").format(n=n),
+                    tr("{k} nahrávek").format(k=self.series.recording_count()),
+                )
+            ]
+            total, known = self.estimate()
+            if total:
+                figures.append(
+                    ("~" + format_duration(total), tr("odhad") if known else tr("odhad (část)"))
+                )
+            self.summary.set_figures(figures)
+            self.summary.setVisible(True)
+            return
         rows = self.active_rows()
         n = sum(len(r.scan.recordings) for r in rows)
         audio = sum(r.scan.audio_seconds for r in rows)
@@ -998,14 +1173,36 @@ class AssessmentBuildWidget(QWidget):
                 ("~" + format_duration(total), tr("odhad") if known else tr("odhad (část)"))
             )
         self.summary.set_figures(figures if rows else [])
-        self.summary.setVisible(bool(rows))
+        self.summary.setVisible(True)  # i prázdný drží místo, jinak se roztáhne Storno
 
     def _update_buttons(self) -> None:
         if not hasattr(self, "next_btn"):  # při stavbě stránky ještě patička není
             return
         hint, ok = "", True
         rows = self.active_rows()
-        if self.step() == 0:
+        if self._mode == CHOOSE:
+            self.next_btn.setEnabled(False)
+            return
+        if self._mode == SERIES:
+            problems = self.series.problems()
+            ok = not problems
+            hint = problems[0] if problems else ""
+            needed = self.series.needs_language()
+            self.language_label.setVisible(needed)
+            self.language.setVisible(needed)
+            n = self.series.new_visit_count()
+            self.next_btn.setText(
+                tr("Spustit · {v} hodnocení").format(v=n) if n > 1 else tr("Spustit hodnocení")
+            )
+        elif self._mode == SINGLE:
+            if not self.subject.text().strip():
+                ok, hint = False, tr("Vyplňte pacienta.")
+            elif not rows:
+                ok, hint = False, tr("Vyberte složku aspoň pro jednu úlohu.")
+            elif not self.age.text().strip() or not self.sex.currentData():
+                hint = tr("bez věku nebo pohlaví se nevybere věkové okno a pohlaví")
+            self.next_btn.setText(tr("Spustit hodnocení"))
+        elif self.step() == 0:
             # Krok 1: jen složky. Patička napoví, co čeká v kroku 2.
             self.next_btn.setText(tr("Další › Pacienti"))
             if not rows:
@@ -1045,10 +1242,14 @@ class AssessmentBuildWidget(QWidget):
         """Krok 1 → Pacienti, krok 2 → Spustit."""
         if not self.next_btn.isEnabled():
             return
-        if self.step() == 0:
+        if self._mode == MULTI and self.step() == 0:
             self._show_step(1)
-        else:
-            self.accepted.emit()
+            return
+        if self._mode == SERIES:
+            warning = self.series.protocol_warning_text()
+            if warning and not self.confirm(warning):
+                return
+        self.accepted.emit()
 
     def go_back(self) -> None:
         if self.step() == 0:
@@ -1058,7 +1259,20 @@ class AssessmentBuildWidget(QWidget):
 
     # --- výsledek ----------------------------------------------------------------
 
+    def birth_year(self) -> int | None:
+        """Rok narození z Vývoje v čase (hlavní okno ho uloží k pacientovi)."""
+        return self.series.birth_year_value() if self._mode == SERIES else None
+
     def patient(self) -> Patient:
+        if self._mode == SERIES:  # první vyšetření řady (plán s víc daty má `people`)
+            dated = sorted((v for v in self.series.visits() if v.date), key=lambda v: v.date)
+            first = dated[0] if dated else None
+            return Patient(
+                subject=self.series.subject_text(),
+                age=self.series.age_for(first) if first is not None else None,
+                sex=self.series.sex_code(),
+                date=first.date if first is not None else "",
+            )
         day = self.date.date()
         return Patient(
             subject=self.subject.text().strip(),
@@ -1084,11 +1298,13 @@ class AssessmentFromRecordingsDialog(QDialog):
         languages: list[str] | None = None,
         language: str = "cs",
         rate_lookup: Callable[[str], float | None] = lambda _slug: None,
+        patients_lookup: Callable[[], list[SeriesPatient]] = list,
+        run_protocol: Callable[[str], Protocol | None] = lambda _key: None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle(tr("Nové hodnocení z nahrávek"))
-        self.resize(980, 700)
+        self.setWindowTitle(tr("Nové hodnocení"))
+        self.resize(1040, 720)
         self.widget = AssessmentBuildWidget(
             protocols,
             assessments_dir,
@@ -1096,6 +1312,8 @@ class AssessmentFromRecordingsDialog(QDialog):
             languages=languages,
             language=language,
             rate_lookup=rate_lookup,
+            patients_lookup=patients_lookup,
+            run_protocol=run_protocol,
             parent=self,
         )
         layout = QVBoxLayout(self)

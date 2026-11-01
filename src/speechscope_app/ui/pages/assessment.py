@@ -76,6 +76,7 @@ from ...backend.longitudinal import (
     build_timeline,
     build_value_timeline,
     format_change,
+    mark_protocols,
 )
 from ...backend.norm_build import RUNNING
 from ...backend.norms import (
@@ -2134,6 +2135,7 @@ class AssessmentPage(QWidget):
         )
         evaluations = [(a, self._cached_evaluation(a, v, norm)) for a, v, _m in entries]
         timeline = build_timeline(evaluations)
+        mark_protocols(timeline.visits, _visit_protocols(entries))
         self._timeline = timeline
         self._trend_visit_ids = [v.assessment_id for v in timeline.visits]
         labels = _visit_labels([v.date for v in timeline.visits])
@@ -2160,7 +2162,7 @@ class AssessmentPage(QWidget):
                     labels,
                     list(row.scores),
                     list(row.bands),
-                    [v.outdated for v in timeline.visits],
+                    [v.flagged for v in timeline.visits],
                     headline,
                     BAND_COLORS.get(row.last_band, theme.TEXT),
                 )
@@ -2172,7 +2174,7 @@ class AssessmentPage(QWidget):
         )
         self.trend_grid.set_series(series)
         # mapa: řádek dimenze, buňka vyšetření barvou pásma, průběh a změna
-        dates = [format_visit_date(v.date) + (" ⚠" if v.outdated else "") for v in timeline.visits]
+        dates = [format_visit_date(v.date) + (" ⚠" if v.flagged else "") for v in timeline.visits]
         self.trend_map.set_rows(
             dates,
             [
@@ -2184,7 +2186,7 @@ class AssessmentPage(QWidget):
                         for s in row.scores
                     ],
                     list(row.bands),
-                    [v.outdated for v in timeline.visits],
+                    [v.flagged for v in timeline.visits],
                     format_change(row.change_total),
                     _change_side(row.change_total),
                     key=row.dimension.key,
@@ -2204,7 +2206,7 @@ class AssessmentPage(QWidget):
         headers = [tr("dimenze")]
         for visit in timeline.visits:
             text = format_visit_date(visit.date)
-            if visit.outdated:
+            if visit.flagged:
                 text += " \u26a0"
             headers.append(text)
         headers.append(tr("změna za období"))
@@ -2217,6 +2219,7 @@ class AssessmentPage(QWidget):
                     tip.append(tr("{age} let").format(age=int(round(visit.age))))
                 if visit.outdated:
                     tip.append(tr("jiná verze feature než norma, přepočítejte vyšetření"))
+                tip += _protocol_tips(visit)
                 item.setToolTip(" · ".join(tip))
         table.setRowCount(len(rows))
         for r, row in enumerate(rows):
@@ -2254,6 +2257,7 @@ class AssessmentPage(QWidget):
                     "jen orientační; přepočítejte ho na záložce Vyšetření (Přepočítat…)."
                 ).format(dates=", ".join(format_visit_date(v.date) for v in timeline.outdated))
             )
+        notes += _protocol_notes(timeline.protocol_changed)
         if timeline.skipped:
             notes.append(
                 tr("{n} vyšetření bez data se do vývoje nebere.").format(n=timeline.skipped)
@@ -2296,7 +2300,7 @@ class AssessmentPage(QWidget):
                     color=color,
                     dash="┈┈" if oldest else "╌╌",
                     date=format_visit_date(visits[index].date),
-                    warn=" ⚠" if visits[index].outdated else "",
+                    warn=" ⚠" if visits[index].flagged else "",
                 )
             )
         self.trend_spider.set_axes(axes, overlays)
@@ -2308,14 +2312,20 @@ class AssessmentPage(QWidget):
             self._dimensions,
             [(a, v.rows_by_task(), v.versions_by_task()) for a, v, _m in entries],
         )
+        mark_protocols(timeline.visits, _visit_protocols(entries))
+        for row in timeline.rows:
+            row.outdated = [
+                old or row.task in visit.protocol_changes
+                for old, visit in zip(row.outdated, timeline.visits, strict=True)
+            ]
         self._value_timeline = timeline
         self.grid_title.setText(tr("Vývoj po položkách"))
         self.grid_hint.setText(
             tr(
                 "Osa y v jednotkách feature podle hodnot pacienta, bez pásem normy. "
                 "▲ = posun k patologii podle směru položky, ▼ = od ní; položky s patologií "
-                "oběma směry mají jen číslo. Dutý bod = jiná verze feature než u posledního "
-                "vyšetření."
+                "oběma směry mají jen číslo. Dutý bod = jiná verze feature nebo jiný protokol "
+                "než u posledního vyšetření."
             )
         )
         self.table_title.setText(tr("Položky po vyšetřeních"))
@@ -2407,7 +2417,7 @@ class AssessmentPage(QWidget):
         )
         self.trend_grid.set_groups(groups)
         self.trend_map.set_rows(
-            [format_visit_date(v.date) + (" ⚠" if v.outdated else "") for v in timeline.visits],
+            [format_visit_date(v.date) + (" ⚠" if v.flagged else "") for v in timeline.visits],
             map_rows,
             scale="values",
             date_tips=[_visit_tip(v, norm=False) for v in timeline.visits],
@@ -2422,7 +2432,7 @@ class AssessmentPage(QWidget):
         headers = [tr("položka"), tr("jednotka")]
         for visit in timeline.visits:
             text = format_visit_date(visit.date)
-            if visit.outdated:
+            if visit.flagged:
                 text += " ⚠"
             headers.append(text)
         headers += [tr("změna za období"), tr("změna v %")]
@@ -2435,6 +2445,7 @@ class AssessmentPage(QWidget):
                     tip.append(tr("{age} let").format(age=int(round(visit.age))))
                 if visit.outdated:
                     tip.append(tr("některá feature jinou verzí než ostatní vyšetření"))
+                tip += _protocol_tips(visit)
                 item.setToolTip(" · ".join(tip))
         grouped = timeline.groups()
         table.setRowCount(sum(1 + len(rows) for _d, rows in grouped))
@@ -2507,6 +2518,7 @@ class AssessmentPage(QWidget):
                     "záložce Vyšetření (Přepočítat…)."
                 ).format(dates=", ".join(format_visit_date(v.date) for v in timeline.outdated))
             )
+        notes += _protocol_notes(timeline.protocol_changed)
         if timeline.skipped:
             notes.append(
                 tr("{n} vyšetření bez data se do vývoje nebere.").format(n=timeline.skipped)
@@ -3088,7 +3100,44 @@ def _visit_tip(visit, *, norm: bool) -> str:  # noqa: ANN001
             if norm
             else tr("některá feature jinou verzí než ostatní vyšetření")
         )
+    tip += _protocol_tips(visit)
     return " · ".join(tip)
+
+
+def _visit_protocols(entries: list[Entry]) -> dict[str, dict[str, str]]:
+    """Id hodnocení → úloha → protokol, kterým se počítala (z běhů jeho nahrávek)."""
+    out: dict[str, dict[str, str]] = {}
+    for assessment, visit, _missing in entries:
+        names = out.setdefault(assessment.id, {})
+        for rec in visit.recordings:
+            if rec.run.protocol_name:
+                names.setdefault(rec.task, rec.run.protocol_name)
+    return out
+
+
+def _protocol_tips(visit) -> list[str]:  # noqa: ANN001
+    """„Čtení: jiný protokol (X, naposledy Y)“ po úlohách."""
+    return [
+        tr("{task}: jiný protokol ({name}, naposledy {latest})").format(
+            task=tasks.label(task), name=name, latest=latest
+        )
+        for task, (name, latest) in visit.protocol_changes.items()
+    ]
+
+
+def _protocol_notes(visits: list) -> list[str]:
+    if not visits:
+        return []
+    changed = sorted({t for v in visits for t in v.protocol_changes}, key=tasks.task_order)
+    return [
+        tr(
+            "⚠ {dates}: {tasks} se počítaly jiným protokolem než u posledního vyšetření, "
+            "hodnoty nemusí být srovnatelné (protokoly v popisku data)."
+        ).format(
+            dates=", ".join(format_visit_date(v.date) for v in visits),
+            tasks=", ".join(tasks.label(t) for t in changed),
+        )
+    ]
 
 
 def _format_delta(delta: float, reference: float | None) -> str:
