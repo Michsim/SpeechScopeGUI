@@ -12,7 +12,7 @@ a přehled Vývoje, vypadají ale stejně.
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -31,6 +31,40 @@ from PySide6.QtWidgets import (
 from .. import theme
 
 ROW_HEIGHT = 40
+
+
+class ColorHeader(QHeaderView):
+    """Záhlaví, které u sloupce s barvou (`horizontalHeaderItem(c).setForeground`) kreslí
+    text tou barvou; styl tabulky (`QHeaderView::section { color }`) ji jinak přebije.
+    Porovnání skupin: „● A“ barvou skupiny jako v grafu (1. 11. 2026)."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(Qt.Orientation.Horizontal, parent)
+
+    def paintSection(self, painter: QPainter, rect, logical: int) -> None:  # noqa: ANN001, N802
+        model = self.model()
+        brush = (
+            model.headerData(logical, self.orientation(), Qt.ItemDataRole.ForegroundRole)
+            if model is not None
+            else None
+        )
+        painter.save()
+        super().paintSection(painter, rect, logical)
+        painter.restore()
+        if not isinstance(brush, (QBrush, QColor)):
+            return
+        color = brush.color() if isinstance(brush, QBrush) else brush
+        text = str(model.headerData(logical, self.orientation(), Qt.ItemDataRole.DisplayRole) or "")
+        painter.save()
+        painter.fillRect(rect.adjusted(0, 0, 0, -1), QColor(theme.NEUTRAL_SOFT))
+        font = QFont(self.font())
+        font.setWeight(QFont.Weight.DemiBold)
+        painter.setFont(font)
+        painter.setPen(color)
+        align = model.headerData(logical, self.orientation(), Qt.ItemDataRole.TextAlignmentRole)
+        flags = int(align) if align is not None else int(self.defaultAlignment().value)
+        painter.drawText(rect.adjusted(8, 0, -8, -1), flags, text)
+        painter.restore()
 
 
 def style_table(

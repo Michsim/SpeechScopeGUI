@@ -44,6 +44,7 @@ from .. import theme
 from ..feature_detail import split_unit
 from ..recording_detail import column_index
 from ..widgets.clean_table import (
+    ColorHeader,
     card,
     cell,
     fit_height,
@@ -187,7 +188,10 @@ class BoxPlot(QWidget):
     def paintEvent(self, event) -> None:  # noqa: ANN001, N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        left, right = 40, self.width() - 86  # vpravo místo na „n 21 · 0.42“
+        left, right = (
+            40,
+            self.width() - 46,
+        )  # vpravo místo na „n 21“ (medián je v tabulce pod grafem)
         lo, hi, ticks = self.axis()
         span = (hi - lo) or 1.0
 
@@ -213,7 +217,7 @@ class BoxPlot(QWidget):
             p.drawText(
                 QRectF(right + 6, y - 10, self.width() - right - 6, 20),
                 Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
-                f"n {len(vals)} · {fmt(med)}",
+                f"n {len(vals)}",
             )
             if len(vals) < 2:
                 continue
@@ -350,6 +354,8 @@ class ComparePage(QWidget):
         body = QHBoxLayout()
         body.setSpacing(12)
         self.table = QTableWidget()
+        # záhlaví skupin barvou skupiny jako v grafu (styl tabulky barvu jinak přebije)
+        self.table.setHorizontalHeader(ColorHeader(self.table))
         style_table(self.table, [tr("feature")], selectable=True)
         self.table.currentCellChanged.connect(lambda r, _c, _pr, _pc: self._row_changed(r))
         body.addWidget(card(self.table), 1)
@@ -369,8 +375,9 @@ class ComparePage(QWidget):
         return box
 
     def _build_panel(self) -> QWidget:
-        """Panel vybrané feature (mockup část 4): krabice s n a mediánem, test, efekt,
-        popis skupin v řádcích, normalita štítky, u víc skupin párová porovnání."""
+        """Panel vybrané feature (mockup část 4): krabice s n (medián je v tabulce
+        skupin pod grafem), test, efekt, popis skupin v řádcích, normalita štítky, u víc
+        skupin párová porovnání."""
         panel = QFrame()
         panel.setObjectName("card")
         panel.setFixedWidth(PANEL_WIDTH)
