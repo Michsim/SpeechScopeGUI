@@ -431,6 +431,8 @@ class ResultsPage(QWidget):
         self.task_shown.emit(run)
 
     def _group_title(self, group: RunGroup) -> str:
+        if group.plan_type:  # karta plánu s víc vyšetřeními: „P-017 · Vývoj v čase“
+            return group.display_name
         when = group.started.strftime("%d. %m. %Y") if group.started else ""
         return tr("Hodnocení {subject}, {date}").format(subject=group.display_name, date=when)
 

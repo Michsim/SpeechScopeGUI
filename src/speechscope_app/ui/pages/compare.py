@@ -14,7 +14,7 @@ import math
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -65,6 +65,7 @@ GROUP_COLORS = ("#2563eb", "#d97706", "#7c3aed", "#0d9488", "#db2777", "#4b5563"
 GROUP_SOFT = ("#e8efff", "#fff4e0", "#f3edff", "#e6f7f5", "#fdeef5", "#f1f2f4")
 GROUP_ROLES = ("accent", "warn", "neutral", "neutral", "neutral", "neutral")
 PANEL_WIDTH = 360
+FEATURE_MIN, FEATURE_MAX = 160, 320  # sloupec názvu feature v tabulce porovnání
 TEXT_ROLE = Qt.ItemDataRole.UserRole + 1  # text buňky, kterou kreslí popisek
 SHORT_MAX = 10  # delší názvy skupin se v tabulce a grafu nahradí písmeny A, B, C
 CSV_FILTER = "CSV (*.csv)"
@@ -457,6 +458,11 @@ class ComparePage(QWidget):
         self.table.setHorizontalHeader(ColorHeader(self.table))
         style_table(self.table, [tr("feature")], selectable=True)
         self.table.currentCellChanged.connect(lambda r, _c, _pr, _pc: self._row_changed(r))
+        self.table.viewport().installEventFilter(self)  # šířka názvu podle okna
+        # volné místo za posledním sloupcem: záhlaví tam stejně šedé jako sloupce
+        self.table.setStyleSheet(
+            self.table.styleSheet() + f"QHeaderView {{ background: {theme.NEUTRAL_SOFT}; }}"
+        )
         self.table.horizontalHeader().setSectionsClickable(True)
         self.table.horizontalHeader().sectionClicked.connect(self._header_clicked)
         body.addWidget(card(self.table), 1)
@@ -1091,14 +1097,41 @@ class ComparePage(QWidget):
             if select_row < 0 or r.column == self._current:
                 select_row = row
         table.blockSignals(False)
-        # ostatní sloupce celé podle obsahu, název feature bere zbylé místo a zkrátí se
         fit_widget_column(table, 1 + n_groups)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._fit_feature_column()
         if select_row >= 0:
             table.selectRow(select_row)
             self._row_changed(select_row)
         else:
             self._show_feature(None)
+
+    def _fit_feature_column(self) -> None:
+        """Název feature podle obsahu, nejvýš `FEATURE_MAX`, čísla hned za ním a volné místo
+        až za posledním sloupcem (1. 11. 2026: dřív bral název všechno volné místo jako strom
+        dimenzí). V úzkém okně se napřed zúží název, až na `FEATURE_MIN`."""
+        table = self.table
+        header = table.horizontalHeader()
+        if table.columnCount() == 0:
+            return
+        widths = [
+            w.sizeHint().width()
+            for r in range(table.rowCount())
+            if table.columnSpan(r, 0) == 1 and (w := table.cellWidget(r, 0)) is not None
+        ]
+        label = table.horizontalHeaderItem(0)
+        head = header.fontMetrics().horizontalAdvance(label.text()) + 24 if label else 0
+        others = sum(header.sectionSize(c) for c in range(1, table.columnCount()))
+        room = table.viewport().width() - others - 4
+        content = max([head, *(w + 16 for w in widths)])
+        width = max(FEATURE_MIN, min(content, FEATURE_MAX, room if room > 0 else FEATURE_MAX))
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(False)
+        header.resizeSection(0, width)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: ANN001, N802
+        if obj is self.table.viewport() and event.type() == QEvent.Type.Resize:
+            self._fit_feature_column()
+        return super().eventFilter(obj, event)
 
     @staticmethod
     def _effect_text(r: cmp.FeatureResult) -> str:

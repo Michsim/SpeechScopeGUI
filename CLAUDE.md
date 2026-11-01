@@ -578,7 +578,9 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   rok narození → věk u každého vyšetření `age_for`; mřížka datum × úloha, vyšetření z katalogu
   šedě „spočítáno“, nová s polem data (prázdné žlutě), věkem a Vybrat…/Změnit… na úlohu, ✕;
   „Načíst z manifestu…“ jen předvyplní, manifest se sloupcem `task` ve složce doplní ostatní
-  prázdné úlohy téhož vyšetření; `problems()` hlídá datum i duplicitu proti katalogu; dávka na
+  prázdné úlohy téhož vyšetření; `problems()` hlídá datum a dva nové řádky se stejným datem (slily by se); datum, které pacient už
+  v katalogu má, jen žlutě varuje (`same_day_dates`, `date_warning`, totéž u Jednoho vyšetření
+  `_update_date_warning`; 1. 11. 2026, vznikne druhé vyšetření téhož dne); dávka na
   úlohu (od 1. 11. 2026 jedna pro všechna data, modely se načtou jednou), rok narození do katalogu `Catalog.set_birth_year` přes
   `MainWindow._remember_birth_year`, pacienti z `_series_patients`), **Víc pacientů** (`MULTI`,
   jen s manifestem, dva kroky jako dřív, víc pacientů se už nedetekuje samo). Další vyšetření
@@ -614,6 +616,16 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   (ve Vývoji „všechna vyšetření“; `norm_recompute_ids`, `recompute_norm_requested` →
   `MainWindow.recompute_by_norm` → `recompute_assessment(protocols=…, norm_language=…, norm=…)` →
   `plan_from_assessment` s protokoly normy pro její úlohy).
+- **Poznámka k vyšetření** (1. 11. 2026): vyhrazený sloupec `meta.NOTE` = `note` (aliasy poznámka,
+  pozn, komentář; pozor, knihovna má vlastní `notes`), `Assessment.note` (katalog `assessments.note`),
+  `Patient.note`, `PersonRow.note`; vyšetření = pacient + datum + poznámka (`finish_plan`, `visits()`,
+  tabulka vyšetření Víc pacientů má sloupec poznámka, Vývoj v čase sloupec `NOTE_COL` se
+  `SeriesVisit.label` a nabídkou dřív použitých `note_suggestions`, Jedno vyšetření pole `visit_note`,
+  Upravit… pole Poznámka); dvě vyšetření téhož dne s různou poznámkou jsou dvě hodnocení (zákaz
+  stejného data ve Vývoji jen při stejné poznámce, varování proti katalogu podle data + poznámky).
+  Manifest dávky má sloupec `note` jen když nějaká poznámka je. Pacienti: řada vyšetření
+  „14. 10. 2026 · před medikací“, podtitul hlavičky, Vývoj v čase popisky bodů a záhlaví
+  (`VisitPoint.note`, `_point_text`, `_visit_labels(dates, notes)`).
 - **Průvodci zjednodušení** (31. 10. 2026, mockup https://claude.ai/artifact/GX5BLKd1EcRkrvUTvvvGrg,
   `docs/mockups/pruvodci-zjednoduseni/` mimo git): Hodnocení z nahrávek ve **dvou krocích**
   (31. 10. 2026 večer, mockup https://claude.ai/artifact/LqdUbs3QgkT4YPuHdsKN6z,
@@ -663,7 +675,11 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   pro všechny pacienty a data (každá dávka = nový proces knihovny a nové načtení Whisperu
   a Stanzy; dřív úloha × datum, `TaskPlan.visit` a klíč `úloha@datum` zůstávají pro starší plány), `AssessmentPlan.people`
   (nahrávka → `PersonRow`) jde do manifestu dávky, běhy zůstávají mezi
-  analýzami (`Job.plan_group=False`, v `run.json` bez `assessment`), po
+  analýzami (`Job.plan_group=False`; **od 1. 11. 2026 pod Hodnocení**: `run.json` má `assessment` = id
+  plánu, `plan_type` series | multi a `patients`, `group_runs` z nich složí kartu plánu
+  `RunGroup.plan_type` „P-017 · Vývoj v čase“ / „Hodnocení · n pacientů“, složky se neslučují
+  (`_merge_finished_groups` je přeskočí), Otevřít v Hodnocení: Vývoj v čase = pacient na záložce
+  Vývoj v čase, Víc pacientů = přehled pacientů; starší běhy zůstávají mezi analýzami), po
   poslední dávce `finish_plan` vrátí seznam vyšetření po (pacient, datum),
   řádek bez data se spočítá, ale nezaloží. „Uložit šablonu manifestu…“
   (`write_manifest_template`) zapíše CSV se seznamem nahrávek, kam uživatel
@@ -897,6 +913,9 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `group_columns`; Nastavení ▾ má jen metodu, po osobě, log, nepoužitelné); v Hodnotách tlačítko
   Porovnat skupiny… (`ResultsPage.groups_btn`, `_update_groups_btn`, tooltip „group: PD 12 · HC 10“,
   `compare_groups_requested` → `RunsPage._compare_groups` → `open_compare([běh])`).
+- Tabulka porovnání (1. 11. 2026): sloupec feature podle obsahu nejvýš `FEATURE_MAX` = 320 px (v úzkém
+  okně až `FEATURE_MIN`, přepočet při změně velikosti přes eventFilter na viewport), čísla hned za ním,
+  volné místo za posledním sloupcem (`_fit_feature_column`; dřív Stretch jako strom dimenzí).
 
 ## Kontrola kvality nahrávek (31. 10. 2026)
 - **Knihovna měří, GUI soudí.** Knihovna má od 31. 10. 2026 feature

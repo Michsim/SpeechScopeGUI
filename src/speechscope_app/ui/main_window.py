@@ -130,6 +130,8 @@ class Job:
     # běhy dávky patří pod kartu hodnocení v historii (jeden pacient); dávka s víc
     # pacienty zůstává mezi analýzami, vyšetření na ni jen ukazují
     plan_group: bool = True
+    plan_type: str = ""  # series | multi: hodnocení s víc vyšetřeními (karta plánu v historii)
+    plan_patients: int = 0
 
     def title(self) -> str:
         name = self.label or self.proto.display_name
@@ -464,9 +466,33 @@ class MainWindow(QMainWindow):
         self.settings.eval_same_sex = same_sex
 
     def open_assessment(self, assessment_id: str) -> None:
-        """Z Výsledků (Otevřít v Hodnocení): stránka Hodnocení s tím hodnocením."""
+        """Z Výsledků (Otevřít v Hodnocení): stránka Hodnocení s tím hodnocením.
+
+        Karta plánu s víc vyšetřeními (`RunGroup.plan_type`): Vývoj v čase otevře
+        pacienta na záložce Vývoj v čase, Víc pacientů přehled pacientů."""
         self.nav.setCurrentRow(PAGE_ASSESSMENT)
-        self.assessment_page.refresh(select=assessment_id)
+        group = next(
+            (
+                e
+                for e in group_runs(list_runs(self.settings.work_root))
+                if isinstance(e, RunGroup) and e.key == assessment_id and e.plan_type
+            ),
+            None,
+        )
+        if group is None:
+            self.assessment_page.refresh(select=assessment_id)
+            return
+        page = self.assessment_page
+        if group.plan_type == "series" and group.patient:
+            key = patient_key(group.patient)
+            mine = [a for a in self.catalog.assessments() if patient_key(a.subject) == key]
+            if mine:
+                latest = max(mine, key=lambda a: (a.date, a.created))
+                page.refresh(select=latest.id)
+                page.set_view("trend")
+                return
+        page.refresh()
+        page.show_overview()
 
     def open_run(self, run_dir: Path) -> bool:
         """Z Hodnocení (Otevřít běh ve Výsledcích): karta běhu, u vyšetření jeho úloha."""
@@ -1036,9 +1062,27 @@ class MainWindow(QMainWindow):
             plan_kind=kind,
             plan=plan.key,
             plan_task=task.key,
-            subject=plan.patient.subject if kind == "assessment" and not plan.multi else "",
+            subject=self._plan_subject(kind, plan),
             plan_group=not getattr(plan, "multi", False),
+            plan_type=self._plan_type(kind, plan),
+            plan_patients=len(plan.subjects()) if kind == "assessment" and plan.multi else 0,
         )
+
+    @staticmethod
+    def _plan_type(kind: str, plan) -> str:  # noqa: ANN001
+        """Hodnocení s víc vyšetřeními: Vývoj v čase (jeden pacient), nebo Víc pacientů."""
+        if kind != "assessment" or not getattr(plan, "multi", False):
+            return ""
+        return "series" if len(plan.subjects()) == 1 else "multi"
+
+    @staticmethod
+    def _plan_subject(kind: str, plan) -> str:  # noqa: ANN001
+        if kind != "assessment":
+            return ""
+        if not plan.multi:
+            return plan.patient.subject
+        subjects = plan.subjects()
+        return subjects[0] if len(subjects) == 1 else ""
 
     def _submit_all(self, jobs: list[Job]) -> None:
         """Víc dávek naráz (nová norma): jedna otázka na frontu, ne za každou dávku."""
@@ -1073,13 +1117,20 @@ class MainWindow(QMainWindow):
         verze knihovny a feature, kterými se počítalo."""
         running = getattr(self, "_running_plan", None)
         assessment = ""
-        if running and running[0] == "assessment" and getattr(self, "_running_group", True):
+        plan_type = ""
+        if running and running[0] == "assessment":
+            # i dávka s víc vyšetřeními patří pod Hodnocení (1. 11. 2026): `assessment` je
+            # pak id plánu a `plan_type` říká, že karta je plán, ne jedno vyšetření
             assessment = Path(running[1]).name.removesuffix(PLAN_SUFFIX)
+            if not getattr(self, "_running_group", True):
+                plan_type = getattr(self, "_running_plan_type", "") or "multi"
         task = task_of_key(str(running[2])) if running else ""  # klíč dávky bez data a pořadí
         return {
             "norm": self._running_norm_text(),
             "assessment": assessment,
             "patient": getattr(self, "_running_subject", "") if assessment else "",
+            "plan_type": plan_type,
+            "patients": getattr(self, "_running_patients", 0) if plan_type == "multi" else 0,
             # dávka vlastní úlohy: knihovna zná jen základní úlohu, historie a index vlastní
             "task": task if tasks.is_custom(task) else "",
             "library_version": self._library_version_text(),
@@ -1352,6 +1403,8 @@ class MainWindow(QMainWindow):
         for entry in group_runs(list_runs(self.settings.work_root)):
             if not isinstance(entry, RunGroup) or entry.dir is not None:
                 continue
+            if entry.plan_type:
+                continue  # běh patří k víc vyšetřením: zůstane plochý, sdruží ho jen karta
             if only is not None and entry.key != only:
                 continue
             plan_path = self.settings.assessments_dir() / f"{entry.key}{PLAN_SUFFIX}"
@@ -1780,6 +1833,8 @@ class MainWindow(QMainWindow):
             (job.plan_kind, job.plan, job.plan_task or proto.task) if job.plan else None
         )
         self._running_group = job.plan_group
+        self._running_plan_type = job.plan_type
+        self._running_patients = job.plan_patients
         dir_slug = slugify(job.label) if job.label.strip() else slug
         run_dir = unique_run_dir(self.settings.work_root, f"{stamp}_{dir_slug}{suffix}")
         run_dir.mkdir(parents=True, exist_ok=True)

@@ -36,6 +36,7 @@ class VisitPoint:
     date: str  # ISO
     age: float | None = None
     outdated: bool = False  # některá položka s jinou verzí feature než norma
+    note: str = ""  # poznámka k vyšetření („před medikací“), v popiscích u data
     # úloha → (protokol tohoto vyšetření, protokol posledního vyšetření s úlohou)
     protocol_changes: dict[str, tuple[str, str]] = field(default_factory=dict)
 
@@ -131,7 +132,9 @@ def mark_protocols(visits: list[VisitPoint], protocols: dict[str, dict[str, str]
 def build_timeline(entries: list[tuple[Assessment, Evaluation]]) -> Timeline:
     """Řada vyšetření jednoho pacienta (v libovolném pořadí) → tabulka dimenze × vyšetření."""
     ordered, skipped = _sorted_entries(entries)
-    visits = [VisitPoint(a.id, d, a.age, bool(ev.version_changes)) for d, a, ev in ordered]
+    visits = [
+        VisitPoint(a.id, d, a.age, bool(ev.version_changes), note=a.note) for d, a, ev in ordered
+    ]
     dimensions: list[Dimension] = []
     for _d, _a, ev in ordered:
         for result in ev.results:
@@ -285,7 +288,7 @@ def build_value_timeline(
                 outdated = [bool(ver and reference and ver != reference) for ver in vers]
                 rows_out.append(ValueRow(dim, item, task, series, outdated))
     visits = [
-        VisitPoint(a.id, d, a.age, any(r.outdated[i] for r in rows_out))
+        VisitPoint(a.id, d, a.age, any(r.outdated[i] for r in rows_out), note=a.note)
         for i, (d, a, _p) in enumerate(ordered)
     ]
     return ValueTimeline(visits, rows_out, skipped)

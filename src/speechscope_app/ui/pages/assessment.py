@@ -1846,6 +1846,8 @@ class AssessmentPage(QWidget):
         current = self._shown[row][0] if 0 <= row < len(self._shown) else None
         for index, (assessment, _visit, _missing) in enumerate(entries):
             text = format_visit_date(assessment.date) if assessment.date else tr("bez data")
+            if assessment.note:  # poznámka odliší dvě vyšetření téhož dne
+                text += f" · {assessment.note}"
             btn = QPushButton(text)
             btn.setToolTip(visit_subtitle(_visit))
             chosen = current is not None and assessment.id == current.id
@@ -2001,7 +2003,11 @@ class AssessmentPage(QWidget):
             self._show_empty_state()
             return
         self.header.title.setText(visit.subject)
-        self.header.subtitle.setText(visit_subtitle(visit))
+        current = self.current_assessment()
+        subtitle = visit_subtitle(visit)
+        if current is not None and current.note:
+            subtitle += f" · {current.note}"
+        self.header.subtitle.setText(subtitle)
         self._fill_recordings(visit)
         self._show_prefs(visit)
         self.edit_btn.setEnabled(True)
@@ -2266,7 +2272,7 @@ class AssessmentPage(QWidget):
         mark_protocols(timeline.visits, _visit_protocols(entries))
         self._timeline = timeline
         self._trend_visit_ids = [v.assessment_id for v in timeline.visits]
-        labels = _visit_labels([v.date for v in timeline.visits])
+        labels = _visit_labels([v.date for v in timeline.visits], [v.note for v in timeline.visits])
         series: list[TrendSeries] = []
         rows = timeline.shown_rows()
         # graf mají zaškrtnuté dimenze; bez volby ty hraniční nebo mimo normu naposledy
@@ -2302,7 +2308,7 @@ class AssessmentPage(QWidget):
         )
         self.trend_grid.set_series(series)
         # mapa: řádek dimenze, buňka vyšetření barvou pásma, průběh a změna
-        dates = [format_visit_date(v.date) + (" ⚠" if v.flagged else "") for v in timeline.visits]
+        dates = [_point_text(v) + (" ⚠" if v.flagged else "") for v in timeline.visits]
         self.trend_map.set_rows(
             dates,
             [
@@ -2333,7 +2339,7 @@ class AssessmentPage(QWidget):
         table.setColumnCount(len(timeline.visits) + 2)
         headers = [tr("dimenze")]
         for visit in timeline.visits:
-            text = format_visit_date(visit.date)
+            text = _point_text(visit)
             if visit.flagged:
                 text += " \u26a0"
             headers.append(text)
@@ -2383,7 +2389,7 @@ class AssessmentPage(QWidget):
                 tr(
                     "⚠ {dates}: vyšetření počítané jinou verzí feature než norma, hodnoty jsou "
                     "jen orientační; přepočítejte ho na záložce Vyšetření (Přepočítat…)."
-                ).format(dates=", ".join(format_visit_date(v.date) for v in timeline.outdated))
+                ).format(dates=", ".join(_point_text(v) for v in timeline.outdated))
             )
         notes += _protocol_notes(timeline.protocol_changed)
         if timeline.skipped:
@@ -2406,7 +2412,7 @@ class AssessmentPage(QWidget):
         overlays: list[Overlay] = []
         legend = [
             tr('<span style="color:{color}">━━</span> {date} (poslední, body barvou pásma)').format(
-                color=theme.TEXT, date=format_visit_date(visits[-1].date)
+                color=theme.TEXT, date=_point_text(visits[-1])
             )
         ]
         older = list(range(len(visits) - 1))
@@ -2415,7 +2421,7 @@ class AssessmentPage(QWidget):
             color = "#0284c7" if oldest else "#1d4ed8"
             overlays.append(
                 Overlay(
-                    format_visit_date(visits[index].date),
+                    _point_text(visits[index]),
                     [r.scores[index] for r in kept],
                     color,
                     (3.0, 3.0) if oldest else (8.0, 4.0),
@@ -2427,7 +2433,7 @@ class AssessmentPage(QWidget):
                 '<span style="color:{color}">{dash}</span> {date}{warn}'.format(
                     color=color,
                     dash="┈┈" if oldest else "╌╌",
-                    date=format_visit_date(visits[index].date),
+                    date=_point_text(visits[index]),
                     warn=" ⚠" if visits[index].flagged else "",
                 )
             )
@@ -2465,7 +2471,7 @@ class AssessmentPage(QWidget):
             )
         )
         self._trend_visit_ids = [v.assessment_id for v in timeline.visits]
-        labels = _visit_labels([v.date for v in timeline.visits])
+        labels = _visit_labels([v.date for v in timeline.visits], [v.note for v in timeline.visits])
         groups: list[tuple[str, str, list[TrendSeries]]] = []
         map_rows: list[MapRow] = []
         # graf mají zaškrtnuté položky; bez volby dvě s největší změnou v procentech
@@ -2545,7 +2551,7 @@ class AssessmentPage(QWidget):
         )
         self.trend_grid.set_groups(groups)
         self.trend_map.set_rows(
-            [format_visit_date(v.date) + (" ⚠" if v.flagged else "") for v in timeline.visits],
+            [_point_text(v) + (" ⚠" if v.flagged else "") for v in timeline.visits],
             map_rows,
             scale="values",
             date_tips=[_visit_tip(v, norm=False) for v in timeline.visits],
@@ -2559,7 +2565,7 @@ class AssessmentPage(QWidget):
         table.setColumnCount(n + 4)
         headers = [tr("položka"), tr("jednotka")]
         for visit in timeline.visits:
-            text = format_visit_date(visit.date)
+            text = _point_text(visit)
             if visit.flagged:
                 text += " ⚠"
             headers.append(text)
@@ -2644,7 +2650,7 @@ class AssessmentPage(QWidget):
                     "⚠ {dates}: některá feature se počítala jinou verzí než u ostatních "
                     "vyšetření, její hodnoty nejsou srovnatelné; přepočítejte vyšetření na "
                     "záložce Vyšetření (Přepočítat…)."
-                ).format(dates=", ".join(format_visit_date(v.date) for v in timeline.outdated))
+                ).format(dates=", ".join(_point_text(v) for v in timeline.outdated))
             )
         notes += _protocol_notes(timeline.protocol_changed)
         if timeline.skipped:
@@ -3213,9 +3219,19 @@ def _change_side(delta: float | None) -> int:
     return 1 if delta > 0 else -1
 
 
-def _visit_labels(dates: list[str]) -> list[str]:
-    """Popisky pod body grafů: celé datum do čtyř vyšetření, pak „10/25“."""
-    return [format_visit_date(d) if len(dates) <= 4 else _short_date(d) for d in dates]
+def _visit_labels(dates: list[str], notes: list[str] | None = None) -> list[str]:
+    """Popisky pod body grafů: celé datum do čtyř vyšetření, pak „10/25“; s poznámkou."""
+    notes = notes or [""] * len(dates)
+    return [
+        (format_visit_date(d) if len(dates) <= 4 else _short_date(d)) + (f" · {n}" if n else "")
+        for d, n in zip(dates, notes, strict=True)
+    ]
+
+
+def _point_text(visit) -> str:  # noqa: ANN001
+    """Datum vyšetření ve Vývoji v čase s poznámkou („14. 10. 2026 · před medikací“)."""
+    text = format_visit_date(visit.date)
+    return f"{text} · {visit.note}" if getattr(visit, "note", "") else text
 
 
 def _visit_tip(visit, *, norm: bool) -> str:  # noqa: ANN001
@@ -3262,7 +3278,7 @@ def _protocol_notes(visits: list) -> list[str]:
             "⚠ {dates}: {tasks} se počítaly jiným protokolem než u posledního vyšetření, "
             "hodnoty nemusí být srovnatelné (protokoly v popisku data)."
         ).format(
-            dates=", ".join(format_visit_date(v.date) for v in visits),
+            dates=", ".join(_point_text(v) for v in visits),
             tasks=", ".join(tasks.label(t) for t in changed),
         )
     ]

@@ -56,6 +56,7 @@ class PersonRow:
     visit: str = ""  # ISO; prázdné = nahrávka se spočítá, ale do vyšetření se nezaloží
     age: float | None = None
     sex: str = ""
+    note: str = ""  # poznámka k vyšetření („před medikací“); součást klíče vyšetření
 
 
 @dataclass(slots=True)
@@ -64,6 +65,7 @@ class Patient:
     age: float | None = None
     sex: str = ""
     date: str = ""  # ISO
+    note: str = ""  # poznámka k vyšetření (1. 11. 2026)
 
 
 @dataclass(slots=True)
@@ -94,7 +96,9 @@ class AssessmentPlan(PlanState):
         """Kolik vyšetření (pacient a datum) z plánu vznikne."""
         if not self.multi:
             return 1
-        return len({(p.subject, p.visit) for p in self.people.values() if p.subject and p.visit})
+        return len(
+            {(p.subject, p.visit, p.note) for p in self.people.values() if p.subject and p.visit}
+        )
 
     @property
     def done(self) -> int:
@@ -130,6 +134,9 @@ class AssessmentPlan(PlanState):
         """Manifest dávky: pacient, věk, pohlaví a datum pro každou nahrávku."""
         manifest = Manifest(path=self.path.with_name(f"{self.id}-{task.key}.csv"))
         manifest.columns = [meta.SUBJECT, meta.AGE, meta.SEX, meta.VISIT]
+        # poznámka jen když nějaká je (jinak by každá tabulka měla prázdný sloupec)
+        if self.patient.note or any(person.note for person in self.people.values()):
+            manifest.columns.append(meta.NOTE)
         p = self.patient
         for rec in task.inputs:
             person = self.people.get(_key(rec))
@@ -141,6 +148,8 @@ class AssessmentPlan(PlanState):
                 meta.SEX: person.sex if person else p.sex,
                 meta.VISIT: person.visit if person else p.date,
             }
+            if meta.NOTE in manifest.columns:
+                manifest.rows[_key(rec)][meta.NOTE] = person.note if person else p.note
         return manifest
 
     # --- soubor -------------------------------------------------------------
@@ -150,7 +159,13 @@ class AssessmentPlan(PlanState):
         return {
             "format": PLAN_VERSION,
             "id": self.id,
-            "patient": {"subject": p.subject, "age": p.age, "sex": p.sex, "date": p.date},
+            "patient": {
+                "subject": p.subject,
+                "age": p.age,
+                "sex": p.sex,
+                "date": p.date,
+                "note": p.note,
+            },
             "language": self.language,
             "created": self.created,
             "norm": self.norm,
@@ -172,6 +187,7 @@ class AssessmentPlan(PlanState):
                     "visit": person.visit,
                     "age": person.age,
                     "sex": person.sex,
+                    "note": person.note,
                 }
                 for path, person in self.people.items()
             ],
@@ -197,6 +213,7 @@ class AssessmentPlan(PlanState):
             age=meta.parse_age(p.get("age")),
             sex=meta.parse_sex(p.get("sex")) if p.get("sex") else "",
             date=str(p.get("date") or ""),
+            note=str(p.get("note") or ""),
         )
         tasks = [
             TaskPlan(
@@ -215,6 +232,7 @@ class AssessmentPlan(PlanState):
                 visit=str(row.get("visit") or ""),
                 age=meta.parse_age(row.get("age")),
                 sex=meta.parse_sex(row.get("sex")) if row.get("sex") else "",
+                note=str(row.get("note") or ""),
             )
             for row in data.get("people", [])
             if row.get("path")
@@ -272,6 +290,7 @@ def people_from_scans(scans: dict[str, FolderScan]) -> dict[Path, PersonRow]:
                 visit=normalize_visit(row.get(meta.VISIT, "")),
                 age=meta.parse_age(row.get(meta.AGE, "")),
                 sex=meta.parse_sex(row.get(meta.SEX, "")) if row.get(meta.SEX) else "",
+                note=row.get(meta.NOTE, "").strip(),
             )
     return people
 
@@ -385,7 +404,9 @@ def plan_from_assessment(
         problems.append(tr("hodnocení nemá žádnou nahrávku"))
     if problems:
         return None, problems
-    patient = Patient(assessment.subject, assessment.age, assessment.sex, assessment.date)
+    patient = Patient(
+        assessment.subject, assessment.age, assessment.sex, assessment.date, assessment.note
+    )
     path = folder / f"{assessment.id}{PLAN_SUFFIX}"
     plan = AssessmentPlan(path, assessment.id, patient, language, plan_tasks)
     plan.norm = assessment.norm if norm is None else norm
@@ -399,8 +420,8 @@ def finish_plan(plan: AssessmentPlan, store: AssessmentStore) -> list[Assessment
     (manifest dávky je tam zapsal). Jeden pacient a jedno datum = jedno
     hodnocení s id plánu jako dřív; víc pacientů nebo dat = hodnocení na každou
     dvojici, řádek bez data se vynechá."""
-    groups: dict[tuple[str, str], list[RecordingRef]] = {}
-    details: dict[tuple[str, str], tuple[float | None, str]] = {}
+    groups: dict[tuple[str, str, str], list[RecordingRef]] = {}
+    details: dict[tuple[str, str, str], tuple[float | None, str]] = {}
     for task in plan.tasks:
         table = task.table
         if table is None or task.run_dir is None:
@@ -419,7 +440,8 @@ def finish_plan(plan: AssessmentPlan, store: AssessmentStore) -> list[Assessment
                 visit = normalize_visit(str(record.get(meta.VISIT) or ""))
                 if subject in ("", "nan") or not visit:
                     continue  # bez pacienta nebo data: spočítané, ale žádné vyšetření
-                group = (subject, visit)
+                note = str(record.get(meta.NOTE) or "").strip()
+                group = (subject, visit, "" if note == "nan" else note)
                 if group not in details:
                     sex = str(record.get(meta.SEX) or "")
                     details[group] = (
@@ -427,20 +449,21 @@ def finish_plan(plan: AssessmentPlan, store: AssessmentStore) -> list[Assessment
                         meta.parse_sex(sex) if sex not in ("", "nan") else "",
                     )
             else:
-                group = (plan.patient.subject, plan.patient.date)
+                group = (plan.patient.subject, plan.patient.date, plan.patient.note)
             groups.setdefault(group, []).append(
                 RecordingRef(task.run_dir.name, row, file, task_name)
             )
     if not groups:
         raise ValueError(tr("Žádná dávka hodnocení nemá tabulku výsledků."))
     out: list[Assessment] = []
-    for (subject, visit), refs in groups.items():
+    for (subject, visit, note), refs in groups.items():
         if plan.multi:
-            age, sex = details[(subject, visit)]
+            age, sex = details[(subject, visit, note)]
             assessment = Assessment(new_id(), subject, age, sex, visit, refs)
         else:
             p = plan.patient
             assessment = Assessment(plan.id, p.subject, p.age, p.sex, p.date, refs)
+        assessment.note = note
         assessment.norm = plan.norm
         store.save(assessment)
         out.append(assessment)

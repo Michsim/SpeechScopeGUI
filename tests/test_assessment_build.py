@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from PySide6.QtCore import QDate
 from pytestqt.qtbot import QtBot
 
 from speechscope_app.backend.assessment_build import (
@@ -122,6 +123,37 @@ def test_plan_roundtrip_manifest_and_finish(tmp_path: Path) -> None:
     assert pending_plans(tmp_path / "assessments") == []
     with pytest.raises(ValueError):
         finish_plan(make_plan(tmp_path, folder), store)  # bez tabulek
+
+
+def test_note_splits_two_visits_on_the_same_day(tmp_path: Path) -> None:
+    """Poznámka (před / po medikaci) odliší dvě vyšetření téhož dne: dvě hodnocení."""
+    folder = make_folder(tmp_path / "fon", {"": ["a.wav", "b.wav"]})
+    plan = make_plan(tmp_path, folder)
+    plan.people = {
+        (folder / "a.wav").resolve(): PersonRow("P1", "2026-10-14", 64.0, "m", "před medikací"),
+        (folder / "b.wav").resolve(): PersonRow("P1", "2026-10-14", 64.0, "m", "po medikaci"),
+    }
+    assert plan.visits() == 2
+    manifest = plan.manifest_for(plan.tasks[0])
+    assert manifest.meta_for(folder / "b.wav")["note"] == "po medikaci"
+    loaded = AssessmentPlan.load(plan.save())
+    assert loaded.people[(folder / "a.wav").resolve()].note == "před medikací"
+    run = tmp_path / "work" / "2026-10-14_10-00-00_fon"
+    run.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {"file": "a.wav", "task": "phonation", "subject": "P1", "visit": "2026-10-14",
+             "note": "před medikací"},
+            {"file": "b.wav", "task": "phonation", "subject": "P1", "visit": "2026-10-14",
+             "note": "po medikaci"},
+        ]
+    ).to_csv(run / "features.csv", index=False)  # fmt: skip
+    loaded.set_status("phonation", OK, run)
+    loaded.set_status("ddk", ERROR)
+    catalog = Catalog(None)
+    made = finish_plan(loaded, AssessmentStore(tmp_path / "assessments", catalog))
+    assert sorted(a.note for a in made) == ["po medikaci", "před medikací"]
+    assert sorted(a.note for a in catalog.assessments()) == ["po medikaci", "před medikací"]
 
 
 @pytest.fixture
@@ -431,12 +463,12 @@ def test_wizard_with_manifest_runs_batches_per_date_and_creates_visits(
     # řádek = vyšetření (pacient × datum), úlohy ve sloupcích s počtem nahrávek
     table = dialog.visits_table
     headers = [table.horizontalHeaderItem(c).text().lower() for c in range(table.columnCount())]
-    assert headers == ["pacient", "datum vyšetření", "věk", "pohlaví", "fonace"]
-    rows = [[table.item(r, c).text() for c in range(5)] for r in range(table.rowCount())]
+    assert headers == ["pacient", "datum vyšetření", "věk", "pohlaví", "poznámka", "fonace"]
+    rows = [[table.item(r, c).text() for c in range(6)] for r in range(table.rowCount())]
     assert rows == [
-        ["P1", "14. 10. 2025", "63", "muž", "1"],
-        ["P1", "14. 10. 2026", "64", "muž", "1"],
-        ["P2", "14. 10. 2026", "70", "žena", "1"],
+        ["P1", "14. 10. 2025", "63", "muž", "", "1"],
+        ["P1", "14. 10. 2026", "64", "muž", "", "1"],
+        ["P2", "14. 10. 2026", "70", "žena", "", "1"],
     ]
     assert dialog.people_summary.text() == "2 pacienti · 3 vyšetření"
     assert dialog.totals.text() == "celkem: Fonace 3"
@@ -508,12 +540,18 @@ def test_wizard_with_manifest_runs_batches_per_date_and_creates_visits(
     assert page.count() == 2  # dvě karty pacientů
     p2 = next(a for a in assessments if a.subject == "P2" and a.date == "2026-10-14")
     assert p2.age == 70 and p2.sex == "f" and [r.file for r in p2.recordings] == ["p2_2026.wav"]
-    # běhy zůstaly mezi analýzami: žádná karta hodnocení, žádné slučování do složky pacienta
+    # běhy víc vyšetření patří pod Hodnocení jako jedna karta plánu, složky se neslučují
     history = window.results_page.history
     history.refresh()
-    assert history.filter_buttons["analysis"].text() == "Analýzy (1)"  # jedna dávka
-    assert history.filter_buttons["assessment"].text() == "Hodnocení"
+    assert history.filter_buttons["analysis"].text() == "Analýzy"
+    assert history.filter_buttons["assessment"].text() == "Hodnocení (1)"
+    card = next(e for e in history.entries() if isinstance(e, RunGroup))
+    assert card.plan_type == "multi" and card.display_name == "Hodnocení · 2 pacientů"
+    window._merge_finished_groups()
     assert not any(read_group(p) for p in settings.work_root.iterdir() if p.is_dir())
+    # Otevřít v Hodnocení u karty víc pacientů: přehled pacientů
+    window.open_assessment(card.key)
+    assert window.nav.currentRow() == PAGE_ASSESSMENT
     assert {p.name for p in data.rglob("*")} == before
 
 
@@ -605,6 +643,9 @@ def test_series_wizard_runs_visits_of_one_patient(
     assert dialog.summary.figures()[0] == "2 vyšetření"
     series.set_date(second, "14. 10. 2026")  # stejné datum dvakrát
     assert not dialog.next_btn.isEnabled() and "Stejné datum" in dialog.hint.text()
+    series.set_label(second, "po medikaci")  # poznámka odliší dvě vyšetření téhož dne
+    assert dialog.next_btn.isEnabled()
+    series.set_label(second, "")
     series.set_date(second, "3. 12. 2026")
     plan = dialog.plan()
     assert plan.multi and plan.visits() == 2 and plan.subjects() == ["P-017"]
@@ -618,6 +659,13 @@ def test_series_wizard_runs_visits_of_one_patient(
     qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=10000)
     stored = [a for a in window.catalog.assessments() if a.subject == "P-017"]
     assert sorted(a.date for a in stored) == ["2026-10-14", "2026-12-03"]
+    # v historii jedna karta plánu pod Hodnocení, Otevřít v Hodnocení = Vývoj v čase
+    from speechscope_app.backend.history import group_runs, list_runs
+
+    card = next(e for e in group_runs(list_runs(settings.work_root)) if isinstance(e, RunGroup))
+    assert card.plan_type == "series" and card.display_name == "P-017 · Vývoj v čase"
+    window.open_assessment(card.key)
+    assert window.assessment_page.view() == "trend"
     patient = next(p for p in window._series_patients() if p.subject == "P-017")
     assert patient.birth_year == 1962 and len(patient.visits) == 2
     # další vyšetření: pacient z katalogu doplní pohlaví a rok, dosavadní řádky šedě
@@ -630,6 +678,22 @@ def test_series_wizard_runs_visits_of_one_patient(
     assert again.mode() == "series" and again.series.birth_year.text() == "1962"
     # řádek protokolů, dvě z katalogu a jedno nové
     assert again.series.table.rowCount() == 1 + 2 + 1
+    # datum, které pacient už má: jen varování, Spustit jde (druhé vyšetření téhož dne)
+    again.series.set_folder(0, "phonation", dec_fon)
+    again.series.set_date(0, "14. 10. 2026")
+    assert again.series.problems() == [] and again.series.same_day_dates() == ["2026-10-14"]
+    assert not again.series.date_warning.isHidden()
+    # totéž u Jednoho vyšetření: varování pod formulářem
+    again.set_mode("single")
+    again.subject.setText("P-017")
+    again.date.setDate(QDate(2026, 10, 14))
+    assert (
+        not again.widget.date_warning.isHidden()
+        and "14. 10. 2026" in again.widget.date_warning.text()
+    )
+    again.date.setDate(QDate(2026, 10, 15))
+    assert again.widget.date_warning.isHidden()
+    again.set_mode("series")
     # protokoly jako minule (z protocol.yaml běhů posledního vyšetření)
     s2 = again.series
     used = plan.tasks[0].proto().name
@@ -637,7 +701,7 @@ def test_series_wizard_runs_visits_of_one_patient(
     assert s2.changed_tasks() == [] and s2.protocol_warning.isHidden()
     s2.set_protocol("phonation", "Fonace, vlastní")
     assert s2.changed_tasks() == ["phonation"] and not s2.protocol_warning.isHidden()
-    assert s2.table.item(1, 2).text() == "spočítáno ⚠"
+    assert s2.table.item(1, 3).text() == "spočítáno ⚠"
     s2.set_date(0, "1. 2. 2027")
     s2.set_folder(0, "phonation", dec_fon)
     asked: list[str] = []

@@ -51,6 +51,8 @@ from .widgets.clean_table import card, set_text, style_table
 
 CSV_FILTER = "CSV (*.csv)"
 PROTOCOL_ROW = 1  # řádek s výběrem protokolů nad vyšetřeními
+NOTE_COL = 2  # sloupec poznámky k vyšetření („před medikací“), 1. 11. 2026
+TASK_COL0 = 3  # první sloupec úloh
 REVERT_LINK = "revert"
 
 
@@ -76,6 +78,7 @@ class Cell:
 @dataclass(slots=True)
 class SeriesVisit:
     date: str = ""  # ISO; prázdné = chybí
+    label: str = ""  # poznámka k vyšetření; s datem odliší dvě vyšetření téhož dne
     age: str = ""  # ručně; prázdné = z roku narození
     cells: dict[str, Cell] = field(default_factory=dict)
     note: str = ""  # „z manifest.csv: datum, věk“
@@ -197,6 +200,14 @@ class SeriesEditor(QWidget):
         self.protocol_warning.linkActivated.connect(lambda _l: self.revert_protocols())
         self.protocol_warning.hide()
         layout.addWidget(self.protocol_warning)
+        self.date_warning = QLabel("")
+        self.date_warning.setWordWrap(True)
+        self.date_warning.setStyleSheet(
+            "QLabel { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e;"
+            " border-radius: 8px; padding: 6px 10px; }"
+        )
+        self.date_warning.hide()
+        layout.addWidget(self.date_warning)
         buttons = QHBoxLayout()
         self.add_btn = QPushButton(tr("+ Přidat vyšetření"))
         self.add_btn.clicked.connect(lambda: self.add_visit())
@@ -276,6 +287,18 @@ class SeriesEditor(QWidget):
         visit.date = meta.normalize_visit(text) if text.strip() else ""
         self._refill()
 
+    def set_label(self, index: int, text: str) -> None:
+        """Poznámka k vyšetření („před medikací“); s datem tvoří klíč vyšetření."""
+        if 0 <= index < len(self._visits) and self._visits[index].label != text.strip():
+            self._visits[index].label = " ".join(text.split())
+            self._refill()
+
+    def note_suggestions(self) -> list[str]:
+        """Dříve použité poznámky (všichni pacienti v katalogu), ať se píšou stejně."""
+        notes = {a.note for p in self._patients.values() for a in p.visits if a.note}
+        notes |= {v.label for v in self._visits if v.label}
+        return sorted(notes, key=str.lower)
+
     def set_age(self, index: int, text: str) -> None:
         self._visits[index].age = meta.normalize_value(meta.AGE, text) if text.strip() else ""
         self._refill()
@@ -340,7 +363,7 @@ class SeriesEditor(QWidget):
     def load_manifest(self, path: Path) -> int:
         manifest = read_manifest(path)
         subject = patient_key(self.subject_text())
-        rows: dict[str, SeriesVisit] = {}
+        rows: dict[tuple[str, str], SeriesVisit] = {}
         for key, data in manifest.rows.items():
             who = data.get(meta.SUBJECT, "").strip()
             if subject and who and patient_key(who) != subject:
@@ -349,10 +372,11 @@ class SeriesEditor(QWidget):
                 self.subject.setCurrentText(who)
                 subject = patient_key(who)
             visit_date = meta.normalize_visit(data.get(meta.VISIT, ""))
+            label = data.get(meta.NOTE, "").strip()
             task = manifest.tasks.get(key, "")
             if not task:
                 continue
-            visit = rows.setdefault(visit_date, SeriesVisit(date=visit_date))
+            visit = rows.setdefault((visit_date, label), SeriesVisit(date=visit_date, label=label))
             if data.get(meta.AGE) and not visit.age:
                 visit.age = meta.normalize_value(meta.AGE, data[meta.AGE])
             if data.get(meta.SEX) and not self.sex_code():
@@ -362,7 +386,7 @@ class SeriesEditor(QWidget):
         if not rows:
             return 0
         self._visits = [v for v in self._visits if v.cells] + [
-            rows[d] for d in sorted(rows, key=lambda d: (d == "", d))
+            rows[k] for k in sorted(rows, key=lambda k: (k[0] == "", k))
         ]
         self._refill()
         return len(rows)
@@ -613,6 +637,7 @@ class SeriesEditor(QWidget):
                         visit=visit.date,
                         age=self.age_for(visit),
                         sex=self.sex_code(),
+                        note=visit.label,
                     )
         return out
 
@@ -644,12 +669,20 @@ class SeriesEditor(QWidget):
             out.append(tr("Vyberte složku aspoň pro jednu úlohu."))
         if any(not v.date for v in filled):
             out.append(tr("Doplňte datum vyšetření."))
-        dates = [v.date for v in filled if v.date]
-        known = self._patients.get(patient_key(self.subject_text()))
-        old = {a.date for a in known.visits} if known else set()
-        if len(dates) != len(set(dates)) or set(dates) & old:
-            out.append(tr("Stejné datum je u dvou vyšetření."))
+        keys = [(v.date, v.label) for v in filled if v.date]
+        if len(keys) != len(set(keys)):  # dva nové řádky by se slily do jednoho vyšetření
+            out.append(
+                tr("Stejné datum je u dvou vyšetření; odlište je poznámkou (třeba před / po).")
+            )
         return out
+
+    def same_day_dates(self) -> list[str]:
+        """Data nových vyšetření, která pacient už v katalogu má (vznikne druhé vyšetření
+        téhož dne; jen varování, 1. 11. 2026, stejně jako u Jednoho vyšetření)."""
+        known = self._patients.get(patient_key(self.subject_text()))
+        old = {(a.date, a.note) for a in known.visits} if known else set()
+        filled = [v for v in self._visits if any(c.recordings for c in v.cells.values())]
+        return sorted({v.date for v in filled if (v.date, v.label) in old})
 
     def new_visit_count(self) -> int:
         return sum(
@@ -670,7 +703,8 @@ class SeriesEditor(QWidget):
         self._building = True
         known = self._patients.get(patient_key(self.subject_text()))
         old = sorted(known.visits, key=lambda a: a.date) if known else []
-        headers = [tr("datum"), tr("věk")] + [tasks.label(t) for t in self._tasks] + [""]
+        headers = [tr("datum"), tr("věk"), tr("poznámka")]
+        headers += [tasks.label(t) for t in self._tasks] + [""]
         table = self.table
         # staré prvky v buňkách napřed skrýt a zahodit: Qt je maže až z fronty událostí
         # a do té doby se kreslily přes nové (překrývající se „Změnit…“)
@@ -689,7 +723,7 @@ class SeriesEditor(QWidget):
         for c in range(len(headers)):
             set_text(table, 0, c, tr("protokol") if c == 0 else "", muted=True)
             table.item(0, c).setBackground(QColor("#f7f8fb"))
-        for c, task in enumerate(self._tasks, start=2):
+        for c, task in enumerate(self._tasks, start=TASK_COL0):
             table.setCellWidget(0, c, self._protocol_cell(task, task in changed))
         table.setRowHeight(0, 66)
         for i, assessment in enumerate(old):
@@ -698,8 +732,9 @@ class SeriesEditor(QWidget):
             set_text(
                 table, r, 1, "" if assessment.age is None else f"{assessment.age:g}", muted=True
             )
+            set_text(table, r, NOTE_COL, assessment.note, muted=True)
             have = set(assessment.tasks)
-            for c, task in enumerate(self._tasks, start=2):
+            for c, task in enumerate(self._tasks, start=TASK_COL0):
                 text = "–"
                 if task in have:
                     text = tr("spočítáno") + (" ⚠" if (assessment.date, task) in differs else "")
@@ -710,7 +745,7 @@ class SeriesEditor(QWidget):
                 if item is not None:
                     item.setBackground(QColor("#fafafa"))
                     item.setToolTip(tr("Vyšetření je už v katalogu."))
-            for c, task in enumerate(self._tasks, start=2):
+            for c, task in enumerate(self._tasks, start=TASK_COL0):
                 name = self._old_protocols.get((assessment.id, task))
                 if name and task in have:
                     shown = self._find(name)
@@ -746,7 +781,23 @@ class SeriesEditor(QWidget):
                 )
             )
             table.setCellWidget(r, 1, age)
-            for c, task in enumerate(self._tasks, start=2):
+            note = QComboBox()
+            note.setEditable(True)
+            note.addItems(self.note_suggestions())
+            note.setCurrentText(visit.label)
+            note.lineEdit().setCursorPosition(0)  # začátek textu, ne odrolovaný konec
+            note.lineEdit().setPlaceholderText(tr("třeba před medikací"))
+            note.setMinimumWidth(170)
+            note.lineEdit().editingFinished.connect(
+                lambda i=i, w=note: (
+                    self.set_label(i, w.currentText())
+                    if w.currentText().strip() != self._visits[i].label
+                    else None
+                )
+            )
+            note.activated.connect(lambda _x, i=i, w=note: self.set_label(i, w.currentText()))
+            table.setCellWidget(r, NOTE_COL, note)
+            for c, task in enumerate(self._tasks, start=TASK_COL0):
                 cell = visit.cells.get(task)
                 box = QWidget()
                 row = QHBoxLayout(box)
@@ -800,6 +851,15 @@ class SeriesEditor(QWidget):
             f"{warning} <a href='{REVERT_LINK}' style='color:#c2410c'>{link}</a>" if warning else ""
         )
         self.protocol_warning.setVisible(bool(warning))
+        same = self.same_day_dates()
+        self.date_warning.setText(
+            tr("Pacient už má vyšetření {dates}; vznikne druhé vyšetření téhož dne.").format(
+                dates=", ".join(_date_text(d) for d in same)
+            )
+            if same
+            else ""
+        )
+        self.date_warning.setVisible(bool(same))
         notes = [v.note for v in self._visits if v.note]
         self.note.setText(" · ".join(notes))
         self._building = False

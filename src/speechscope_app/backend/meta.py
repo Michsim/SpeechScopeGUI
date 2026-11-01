@@ -20,7 +20,10 @@ VISIT = "visit"
 AGE = "age"
 SEX = "sex"
 GROUP = "group"
-META_COLUMNS: tuple[str, ...] = (SUBJECT, VISIT, AGE, SEX, GROUP)
+# poznámka k vyšetření (1. 11. 2026): „před medikací“, „DBS OFF“…; dvě vyšetření téhož dne
+# s různou poznámkou jsou dvě hodnocení. Pozor: knihovna má vlastní sloupec `notes`.
+NOTE = "note"
+META_COLUMNS: tuple[str, ...] = (SUBJECT, VISIT, AGE, SEX, GROUP, NOTE)
 
 # Popisky vyhrazených sloupců pro UI (hlavičky, nabídka + Sloupec…); klíče zůstávají anglické.
 LABELS = Labels(
@@ -30,6 +33,7 @@ LABELS = Labels(
         AGE: N_("věk"),
         SEX: N_("pohlaví"),
         GROUP: N_("skupina"),
+        NOTE: N_("poznámka"),
     }
 )
 
@@ -60,6 +64,11 @@ COLUMN_ALIASES: dict[str, str] = {
     "skupina": GROUP,
     "diagnoza": GROUP,
     "diagnosis": GROUP,
+    "poznamka": NOTE,
+    "pozn": NOTE,
+    "poznamka_vysetreni": NOTE,
+    "komentar": NOTE,
+    "comment": NOTE,
 }
 
 FEMALE = "f"

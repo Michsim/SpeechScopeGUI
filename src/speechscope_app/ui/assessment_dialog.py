@@ -203,6 +203,11 @@ class AssessmentDialog(QDialog):
         ):
             person.addWidget(QLabel(text), 0, 2 * col)
             person.addWidget(widget, 0, 2 * col + 1)
+        # poznámka k vyšetření (1. 11. 2026): „před medikací“, odliší dvě téhož dne
+        self.visit_note = QLineEdit()
+        self.visit_note.setPlaceholderText(tr("nepovinné, třeba před medikací"))
+        person.addWidget(QLabel(tr("Poznámka")), 1, 0)
+        person.addWidget(self.visit_note, 1, 1, 1, 3)
         person.setColumnStretch(1, 1)
         outer.addLayout(person)
         self.prefill_note = QLabel("")
@@ -281,6 +286,8 @@ class AssessmentDialog(QDialog):
         self.age.setText("" if assessment.age is None else f"{assessment.age:g}")
         self.sex.setCurrentIndex(max(0, self.sex.findData(assessment.sex)))
         self._set_date(assessment.date)
+        self.visit_note.setText(assessment.note)
+        self._norm_name = assessment.norm  # úprava nesmí zapomenout, podle které normy se počítalo
         for ref in assessment.recordings:
             rec = next((r for r in self._recordings if ref.matches(r) and r.file == ref.file), None)
             if rec is not None:
@@ -392,6 +399,8 @@ class AssessmentDialog(QDialog):
             date=dt.date(day.year(), day.month(), day.day()).isoformat(),
             recordings=[RecordingRef.of(r) for tb in self.boxes.values() for r in tb.recordings()],
             created=self._created,
+            norm=getattr(self, "_norm_name", ""),
+            note=" ".join(self.visit_note.text().split()),
         )
 
 

@@ -246,7 +246,7 @@ class AssessmentBuildWidget(QWidget):
         self._loose_rows: list[Path] = []
         self._multi = False
         self._visit_filter = "all"  # all | missing | incomplete
-        self._frozen_visits: set[tuple[str, str]] | None = None  # seznam k doplnění
+        self._frozen_visits: set[tuple[str, str, str]] | None = None  # seznam k doplnění
         self._visit_rows: list[tuple[str, str, list[Path]]] = []
         self._filling = False
 
@@ -467,6 +467,13 @@ class AssessmentBuildWidget(QWidget):
         ):
             person.addWidget(QLabel(text), 0, 2 * col)
             person.addWidget(widget, 0, 2 * col + 1)
+        # poznámka k vyšetření (1. 11. 2026): odliší třeba před a po medikaci téhož dne
+        self.visit_note = QComboBox()
+        self.visit_note.setEditable(True)
+        self.visit_note.lineEdit().setPlaceholderText(tr("nepovinné, třeba před medikací"))
+        self.visit_note.currentTextChanged.connect(lambda _t: self._update_date_warning())
+        person.addWidget(QLabel(tr("Poznámka")), 1, 0)
+        person.addWidget(self.visit_note, 1, 1, 1, 3)
         person.setColumnStretch(1, 1)
         person_layout.addLayout(person)
         self.prefill_note = QLabel("")
@@ -474,6 +481,14 @@ class AssessmentBuildWidget(QWidget):
         self.prefill_note.setWordWrap(True)
         self.prefill_note.hide()
         person_layout.addWidget(self.prefill_note)
+        # pacient už vyšetření s tímto datem má: jen varování (vznikne druhé téhož dne)
+        self.date_warning = QLabel("")
+        self.date_warning.setWordWrap(True)
+        self.date_warning.setStyleSheet("color: #92400e;")
+        self.date_warning.hide()
+        person_layout.addWidget(self.date_warning)
+        self.subject.textChanged.connect(lambda _t: self._update_date_warning())
+        self.date.dateChanged.connect(lambda _d: self._update_date_warning())
         self.task_checks = QLabel("")
         self.task_checks.setTextFormat(Qt.TextFormat.RichText)
         self.task_checks.setWordWrap(True)
@@ -628,6 +643,8 @@ class AssessmentBuildWidget(QWidget):
         for widget in (*self.step_pills, self._step_arrow):
             widget.setVisible(mode == MULTI)
         self.person_box.setVisible(mode == SINGLE)
+        if mode == SINGLE:
+            self._fill_note_suggestions()
         self.task_checks.setVisible(mode == SINGLE)
         self.template_btn.setVisible(mode == MULTI)
         self._foot.setVisible(not choosing)
@@ -843,6 +860,7 @@ class AssessmentBuildWidget(QWidget):
                 visit=row.get(meta.VISIT, person.visit),
                 age=meta.parse_age(row[meta.AGE]) if meta.AGE in row else person.age,
                 sex=meta.parse_sex(row[meta.SEX]) if meta.SEX in row else person.sex,
+                note=row.get(meta.NOTE, person.note),
             )
         self._suggested = {}
         sexes: dict[str, str] = {}
@@ -892,9 +910,9 @@ class AssessmentBuildWidget(QWidget):
     def people_counts(self) -> tuple[int, int, int, int]:
         """(pacientů, vyšetření, nahrávek, bez pacienta nebo data)."""
         people = self._merged_people()
-        complete = {(p.subject, p.visit) for p in people.values() if p.subject and p.visit}
+        complete = {(p.subject, p.visit, p.note) for p in people.values() if p.subject and p.visit}
         missing = sum(1 for p in people.values() if not (p.subject and p.visit))
-        return len({s for s, _v in complete}), len(complete), len(people), missing
+        return len({s for s, _v, _n in complete}), len(complete), len(people), missing
 
     def set_person(self, path: Path, **values: object) -> None:
         """Ruční oprava údajů nahrávky (pacient, visit, věk, pohlaví) jen pro tento výpočet."""
@@ -920,7 +938,7 @@ class AssessmentBuildWidget(QWidget):
         out: dict[tuple[str, str], list[Path]] = {}
         for path, person in sorted(people.items(), key=lambda kv: (kv[1].subject, kv[1].visit)):
             if person.subject and person.visit:
-                out.setdefault((person.subject, person.visit), []).append(path)
+                out.setdefault((person.subject, person.visit, person.note), []).append(path)
         return out
 
     def _active_tasks(self) -> list[str]:
@@ -976,7 +994,7 @@ class AssessmentBuildWidget(QWidget):
             shown = incomplete
         else:
             shown = list(visits)
-        headers = [tr("pacient"), tr("datum vyšetření"), tr("věk"), tr("pohlaví")]
+        headers = [tr("pacient"), tr("datum vyšetření"), tr("věk"), tr("pohlaví"), tr("poznámka")]
         headers += [tasks.label(t) for t in task_keys]
         table = self.visits_table
         self._filling = True
@@ -992,7 +1010,7 @@ class AssessmentBuildWidget(QWidget):
         table.setRowCount(len(shown))
         self._visit_rows = []
         for r, key in enumerate(shown):
-            subject, visit = key
+            subject, visit, note = key
             paths = visits[key]
             self._visit_rows.append((subject, visit, paths))
             age, sex = self._visit_info(paths)
@@ -1012,7 +1030,13 @@ class AssessmentBuildWidget(QWidget):
                 elif source:
                     _mark_suggested(item, source)
                 table.setItem(r, c, item)
-            for c, task in enumerate(task_keys, start=4):
+            note_item = QTableWidgetItem(note)
+            note_item.setFlags(note_item.flags() | Qt.ItemFlag.ItemIsEditable)
+            note_item.setToolTip(
+                tr("Poznámka k vyšetření (třeba před / po medikaci); odliší dvě téhož dne.")
+            )
+            table.setItem(r, 4, note_item)
+            for c, task in enumerate(task_keys, start=5):
                 names = [p.name for p in paths if rec_tasks.get(p) == task]
                 item = QTableWidgetItem(str(len(names)) if names else "–")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -1238,28 +1262,57 @@ class AssessmentBuildWidget(QWidget):
         QTimer.singleShot(0, lambda: self.fill_unassigned([path], **{name: text}))
 
     def _visit_edited(self, item: QTableWidgetItem) -> None:
-        """Věk nebo pohlaví v řádku vyšetření platí pro všechny jeho nahrávky."""
-        if self._filling or item.column() not in (2, 3):
+        """Věk, pohlaví nebo poznámka v řádku vyšetření platí pro všechny jeho nahrávky."""
+        if self._filling or item.column() not in (2, 3, 4):
             return
         r = item.row()
         if not (0 <= r < len(self._visit_rows)):
             return
         _subject, _visit, paths = self._visit_rows[r]
-        column = meta.AGE if item.column() == 2 else meta.SEX
-        text = item.text().strip()
-        value = meta.normalize_value(column, text) if text else ""
+        column = {2: meta.AGE, 3: meta.SEX, 4: meta.NOTE}[item.column()]
+        text = " ".join(item.text().split())
+        value = meta.normalize_value(column, text) if text and column != meta.NOTE else text
         for path in paths:
             self._overrides.setdefault(path, {})[column] = value
         self._people_changed()
         QTimer.singleShot(0, self._after_people_edit)
 
-    def set_visit_value(self, subject: str, visit: str, column: str, value: str) -> None:
-        """Věk nebo pohlaví jednoho vyšetření (jako úprava v tabulce); pro testy a skripty."""
-        paths = self._visits().get((subject, visit), [])
+    def set_visit_value(
+        self, subject: str, visit: str, column: str, value: str, note: str = ""
+    ) -> None:
+        """Věk, pohlaví nebo poznámka jednoho vyšetření (jako úprava v tabulce)."""
+        paths = self._visits().get((subject, visit, note), [])
         for path in paths:
             self._overrides.setdefault(path, {})[column] = meta.normalize_value(column, value)
         self._people_changed()
         self._after_people_edit()
+
+    def _fill_note_suggestions(self) -> None:
+        """Nabídka poznámek z katalogu (dřív použité), ať se píšou stejně."""
+        current = self.visit_note.currentText()
+        notes = {a.note for p in self._catalog_patients().values() for a in p.visits if a.note}
+        self.visit_note.blockSignals(True)
+        self.visit_note.clear()
+        self.visit_note.addItems(sorted(notes, key=str.lower))
+        self.visit_note.setCurrentText(current)
+        self.visit_note.blockSignals(False)
+
+    def _update_date_warning(self) -> None:
+        """Jedno vyšetření: pacient už má v katalogu vyšetření s tímto datem a poznámkou."""
+        known = self._catalog_patients().get(patient_key(self.subject.text()))
+        date = self.date.date().toString("yyyy-MM-dd")
+        note = (
+            " ".join(self.visit_note.currentText().split()) if hasattr(self, "visit_note") else ""
+        )
+        same = known is not None and any(a.date == date and a.note == note for a in known.visits)
+        self.date_warning.setText(
+            tr("Pacient už má vyšetření {date}; vznikne druhé vyšetření téhož dne.").format(
+                date=_visit_text(date)
+            )
+            if same
+            else ""
+        )
+        self.date_warning.setVisible(same)
 
     def _update_person_marks(self) -> None:
         """Jeden pacient: prázdný věk a pohlaví žlutě (Spustit jde i bez nich)."""
@@ -1500,6 +1553,7 @@ class AssessmentBuildWidget(QWidget):
                 age=self.series.age_for(first) if first is not None else None,
                 sex=self.series.sex_code(),
                 date=first.date if first is not None else "",
+                note=first.label if first is not None else "",
             )
         day = self.date.date()
         return Patient(
@@ -1507,6 +1561,7 @@ class AssessmentBuildWidget(QWidget):
             age=meta.parse_age(self.age.text()),
             sex=str(self.sex.currentData() or ""),
             date=dt.date(day.year(), day.month(), day.day()).isoformat(),
+            note=" ".join(self.visit_note.currentText().split()),
         )
 
     def plan(self) -> AssessmentPlan:

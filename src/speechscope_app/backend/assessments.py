@@ -63,6 +63,7 @@ class Assessment:
     recordings: list[RecordingRef] = field(default_factory=list)
     created: str = ""
     norm: str = ""  # jméno normy, podle jejíchž protokolů se počítalo (1. 11. 2026)
+    note: str = ""  # poznámka k vyšetření („před medikací“), odliší dvě téhož dne
 
     @property
     def tasks(self) -> list[str]:
@@ -78,6 +79,7 @@ class Assessment:
             "date": self.date,
             "created": self.created,
             "norm": self.norm,
+            "note": self.note,
             "recordings": [
                 {"run": r.run, "row": r.row, "file": r.file, "task": r.task}
                 for r in self.recordings
@@ -96,6 +98,7 @@ class Assessment:
             date=str(data.get("date") or ""),
             created=str(data.get("created") or ""),
             norm=str(data.get("norm") or ""),
+            note=str(data.get("note") or ""),
             recordings=[
                 RecordingRef(str(r["run"]), int(r["row"]), str(r.get("file", "")), str(r["task"]))
                 for r in data.get("recordings", [])

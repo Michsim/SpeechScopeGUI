@@ -96,6 +96,10 @@ class RunInfo:
     norm: str = ""  # dávka nové normy: složka jejího plánu; takový běh není pacient
     assessment: str = ""  # dávka hodnocení z nahrávek: id hodnocení
     patient: str = ""  # pacient dávky hodnocení (subject)
+    # dávka hodnocení s víc vyšetřeními (1. 11. 2026): „series“ (Vývoj v čase, jeden
+    # pacient) nebo „multi“ (Víc pacientů); `assessment` je pak id plánu, ne hodnocení
+    plan_type: str = ""
+    patients: int = 0  # kolik pacientů dávka víc pacientů nese
     task: str = ""  # úloha z protocol.yaml; u dávky vlastní úlohy její klíč z run.json
     group_dir: Path | None = None  # složka vyšetření, když je běh v ní vnořený
     library_version: str = ""  # verze knihovny, která běh počítala (z run.json)
@@ -208,6 +212,8 @@ def _info_to_dict(info: RunInfo) -> dict[str, Any]:
         "norm": info.norm,
         "assessment": info.assessment,
         "patient": info.patient,
+        "plan_type": info.plan_type,
+        "patients": info.patients,
         "task": info.task,
         "library_version": info.library_version,
         "feature_versions": dict(info.feature_versions),
@@ -237,6 +243,8 @@ def _info_from_dict(run_dir: Path, group_dir: Path | None, data: dict[str, Any])
         norm=str(data.get("norm") or ""),
         assessment=str(data.get("assessment") or ""),
         patient=str(data.get("patient") or ""),
+        plan_type=str(data.get("plan_type") or ""),
+        patients=int(data.get("patients") or 0),
         task=str(data.get("task") or ""),
         group_dir=group_dir,
         library_version=str(data.get("library_version") or ""),
@@ -314,6 +322,8 @@ def _read_run_from_disk(run_dir: Path, *, group_dir: Path | None = None) -> RunI
         norm=str(data.get("norm") or ""),
         assessment=str(data.get("assessment") or ""),
         patient=str(data.get("patient") or ""),
+        plan_type=str(data.get("plan_type") or ""),
+        patients=int(data.get("patients") or 0),
         task=str(data.get("task") or "") or task,
         group_dir=group_dir,
         library_version=str(data.get("library_version") or ""),
@@ -473,6 +483,8 @@ class RunGroup:
     # úlohy rozpracovaného plánu (úloha, stav pending/running/ok/error/cancelled);
     # prázdné = hodnocení už založené, karta zná jen běhy
     planned: list[tuple[str, str]] = field(default_factory=list)
+    plan_type: str = ""  # series | multi: dávky hodnocení s víc vyšetřeními (karta plánu)
+    patients: int = 0
 
     @property
     def kind(self) -> str:
@@ -520,6 +532,10 @@ class RunGroup:
 
     @property
     def display_name(self) -> str:
+        if self.plan_type == "series":
+            return tr("{patient} · Vývoj v čase").format(patient=self.patient or "?")
+        if self.plan_type == "multi":
+            return tr("Hodnocení · {n} pacientů").format(n=self.patients or "?")
         return self.patient or tr("Hodnocení")
 
     @property
@@ -576,7 +592,9 @@ def group_runs(
         group_dir = members[0].group_dir if all(r.group_dir for r in members) else None
         patient = next((r.patient for r in members if r.patient), "")
         planned = list((plans or {}).get(key, []))
-        entries.append(RunGroup(key, members, group_dir, patient, planned))
+        plan_type = next((r.plan_type for r in members if r.plan_type), "")
+        patients = max((r.patients for r in members), default=0)
+        entries.append(RunGroup(key, members, group_dir, patient, planned, plan_type, patients))
     entries.sort(
         key=lambda e: (e.started or datetime.min, e.dir.name if e.dir else ""), reverse=True
     )
