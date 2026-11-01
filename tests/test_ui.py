@@ -58,10 +58,8 @@ def test_window_runs_batch_end_to_end(
     assert window.batch_page.select_protocol("Fonace, základní")
     (row,) = window.batch_page.task_rows().values()  # bez manifestu jeden řádek úlohy
     assert row.task_combo is not None and row.task_combo.currentData() == "phonation"
-    assert window.batch_page.editor.has_catalog()
-    assert window.batch_page.new_btn.isEnabled()
-    assert not window.batch_page.editor.picker.warning.text()  # doctor: všechno připravené
-    assert "Bez modelů" in window.batch_page.editor_summary.text()
+    row = window.batch_page.task_rows()["phonation"]
+    assert "bez modelů" in row.status.text()  # doctor: všechno připravené
 
     runs = window.runs_page
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):
@@ -153,98 +151,6 @@ def test_window_runs_batch_end_to_end(
     replayed = sorted(run.files.item(r, run.col_status).text() for r in range(4))
     assert replayed == ["chyba", "hotovo", "hotovo", "hotovo"]
     assert "hotovo" in run.summary.text() and run.log.toPlainText()
-
-
-def test_edit_builtin_saves_copy_and_edit_own_overwrites(
-    qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Upravit… na kartě: přibalený → kopie, vlastní → přepis souboru; jazyk z lišty jde do běhu."""
-    from PySide6.QtWidgets import QDialog
-
-    window = MainWindow(settings)
-    qtbot.addWidget(window)
-    page = window.batch_page
-    assert page.select_protocol("Fonace, základní")
-    row = page.task_rows()["phonation"]
-    assert row.edit_btn.isVisibleTo(row) and page.new_btn.isEnabled()
-    dialog = page.editor_dialog
-
-    def edit_and_accept(self):  # uživatel odškrtne první feature a uloží
-        first = page.editor.selected()[0]
-        page.editor.picker.set_checked(first, False)
-        self._removed = first
-        return QDialog.DialogCode.Accepted
-
-    monkeypatch.setattr(type(dialog), "exec", edit_and_accept)
-    result = page.edit_protocol(page.current_protocol())
-    assert result is not None and result.name == "Fonace, základní (kopie)" and not result.builtin
-    assert dialog._removed not in result.features
-    saved = page.current_protocol()
-    assert saved.name == "Fonace, základní (kopie)" and saved.path is not None
-    assert saved.path.parent == settings.protocols_dir() and dialog._removed not in saved.features
-    assert list(page.task_rows()) == ["phonation"]
-
-    # vlastní: úprava přepíše stejný soubor, i s novým jménem
-    def rename_and_accept(self):
-        self.name.setText("Moje fonace")
-        self.description.setText("jen test")
-        return QDialog.DialogCode.Accepted
-
-    monkeypatch.setattr(type(dialog), "exec", rename_and_accept)
-    path_before = saved.path
-    result = page.edit_protocol(saved)
-    assert result is not None and result.path == path_before
-    renamed = page.current_protocol()
-    assert renamed.name == "Moje fonace" and renamed.description == "jen test"
-    assert renamed.path == path_before
-    assert len(list(settings.protocols_dir().glob("*.yaml"))) == 1
-    # jazyk z lišty se do uloženého protokolu nepíše, do běhu ano
-    page.set_language("en")
-    assert "transcript" not in page.current_protocol().config
-    assert page.effective_protocol().config["transcript"] == {"language": "en"}
-
-    # Zrušit nic neuloží ani nezmění
-    monkeypatch.setattr(type(dialog), "exec", lambda self: QDialog.DialogCode.Rejected)
-    assert page.edit_protocol(page.current_protocol()) is None
-    assert page.current_protocol().name == "Moje fonace"
-    assert len(list(settings.protocols_dir().glob("*.yaml"))) == 1
-
-
-def test_new_protocol_from_analysis(
-    qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from PySide6.QtWidgets import QDialog
-
-    window = MainWindow(settings)
-    qtbot.addWidget(window)
-    page = window.batch_page
-    assert page.select_protocol("Spontánní řeč, akustika")
-    dialog = page.editor_dialog
-
-    def fill_and_accept(self):
-        assert self.task.isVisibleTo(self) and self.task.currentData() == "spontaneous"
-        self.task.setCurrentIndex(self.task.findData("reading"))
-        assert page.editor.protocol().task == "reading"
-        self.name.setText("Moje čtení")
-        self.description.setText("popis")
-        return QDialog.DialogCode.Accepted
-
-    monkeypatch.setattr(type(dialog), "exec", fill_and_accept)
-    result = page.new_protocol()
-    assert result is not None and result.task == "reading" and result.features
-    created = page.current_protocol()
-    assert created.name == "Moje čtení" and created.task == "reading"
-    assert list(page.task_rows()) == ["reading"]  # úloha řádku přepnutá na nový protokol
-    assert created.path is not None and created.path.parent == settings.protocols_dir()
-
-    # jméno, které už existuje, okno nepustí
-    dialog._mode = "new"
-    dialog._taken = page.protocol_names()
-    dialog.name.setText("Moje čtení")
-    dialog._validate()
-    assert not dialog.apply_btn.isEnabled() and "existuje" in dialog.note.text()
-    dialog.name.setText("Jiný")
-    assert dialog.apply_btn.isEnabled()
 
 
 def test_start_page_depends_on_models(settings: AppSettings, qtbot: QtBot) -> None:
@@ -497,7 +403,7 @@ def test_transcribe_only_writes_work_dir(
     page.set_mode("transcript")
     assert page.mode == "transcript" and page.mode_buttons["transcript"].isChecked()
     assert not page.prepare_box.isHidden()
-    assert page.advanced_box.isHidden() and page.step3_title.text() == "Přepis (Whisper)"
+    assert page.step3_title.text() == "Přepis (Whisper)"
     assert page.transcribe_model.text() == "large-v3"
     assert "Jen přepis · angličtina · large-v3" in page.status.text()
     page.run_label_edit.setText("Pacienti říjen")  # název běhu platí i pro přepis
@@ -630,7 +536,6 @@ def test_remove_recordings_from_list(qtbot: QtBot, settings: AppSettings, record
         names[3],
     ]
     assert "2 nahrávek (2 odebráno)" in page.step1_hint.text()
-    assert "(2 odebráno)" in page.status1.text()
     assert not page.restore_btn.isHidden() and page.restore_btn.text() == "Vrátit odebrané (2)"
     # přeskenování téže složky odebrané nevrátí, jiná složka ano
     page.rescan()
@@ -692,7 +597,7 @@ def test_metadata_edits_and_custom_columns_reach_run(
     qtbot.addWidget(window)
     page = window.batch_page
     page.set_folder(recordings)
-    assert page.meta_edits() == 0 and page.edits_btn.isHidden()
+    assert page.meta_edits() == 0 and not page.edits_action.isVisible()
     assert page.add_meta_column("vek") == "age" and page.add_meta_column("path") == ""
     headers = [""] * page.files.meta_from + page.files.columns  # klíče podle pozice
     assert headers[-2:] == ["subject", "age"]
@@ -709,7 +614,7 @@ def test_metadata_edits_and_custom_columns_reach_run(
         "visit": "",
     }
     assert manifest.meta_for(recordings / "p03_short.wav")["sex"] == "f"
-    assert "upraveno: 4" in page.manifest_label.text() and not page.edits_btn.isHidden()
+    assert "upraveno: 4" in page.manifest_label.text() and page.edits_action.isVisible()
     # úprava přímo v buňce tabulky (dvojklik): věk p01 na 70, shoda s manifestem úpravu ruší
     age_col = headers.index("age")
     page.files.item(0, age_col).setText("70")
@@ -1177,12 +1082,12 @@ def test_analysis_two_steps(qtbot: QtBot, settings: AppSettings, recordings: Pat
     qtbot.addWidget(window)
     page = window.batch_page
     assert page.current_step() == 1 and not page.continue_btn.isEnabled()
-    assert "krok 1" in page.step_label.text()
+    assert page.current_step() == 1 and "1 Nahrávky" in page.step_label.text()
     page.set_folder(recordings)
     assert page.continue_btn.isEnabled() and page.current_step() == 1
-    assert "4 nahrávek" in page.status1.text()
+    assert "4 nahrávek" in page.step1_hint.text()
     page.continue_btn.click()
-    assert page.current_step() == 2 and "krok 2" in page.step_label.text()
+    assert page.current_step() == 2 and "2 Úlohy" in page.step_label.text()
     assert page.select_protocol("Fonace, základní") and page.run_btn.isEnabled()
     page.back_btn.click()
     assert page.current_step() == 1
@@ -1266,8 +1171,8 @@ def test_recordings_table_grouping_search_and_missing(
     files = page.files
     assert files.rowCount() == 4 and files.group_by == ""
     # p03 nemá věk, p04 (bez řádku v manifestu) nemá nic: dlaždice a žluté „doplnit“
-    assert not page.missing_tile.isHidden() and page.missing_tile.value.text() == "2"
-    assert page.patients_tile.value.text() == "2"
+    assert not page.missing_tile.isHidden() and page.missing_tile.text().startswith("2 bez údajů")
+    assert "2 pacientů" in page.step1_hint.text()
     page.missing_tile.clicked.emit()
     assert [page._recordings[i].name for i in files.visible_indices()] == [
         "p03_short.wav",

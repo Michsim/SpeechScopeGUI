@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -30,6 +29,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -49,7 +49,6 @@ from ..pages.run import format_seconds
 from ..protocol_detail import ProtocolDetailDialog
 from ..widgets.elided_label import ElidedLabel
 from ..widgets.meta_table import GROUP_FOLDER, MetaRow, MetaTable
-from ..widgets.protocol_editor import ProtocolEditorDialog
 from ..widgets.task_rows import SHARE_COLORS, SummaryBar, TaskRowWidget
 
 TASK = "task"  # sloupec úlohy v tabulce nahrávek (z manifestu nebo doplněný)
@@ -80,59 +79,6 @@ def _step(number: int, title: str, hint: str = "") -> tuple[QHBoxLayout, QLabel]
     return row, hint_label
 
 
-class _Tile(QFrame):
-    """Dlaždice souhrnu nad tabulkou nahrávek: velké číslo a popisek; jde kliknout."""
-
-    clicked = Signal()
-
-    def __init__(self, warn: bool = False) -> None:
-        super().__init__()
-        self._warn = warn
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 6, 14, 6)
-        layout.setSpacing(0)
-        self.value = QLabel("")
-        font = self.value.font()
-        font.setPointSizeF(font.pointSizeF() * 1.35)
-        font.setBold(True)
-        self.value.setFont(font)
-        self.caption = QLabel("")
-        small = self.caption.font()
-        small.setPointSizeF(small.pointSizeF() * 0.9)
-        self.caption.setFont(small)
-        layout.addWidget(self.value)
-        layout.addWidget(self.caption)
-        if warn:
-            self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.set_active(False)
-
-    def set_text(self, value: str, caption: str) -> None:
-        self.value.setText(value)
-        self.caption.setText(caption)
-
-    def set_active(self, active: bool) -> None:
-        if self._warn:
-            border = theme.WARN if active else "#fcd34d"
-            width = 2 if active else 1
-            self.setStyleSheet(
-                f"_Tile {{ background: {theme.WARN_SOFT}; border: {width}px solid {border};"
-                " border-radius: 10px; }"
-                " QLabel { color: #92400e; background: transparent; border: none; }"
-            )
-        else:
-            self.setStyleSheet(
-                f"_Tile {{ background: {theme.CARD}; border: 1px solid {theme.BORDER};"
-                " border-radius: 10px; }"
-                " QLabel { background: transparent; border: none; }"
-            )
-            self.caption.setStyleSheet(f"color: {theme.MUTED};")
-
-    def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-        super().mousePressEvent(event)
-
-
 def _subfolder(path: Path, root: Path | None) -> str:
     """Podsložka nahrávky vůči vybrané složce („a/b“), v ní samé prázdno."""
     if root is None:
@@ -147,7 +93,6 @@ def _subfolder(path: Path, root: Path | None) -> str:
 class BatchPage(QWidget):
     run_requested = Signal(object, list)  # Protocol, list[Path]
     notice = Signal(str)  # krátká hláška do stavového řádku hlavního okna
-    save_requested = Signal(object)  # Protocol k uložení (úprava, kopie, nový)
     # "segments" | "transcript", Protocol, cesty, volby z dialogu (model, cut_audio, language)
     prepare_requested = Signal(str, object, list, dict)
     # víc úloh najednou (manifest se sloupcem task): druh běhu, [(Protocol, cesty)], volby
@@ -196,15 +141,17 @@ class BatchPage(QWidget):
         title = QLabel(tr("Analýza"))
         title.setObjectName("page_title")
         head.addWidget(title, 1)
+        # kroky jako v průvodcích (mockup analyza-zjednoduseni, 31. 10. 2026)
         self.step_label = QLabel("")
-        self.step_label.setObjectName("muted")
-        head.addWidget(self.step_label, 0, Qt.AlignmentFlag.AlignBottom)
+        self.step_label.setTextFormat(Qt.TextFormat.RichText)
+        head.addWidget(self.step_label, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addLayout(head)
+        # Dlouhý podtitulek (kam jdou výsledky) jen v tooltipu nadpisu; kde jsou výsledky,
+        # říká i Prostředí. Objekt zůstává kvůli textu pro tooltip.
+        self._title = title
         self.subtitle = QLabel("")
-        self.subtitle.setObjectName("page_subtitle")
-        self.subtitle.setWordWrap(True)
+        self.subtitle.hide()
         self.set_work_root(None)
-        layout.addWidget(self.subtitle)
 
         # Dva kroky v zásobníku: 1 nahrávky a metadata, 2 úloha, jazyk a protokol.
         self.steps = QStackedWidget()
@@ -222,97 +169,67 @@ class BatchPage(QWidget):
         left_layout.setSpacing(8)
         page1_layout.addWidget(left, 1)
 
-        step1, self.step1_hint = _step(1, tr("Nahrávky"), tr("Vyber složku."))
-        left_layout.addLayout(step1)
+        left_layout.setSpacing(10)
         folder_row = QHBoxLayout()
+        folder_row.setSpacing(8)
         self.folder = QLineEdit()
         self.folder.setPlaceholderText(tr("Složka s nahrávkami"))
         # Jen při změně textu: editingFinished přijde i při ztrátě zaměření (Pokračovat)
         # a znovu prohledat celou složku stálo u 260 nahrávek většinu přechodu na krok 2.
         self.folder.editingFinished.connect(self._folder_edited)
-        browse = QPushButton(tr("Vybrat…"))
-        browse.clicked.connect(self._browse)
-        folder_row.addWidget(self.folder, 1)
-        folder_row.addWidget(browse)
-        self.recursive = QCheckBox(tr("včetně podsložek"))
+        self.browse_btn = QPushButton(tr("Vybrat…"))
+        self.browse_btn.clicked.connect(self._browse)
+        self.recursive = QCheckBox(tr("i podsložky"))
         self.recursive.setChecked(True)
         self.recursive.toggled.connect(self.rescan)
+        folder_row.addWidget(self.folder, 1)
         folder_row.addWidget(self.recursive)
+        folder_row.addWidget(self.browse_btn)
         left_layout.addLayout(folder_row)
-        # Souhrn nad tabulkou (podoba A, mockup https://claude.ai/artifact/RbdMDqP2NUunQRc1RdH1VD):
-        # zvuk, odhad, pacienti a klikací dlaždice nahrávek bez údajů (= jen neúplné).
-        tiles_row = QHBoxLayout()
-        tiles_row.setSpacing(10)
-        self.audio_tile = _Tile()
-        self.estimate_tile = _Tile()
-        self.patients_tile = _Tile()
-        self.missing_tile = _Tile(warn=True)
-        self.missing_tile.setToolTip(tr("Klik ukáže jen nahrávky s chybějícími údaji."))
-        self.missing_tile.clicked.connect(self._toggle_missing)
-        for tile in (self.audio_tile, self.estimate_tile, self.patients_tile, self.missing_tile):
-            tiles_row.addWidget(tile)
-            tile.hide()
-        tiles_row.addStretch(1)
-        self.manifest_btn = QPushButton(tr("Metadata…"))
-        self.manifest_btn.setToolTip(
-            tr(
-                "CSV s metadaty nahrávek (pacient, skupina, návštěva). Sloupec „path“ "
-                "s názvem souboru, ostatní sloupce se propíší do výsledků. "
-                "Soubor manifest.csv ve složce se načte sám."
-            )
-        )
-        self.manifest_btn.clicked.connect(self._browse_manifest)
-        self.manifest_clear_btn = QPushButton(tr("Nepoužít"))
-        self.manifest_clear_btn.setToolTip(tr("Nepoužívat metadata"))
-        self.manifest_clear_btn.clicked.connect(self.clear_manifest)
-        self.manifest_clear_btn.hide()
-        tiles_row.addWidget(self.manifest_btn, 0, Qt.AlignmentFlag.AlignBottom)
-        tiles_row.addWidget(self.manifest_clear_btn, 0, Qt.AlignmentFlag.AlignBottom)
-        left_layout.addLayout(tiles_row)
 
-        # Řada nad tabulkou: vlevo práce s výběrem, vpravo hledání, seskupení, sloupce.
-        meta_row = QHBoxLayout()
-        self.selection_label = QLabel("")
-        self.selection_label.setObjectName("muted")
-        self.selection_label.hide()
-        meta_row.addWidget(self.selection_label)
-        # Odebrání ze seznamu: nahrávka zůstane na disku, jen se pro ni nepočítá.
-        self.remove_btn = QPushButton(tr("Odebrat"))
-        self.remove_btn.setToolTip(
-            tr("Odebere vybrané nahrávky ze seznamu (Delete). Na disku zůstanou.")
+        # Souhrn jedním řádkem místo dlaždic: počet, zvuk, pacienti, štítek manifestu
+        # a žlutý odkaz na doplnění, když něco chybí.
+        summary_row = QHBoxLayout()
+        summary_row.setSpacing(10)
+        self.step1_hint = QLabel(tr("Vyber složku."))
+        summary_row.addWidget(self.step1_hint)
+        self.manifest_label = QLabel("")
+        self.manifest_label.setObjectName("pill")
+        self.manifest_label.hide()
+        summary_row.addWidget(self.manifest_label)
+        self.missing_tile = QPushButton("")
+        self.missing_tile.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.missing_tile.setToolTip(tr("Ukáže jen nahrávky s chybějícími údaji k doplnění."))
+        self.missing_tile.setStyleSheet(
+            f"QPushButton {{ background: {theme.WARN_SOFT}; color: #92400e; border: none;"
+            " border-radius: 11px; padding: 3px 12px; font-weight: 600; }"
+            "QPushButton:hover { background: #fde68a; }"
         )
-        self.remove_btn.setEnabled(False)
-        self.remove_btn.clicked.connect(self.remove_selected)
-        self.restore_btn = QPushButton("")
-        self.restore_btn.setFlat(True)
-        self.restore_btn.setToolTip(tr("Vrátí do seznamu všechny odebrané nahrávky."))
-        self.restore_btn.clicked.connect(self.restore_excluded)
-        self.restore_btn.hide()
-        self.fill_btn = QPushButton(tr("Vyplnit vybrané…"))
-        self.fill_btn.setToolTip(
-            tr("Jedna hodnota do sloupce pro všechny vybrané řádky (třeba skupina nebo věk).")
-        )
-        self.fill_btn.setEnabled(False)
-        self.fill_btn.clicked.connect(lambda: self._ask_fill())
-        self.edits_btn = QPushButton("")
-        self.edits_btn.setFlat(True)
-        self.edits_btn.setToolTip(tr("Zahodí úpravy metadat i přidané sloupce; manifest zůstane."))
-        self.edits_btn.clicked.connect(lambda: self.discard_meta_edits())
-        self.edits_btn.hide()
-        meta_row.addWidget(self.fill_btn)
-        meta_row.addWidget(self.remove_btn)
-        meta_row.addWidget(self.restore_btn)
-        meta_row.addWidget(self.edits_btn)
-        # „Doplnit v kroku 1“ z kroku 2: jen nahrávky bez úlohy, ✕ filtr zruší
-        meta_row.addStretch(1)
+        self.missing_tile.clicked.connect(self._toggle_missing)
+        self.missing_tile.hide()
+        summary_row.addWidget(self.missing_tile)
+        summary_row.addStretch(1)
+        left_layout.addLayout(summary_row)
+
+        # Lišta nad tabulkou: hledání, Seskupit, Vrátit odebrané a Metadata ▾; s výběrem
+        # se místo ní ukáže „vybráno n · Vyplnit… · Odebrat · ✕“.
+        self.bars = QStackedWidget()
+        self.bars.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        bar = QWidget()
+        bar.setObjectName("metabar")
+        bar.setStyleSheet("QWidget#metabar { background: transparent; }")
+        meta_row = QHBoxLayout(bar)
+        meta_row.setContentsMargins(0, 0, 0, 0)
+        meta_row.setSpacing(8)
         self.search = QLineEdit()
         self.search.setPlaceholderText(tr("hledat nahrávku"))
         self.search.setClearButtonEnabled(True)
-        self.search.setMaximumWidth(220)
+        self.search.setMaximumWidth(240)
         self.search.textChanged.connect(lambda _t: self._apply_filter())
         meta_row.addWidget(self.search)
         # Seskupit: jen podle toho, co v datech je (sloupec metadat, podsložka); výchozí nic.
-        self.group_label = QLabel(tr("Seskupit:"))
+        self.group_label = QLabel(tr("Seskupit"))
+        self.group_label.setObjectName("muted")
         self.group_combo = QComboBox()
         self.group_combo.setToolTip(
             tr("Nadpis skupiny ukáže shodné údaje; klik na něj označí nahrávky skupiny.")
@@ -320,14 +237,23 @@ class BatchPage(QWidget):
         self.group_combo.currentIndexChanged.connect(lambda _i: self._group_changed())
         meta_row.addWidget(self.group_label)
         meta_row.addWidget(self.group_combo)
-        self.column_btn = QPushButton(tr("+ Sloupec…"))
-        self.column_btn.setToolTip(
+        meta_row.addStretch(1)
+        # Odebrání ze seznamu: nahrávka zůstane na disku, jen se pro ni nepočítá.
+        self.restore_btn = QPushButton("")
+        self.restore_btn.setFlat(True)
+        self.restore_btn.setToolTip(tr("Vrátí do seznamu všechny odebrané nahrávky."))
+        self.restore_btn.clicked.connect(self.restore_excluded)
+        self.restore_btn.hide()
+        meta_row.addWidget(self.restore_btn)
+        self.meta_btn = QPushButton(tr("Metadata"))
+        self.meta_btn.setToolTip(
             tr(
-                "Přidá sloupec metadat (pacient, věk, pohlaví, skupina, nebo vlastní). "
-                "Hodnoty vyplníte dvojklikem v tabulce; jdou do výsledků tohoto běhu."
+                "Sloupce metadat, manifest (CSV se sloupcem „path“ a údaji nahrávek; "
+                "manifest.csv ve složce se načte sám) a úpravy v tabulce."
             )
         )
-        self.column_menu = QMenu(self.column_btn)
+        self.meta_menu = QMenu(self.meta_btn)
+        self.column_menu = self.meta_menu.addMenu(tr("+ Sloupec"))
         task_action = self.column_menu.addAction(tr("úloha (task)"))
         task_action.setToolTip(tr("Úloha každé nahrávky; víc úloh = víc samostatných běhů."))
         task_action.triggered.connect(lambda: self.add_meta_column(TASK))
@@ -337,19 +263,63 @@ class BatchPage(QWidget):
         self.column_menu.addSeparator()
         custom = self.column_menu.addAction(tr("Vlastní název…"))
         custom.triggered.connect(lambda: self._ask_meta_column())
-        self.column_btn.setMenu(self.column_menu)
-        self.save_btn = QPushButton(tr("Uložit manifest…"))
-        self.save_btn.setToolTip(
+        self.save_action = self.meta_menu.addAction(tr("Uložit manifest…"))
+        self.save_action.setToolTip(
             tr(
                 "Zapíše metadata z tabulky (soubor i úpravy) jako CSV, kam ukážete; "
                 "vedle nahrávek se načte příště samo. Jinak se do složky nic nezapisuje."
             )
         )
-        self.save_btn.setEnabled(False)
-        self.save_btn.clicked.connect(lambda: self.save_manifest())
-        meta_row.addWidget(self.column_btn)
-        meta_row.addWidget(self.save_btn)
-        left_layout.addLayout(meta_row)
+        self.save_action.setEnabled(False)
+        self.save_action.triggered.connect(lambda: self.save_manifest())
+        self.manifest_action = self.meta_menu.addAction(tr("Načíst jiný manifest…"))
+        self.manifest_action.triggered.connect(lambda: self._browse_manifest())
+        self.manifest_clear_action = self.meta_menu.addAction(tr("Nepoužít manifest"))
+        self.manifest_clear_action.triggered.connect(lambda: self.clear_manifest())
+        self.manifest_clear_action.setVisible(False)
+        self.meta_menu.addSeparator()
+        self.edits_action = self.meta_menu.addAction("")
+        self.edits_action.setToolTip(
+            tr("Zahodí úpravy metadat i přidané sloupce; manifest zůstane.")
+        )
+        self.edits_action.triggered.connect(lambda: self.discard_meta_edits())
+        self.edits_action.setVisible(False)
+        self.meta_menu.setToolTipsVisible(True)
+        self.meta_btn.setMenu(self.meta_menu)
+        meta_row.addWidget(self.meta_btn)
+        self.bars.addWidget(bar)
+
+        sel_bar = QFrame()
+        sel_bar.setObjectName("card")
+        sel_bar.setStyleSheet(
+            "QFrame#card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; }"
+        )
+        sel_row = QHBoxLayout(sel_bar)
+        sel_row.setContentsMargins(10, 3, 10, 3)
+        sel_row.setSpacing(8)
+        self.selection_label = QLabel("")
+        self.selection_label.setStyleSheet("color: #1d4ed8; font-weight: 600;")
+        sel_row.addWidget(self.selection_label)
+        self.fill_btn = QPushButton(tr("Vyplnit…"))
+        self.fill_btn.setToolTip(
+            tr("Jedna hodnota do sloupce pro všechny vybrané řádky (třeba úloha, skupina, věk).")
+        )
+        self.fill_btn.setEnabled(False)
+        self.fill_btn.clicked.connect(lambda: self._ask_fill())
+        sel_row.addWidget(self.fill_btn)
+        self.remove_btn = QPushButton(tr("Odebrat"))
+        self.remove_btn.setToolTip(
+            tr("Odebere vybrané nahrávky ze seznamu (Delete). Na disku zůstanou.")
+        )
+        self.remove_btn.setEnabled(False)
+        self.remove_btn.clicked.connect(self.remove_selected)
+        sel_row.addWidget(self.remove_btn)
+        sel_row.addStretch(1)
+        clear_sel = QLabel(f"<a href='#' style='color:{theme.ACCENT}'>{tr('✕ zrušit výběr')}</a>")
+        clear_sel.linkActivated.connect(lambda _h: self.files.clearSelection())
+        sel_row.addWidget(clear_sel)
+        self.bars.addWidget(sel_bar)
+        left_layout.addWidget(self.bars)
 
         # Tabulka nahrávek: název, délka (a ruční vstupy) jen ke čtení, metadata
         # upravitelná (`widgets/meta_table.py`); úpravy jdou do manifestu běhu, do
@@ -391,19 +361,13 @@ class BatchPage(QWidget):
         self.fix_banner.hide()
         left_layout.addWidget(self.fix_banner)
         left_layout.addWidget(self.files, 1)
-        self.manifest_label = QLabel("")
-        self.manifest_label.setObjectName("muted")
-        self.manifest_label.setWordWrap(True)
-        # stav manifestu pod tabulkou přes celou šířku; vedle tlačítek se lámal po slovech
-        left_layout.addWidget(self.manifest_label)
 
         bottom1 = QHBoxLayout()
-        self.status1 = QLabel("")
         self.continue_btn = QPushButton(tr("Pokračovat →"))
         theme.set_role(self.continue_btn, "primary")
         self.continue_btn.setEnabled(False)
         self.continue_btn.clicked.connect(lambda: self.go_to_step(2))
-        bottom1.addWidget(self.status1, 1)
+        bottom1.addStretch(1)
         bottom1.addWidget(self.continue_btn)
         page1_layout.addLayout(bottom1)
         QShortcut(QKeySequence(Qt.Key.Key_Return), page1, self._continue_if_ready)
@@ -416,64 +380,46 @@ class BatchPage(QWidget):
         page2_layout.setContentsMargins(0, 0, 0, 0)
         page2_layout.setSpacing(10)
 
-        label_card = QFrame()
-        label_card.setObjectName("card")
-        label_layout = QVBoxLayout(label_card)
-        label_layout.setContentsMargins(16, 12, 16, 12)
-        label_layout.setSpacing(4)
+        task_card = QFrame()
+        task_card.setObjectName("card")
+        task_layout = QVBoxLayout(task_card)
+        task_layout.setContentsMargins(16, 14, 16, 14)
+        task_layout.setSpacing(10)
+        # Název běhu nahoře nad úlohami (rozhodnuto 31. 10. 2026), vysvětlení v tooltipu.
         label_row = QHBoxLayout()
+        label_row.setSpacing(10)
         label_title = QLabel(tr("Název běhu"))
         label_title.setObjectName("card_title")
         self.run_label_edit = QLineEdit()
-        self.run_label_edit.setPlaceholderText(tr("např. pacienti září, kontrola po 3 měsících"))
+        self.run_label_edit.setPlaceholderText(
+            tr("nepovinné, třeba pacienti září, kontrola po 3 měsících")
+        )
+        self.run_label_edit.setToolTip(
+            tr("Ukáže se v historii a nad výsledky; bez názvu se běh jmenuje podle protokolu.")
+        )
         self.run_label_edit.setClearButtonEnabled(True)
         self._label_touched = False
         self.run_label_edit.textEdited.connect(self._label_edited)
         self.run_label_edit.returnPressed.connect(self._run)
         label_row.addWidget(label_title)
         label_row.addWidget(self.run_label_edit, 1)
-        label_layout.addLayout(label_row)
-        label_hint = QLabel(
-            tr(
-                "Nepovinné. Ukáže se v historii a nad výsledky; "
-                "bez názvu se běh jmenuje podle protokolu."
-            )
-        )
-        label_hint.setObjectName("muted")
-        label_layout.addWidget(label_hint)
-        page2_layout.addWidget(label_card)
+        task_layout.addLayout(label_row)
 
-        task_card = QFrame()
-        task_card.setObjectName("card")
-        task_layout = QVBoxLayout(task_card)
-        task_layout.setContentsMargins(16, 14, 16, 14)
-        task_layout.setSpacing(10)
-        # Krok 2 jako řádky úloh (mockup podoba 1, 31. 10. 2026): řádek na úlohu s vlastním
-        # protokolem; víc úloh v manifestu = víc samostatných běhů. Jazyk platí pro všechny.
+        # Hlavička úloh: nadpis s nápovědou, vpravo co spustit (rozšířený režim) a jazyk
+        # (jen když ho některý protokol potřebuje: přepis nebo jazykový rozbor).
         head = QHBoxLayout()
-        head.setSpacing(12)
-        step2, self.step2_hint = _step(2, tr("Úloha a protokol"), "")
-        self.step2_title: QLabel = step2.itemAt(1).widget()
-        head.addLayout(step2, 1)
-        self.language = QComboBox()
-        self.language.setToolTip(
-            tr(
-                "Jazyk přepisu (Whisper) a jazykového rozboru (Stanza) pro tento běh. "
-                "Přebije nastavení protokolu."
-            )
-        )
-        self.language.currentIndexChanged.connect(self._language_changed)
-        self.set_languages(list(contract.DEFAULT_LANGUAGES))
-        self.language.setMinimumWidth(160)
-        head.addWidget(QLabel(tr("Jazyk nahrávek:")))
-        head.addWidget(self.language)
-        task_layout.addLayout(head)
-        # Rozšířený režim: co spustit. Přepínače nad úlohami, ať nejsou schované dole.
+        head.setSpacing(10)
+        self.step2_title = QLabel(tr("Úlohy"))
+        self.step2_title.setObjectName("card_title")
+        head.addWidget(self.step2_title)
+        self.step2_hint = ElidedLabel("")
+        self.step2_hint.setObjectName("muted")
+        head.addWidget(self.step2_hint, 1)
+        # Rozšířený režim: co spustit, jako malá přepínací tlačítka v hlavičce.
         self.mode_row = QWidget()
         mode_layout = QHBoxLayout(self.mode_row)
         mode_layout.setContentsMargins(0, 0, 0, 0)
-        mode_layout.setSpacing(6)
-        mode_layout.addWidget(QLabel(tr("Spustit:")))
+        mode_layout.setSpacing(4)
         self.mode_group = QButtonGroup(self)
         self.mode_group.setExclusive(True)
         self.mode_buttons: dict[str, QPushButton] = {}
@@ -497,9 +443,23 @@ class BatchPage(QWidget):
                 "před výpočtem feature ručně zkontrolovat. Jen u souvislé řeči."
             )
         )
-        mode_layout.addStretch(1)
         self.mode_row.hide()
-        task_layout.addWidget(self.mode_row)
+        head.addWidget(self.mode_row)
+        self.language_label = QLabel(tr("Jazyk"))
+        self.language_label.setObjectName("muted")
+        self.language = QComboBox()
+        self.language.setToolTip(
+            tr(
+                "Jazyk přepisu (Whisper) a jazykového rozboru (Stanza) pro tento běh. "
+                "Přebije nastavení protokolu."
+            )
+        )
+        self.language.currentIndexChanged.connect(self._language_changed)
+        self.set_languages(list(contract.DEFAULT_LANGUAGES))
+        self.language.setMinimumWidth(150)
+        head.addWidget(self.language_label)
+        head.addWidget(self.language)
+        task_layout.addLayout(head)
 
         self.rows_box = QWidget()
         self.rows_layout = QVBoxLayout(self.rows_box)
@@ -603,44 +563,32 @@ class BatchPage(QWidget):
         self.prepare_box.hide()
         task_layout.addWidget(self.prepare_box)
 
-        self.summary = SummaryBar()
-        task_layout.addWidget(self.summary)
         page2_layout.addWidget(task_card)
-
-        # rozšířený režim: souhrn výběru; úpravy jdou přes Upravit… na kartě
-        # a Nový protokol…, každá změna se uloží do protokolu
-        self.editor_dialog = ProtocolEditorDialog(self)
-        self.editor = self.editor_dialog.editor
-        self.advanced_box = QGroupBox(tr("Feature a parametry"))
-        adv = QVBoxLayout(self.advanced_box)
-        self.editor_summary = QLabel("")
-        self.editor_summary.setWordWrap(True)
-        adv.addWidget(self.editor_summary)
-        adv_buttons = QHBoxLayout()
-        adv_buttons.addStretch(1)
-        self.new_btn = QPushButton(tr("Nový protokol…"))
-        self.new_btn.setToolTip(
-            tr("Nový vlastní protokol: jméno, popis, úloha, výběr feature a parametry.")
-        )
-        self.new_btn.setEnabled(False)
-        self.new_btn.clicked.connect(self.new_protocol)
-        adv_buttons.addWidget(self.new_btn)
-        adv.addLayout(adv_buttons)
-        page2_layout.addWidget(self.advanced_box)
         page2_layout.addStretch(1)
 
-        bottom = QHBoxLayout()
+        # Patička: zpět, souhrn (běhy, nahrávky, zvuk, odhad) a Spustit. Dřív souhrnný pruh
+        # v kartě a stavový řádek dole říkaly totéž dvakrát. U Jen segmentace / Jen přepis
+        # místo čísel stav (model, jazyk).
+        foot = QFrame()
+        foot.setObjectName("card")
+        bottom = QHBoxLayout(foot)
+        bottom.setContentsMargins(10, 8, 10, 8)
+        bottom.setSpacing(12)
         self.back_btn = QPushButton(tr("← Nahrávky"))
         self.back_btn.clicked.connect(lambda: self.go_to_step(1))
+        bottom.addWidget(self.back_btn)
+        self.summary = SummaryBar()
+        self.summary.setStyleSheet("QFrame#summarybar { background: transparent; border: none; }")
+        bottom.addWidget(self.summary, 1)
         self.status = QLabel("")
+        self.status.setObjectName("muted")
+        bottom.addWidget(self.status, 1)
         self.run_btn = QPushButton(tr("Spustit"))
         theme.set_role(self.run_btn, "primary")
         self.run_btn.setEnabled(False)
         self.run_btn.clicked.connect(self._run)
-        bottom.addWidget(self.back_btn)
-        bottom.addWidget(self.status, 1)
         bottom.addWidget(self.run_btn)
-        page2_layout.addLayout(bottom)
+        page2_layout.addWidget(foot)
         self.steps.addWidget(page2)
         self.go_to_step(1)
 
@@ -652,9 +600,18 @@ class BatchPage(QWidget):
     def go_to_step(self, step: int) -> None:
         """Krok 1 (nahrávky) nebo 2 (úloha a protokol); stránka si ho pamatuje."""
         self.steps.setCurrentIndex(0 if step == 1 else 1)
-        self.step_label.setText(
-            tr("krok 1 ze 2 · Nahrávky") if step == 1 else tr("krok 2 ze 2 · Úlohy a protokoly")
-        )
+        self.step_label.setText(self._steps_html(step))
+
+    @staticmethod
+    def _steps_html(step: int) -> str:
+        """„1 Nahrávky › 2 Úlohy“, aktuální krok modře (jako v průvodcích)."""
+        on = f"background:{theme.ACCENT_SOFT}; color:#1d4ed8;"
+        off = "background:#f3f4f6; color:#6b7280;"
+        parts = [
+            f"<span style='{on if step == n else off} font-weight:600'>&nbsp;{text}&nbsp;</span>"
+            for n, text in ((1, tr("1 Nahrávky")), (2, tr("2 Úlohy")))
+        ]
+        return " › ".join(parts)
 
     def run_label(self) -> str:
         return self.run_label_edit.text().strip()
@@ -677,7 +634,6 @@ class BatchPage(QWidget):
         self._library = library
         self._doctor = None
         self._doctor_known = False
-        self.editor.set_library(library)
         self._load_languages()
         self._update_run_state()
 
@@ -702,7 +658,6 @@ class BatchPage(QWidget):
     def set_doctor(self, report: dict[str, Any] | None) -> None:
         self._doctor = report
         self._doctor_known = True
-        self.editor.set_doctor(report)
         if self._run_after_doctor:
             self._run_after_doctor = False
             self._close_doctor_wait()
@@ -740,7 +695,6 @@ class BatchPage(QWidget):
 
     def set_stats_lookup(self, lookup: Callable[[str], float | None]) -> None:
         self._seconds_per_file = lookup
-        self.editor.set_stats_lookup(lookup)
 
     def set_rate_lookup(self, lookup: Callable[[str], float | None]) -> None:
         """Sekundy výpočtu na minutu zvuku podle slugu protokolu (z nastavení)."""
@@ -820,19 +774,27 @@ class BatchPage(QWidget):
         menu.exec(self.files.viewport().mapToGlobal(pos))
 
     def _update_step1_hint(self) -> None:
-        """Nápověda u nadpisu kroku 1: počet nahrávek; zvuk a odhad ukazují dlaždice."""
+        """Souhrn kroku 1 jedním řádkem: nahrávky, zvuk, pacienti; odkaz na doplnění."""
         self._update_tiles()
         text = self.folder.text().strip()
+        self.browse_btn.setText(tr("Změnit…") if text else tr("Vybrat…"))
         if not text:
-            self.step1_hint.setText(tr("Vyber složku."))
+            self.step1_hint.setText(tr("Vyber složku s nahrávkami."))
         elif not self._recordings and not self._excluded:
-            self.step1_hint.setText(tr("žádná nenalezena"))
+            self.step1_hint.setText(tr("žádná nahrávka nenalezena"))
         else:
-            self.step1_hint.setText(self._count_text())
+            parts = [self._count_text()]
+            known = [rec.duration for rec in self._recordings if rec.duration]
+            if known:
+                parts.append(tr("{t} zvuku").format(t=format_seconds(sum(known))))
+            if meta.SUBJECT in self.files.columns:
+                merged = self.files.rows_merged()
+                subjects = {m.get(meta.SUBJECT, "") for m in merged.values()} - {""}
+                parts.append(tr("{n} pacientů").format(n=len(subjects)))
+            self.step1_hint.setText("  ·  ".join(parts))
 
     def refresh_summary(self) -> None:
         """Po běhu: nová doba na nahrávku do řádků úloh i do souhrnu editoru."""
-        self.editor.refresh_summary()
         self._sync_rows()
 
     def set_protocols(self, protocols: list[Protocol], *, current: str = "") -> None:
@@ -915,13 +877,13 @@ class BatchPage(QWidget):
             ).format(where=where)
         )
         self.subtitle.setToolTip(str(root) if root is not None else "")
+        self._title.setToolTip(self.subtitle.text())
 
     def set_advanced(self, advanced: bool) -> None:
         self._advanced = advanced
         self.mode_row.setVisible(advanced)
         if not advanced:
             self.set_mode("extract")  # základní režim umí jen výpočet feature
-        self.advanced_box.setVisible(advanced and self._mode == "extract")
         self._sync_rows()
         self._fill_files()
 
@@ -944,7 +906,6 @@ class BatchPage(QWidget):
         self.prepare_box.setVisible(mode != "extract")
         self.segment_opts.setVisible(mode == "segments")
         self.transcribe_opts.setVisible(mode == "transcript")
-        self.advanced_box.setVisible(self._advanced and mode == "extract")
         self.step3_title.setText(
             {
                 "extract": tr("Protokol"),
@@ -1047,7 +1008,7 @@ class BatchPage(QWidget):
         self.fill_btn.setEnabled(bool(n))
         self.remove_btn.setEnabled(bool(n))
         self.selection_label.setText(tr("vybráno {n}").format(n=n))
-        self.selection_label.setVisible(n > 0)
+        self.bars.setCurrentIndex(1 if n else 0)  # s výběrem lišta akcí s výběrem
 
     def remove_selected(self) -> None:
         """Vybrané nahrávky ven ze seznamu; na disku zůstanou, jen se nepočítají."""
@@ -1244,40 +1205,23 @@ class BatchPage(QWidget):
     def _apply_filter(self) -> None:
         self.files.set_filter(self.search.text())
         self.files.refresh_done()
-        self.missing_tile.set_active(self._fix_mode == "missing")
+        # dlaždice „bez údajů“ je teď odkaz v souhrnu; stav říká její text (doplňuješ)
         self._update_fix_banner()
         self._update_tiles()
 
     def _update_tiles(self) -> None:
-        """Dlaždice nad tabulkou: zvuk, odhad výpočtu, pacienti, nahrávky bez údajů."""
+        """Žlutý odkaz „n bez údajů · doplnit ›“ v souhrnu kroku 1."""
         n = len(self._recordings)
-        known = [rec.duration for rec in self._recordings if rec.duration]
-        if n and known:
-            caption = (
-                tr("zvuku celkem")
-                if len(known) == n
-                else tr("zvuku ({k} z {n} se známou délkou)").format(k=len(known), n=n)
-            )
-            self.audio_tile.set_text(format_seconds(sum(known)), caption)
-        self.audio_tile.setVisible(bool(n and known))
-        expected = self.expected_seconds() if n else None
-        if expected:
-            self.estimate_tile.set_text(format_seconds(expected), tr("odhad výpočtu"))
-        self.estimate_tile.setVisible(bool(expected))
-        merged = self.files.rows_merged()
-        if n and meta.SUBJECT in self.files.columns:
-            subjects = {m.get(meta.SUBJECT, "") for m in merged.values()} - {""}
-            self.patients_tile.set_text(str(len(subjects)), tr("pacientů"))
-            self.patients_tile.show()
-        else:
-            self.patients_tile.hide()
         missing = self.files.missing_indices() if n else []
         if missing:
             labels = ", ".join(meta.label(c) for c in self.files.missing_columns())
-            caption = tr("bez údajů: {columns}").format(columns=labels)
-            if self._fix_mode == "missing":
-                caption += " · " + tr("doplňuješ")
-            self.missing_tile.set_text(str(len(missing)), caption)
+            text = (
+                tr("{n} bez údajů · doplňuješ").format(n=len(missing))
+                if self._fix_mode == "missing"
+                else tr("{n} bez údajů · doplnit ›").format(n=len(missing))
+            )
+            self.missing_tile.setText(text)
+            self.missing_tile.setToolTip(tr("chybí: {columns}").format(columns=labels))
         self.missing_tile.setVisible(bool(missing))
         if hasattr(self, "short_warning"):  # seznam nahrávek se změnil, varování kroku 2 taky
             self._update_short_warning()
@@ -1359,89 +1303,49 @@ class BatchPage(QWidget):
         self._apply_filter()
 
     def _update_meta_label(self) -> None:
-        """Řádek pod tabulkou: soubor manifestu, sloupce, shoda, počet úprav."""
+        """Štítek manifestu v souhrnu (soubor, shoda, úpravy) a položky nabídky Metadata."""
         base = self._manifest
         edits = self.meta_edits()
         columns = self.files.columns
-        self.manifest_clear_btn.setVisible(base is not None)
-        self.edits_btn.setVisible(self.files.has_changes())
-        self.edits_btn.setText(tr("Zahodit úpravy ({n})").format(n=edits))
-        self.save_btn.setEnabled(self.manifest() is not None)
+        self.manifest_clear_action.setVisible(base is not None)
+        self.edits_action.setVisible(self.files.has_changes())
+        self.edits_action.setText(tr("Zahodit úpravy ({n})").format(n=edits))
+        self.save_action.setEnabled(self.manifest() is not None)
+        role, tip = "neutral", ""
         if base is None:
             if self.files.has_changes():
-                self.manifest_label.setText(
-                    tr("Vlastní metadata: {columns} · upraveno: {n}").format(
-                        columns=", ".join(columns), n=edits
-                    )
-                )
+                text = tr("Vlastní metadata · upraveno: {n}").format(n=edits)
+                tip = ", ".join(columns)
             else:
-                self.manifest_label.setText(
-                    tr("Bez metadat. Do výsledků jde jen název souboru.")
-                    if self._recordings
-                    else ""
+                text = ""
+        elif base.problems:
+            text = tr("{name} · chyba").format(name=base.path.name)
+            tip = base.problems[0]
+            role = "missing"
+        else:
+            paths = [rec.path for rec in self._recordings]
+            matched = base.matched(paths)
+            if matched == len(paths):
+                text = tr("{name} ✓").format(name=base.path.name)
+                role = "ok"
+            else:
+                text = tr("{name} · {matched} z {total}").format(
+                    name=base.path.name, matched=matched, total=len(paths)
                 )
-            self.manifest_label.setStyleSheet("")
-            return
-        if base.problems:
-            self.manifest_label.setText(
-                tr("{name}: {problem}").format(name=base.path.name, problem=base.problems[0])
-            )
-            self.manifest_label.setStyleSheet(f"color: {theme.MISSING};")
-            return
-        paths = [rec.path for rec in self._recordings]
-        matched = base.matched(paths)
-        text = tr("{name}: {columns} · {matched} z {total}").format(
-            name=base.path.name,
-            columns=", ".join(columns) or tr("bez sloupců"),
-            matched=matched,
-            total=len(paths),
-        )
-        if edits:
-            text += tr(" · upraveno: {n}").format(n=edits)
+                role = "warn"
+            if edits:
+                text += tr(" · upraveno: {n}").format(n=edits)
+            tip = tr("Sloupce: {columns}").format(columns=", ".join(columns) or "–")
         self.manifest_label.setText(text)
-        self.manifest_label.setStyleSheet(
-            f"color: {theme.WARN};" if matched < len(paths) else f"color: {theme.OK};"
-        )
+        self.manifest_label.setToolTip(tip)
+        self.manifest_label.setVisible(bool(text))
+        theme.set_role(self.manifest_label, role)
 
     # --- protokol -------------------------------------------------------------------
 
     def _protocol_changed(self, proto: Protocol | None) -> None:
-        self.editor.set_protocol(proto)  # kvůli souhrnu v rámečku
         self._sync_mode_to_protocol()
         self._update_run_state()
-
-    def edit_protocol(self, proto: Protocol | None) -> Protocol | None:
-        """Upravit… na kartě: vlastní protokol se uloží, přibalený jako kopie."""
-        if proto is None or not self.editor.has_catalog():
-            return None
-        mode = "copy" if proto.builtin else "edit"
-        taken = self.protocol_names() - ({proto.name} if mode == "edit" else set())
-        result = self.editor_dialog.edit(proto, mode=mode, taken=taken)
-        self.editor.set_protocol(self.current_protocol())  # souhrn zpět na vybraný
-        if result is not None:
-            self.save_requested.emit(result)
-        return result
-
-    def new_protocol(self) -> Protocol | None:
-        """Nový protokol…: prázdný pro aktuální úlohu, se všemi feature k ní."""
-        if not self.editor.has_catalog():
-            return None
-        task = tasks.base_task(self._current_task or self.default_task())
-        result = self.editor_dialog.edit(
-            Protocol(name="", task=task), mode="new", taken=self.protocol_names()
-        )
-        self.editor.set_protocol(self.current_protocol())
-        if result is not None:
-            self.save_requested.emit(result)
-        return result
-
-    def _update_editor_summary(self) -> None:
-        """Krátký souhrn výběru do rámečku na Datech (celý je v okně editoru)."""
-        if not self.editor.has_catalog():
-            self.editor_summary.setText(tr("Seznam feature není k dispozici."))
-            return
-        text = self.editor.picker.summary.text()
-        self.editor_summary.setText(text)
 
     # --- spuštění -------------------------------------------------------------
 
@@ -1657,7 +1561,6 @@ class BatchPage(QWidget):
             row.details_requested.connect(
                 lambda t=task: self.show_protocol_detail(self._row_protocol(t))
             )
-            row.edit_requested.connect(lambda t=task: self.edit_protocol(self._row_protocol(t)))
             if row.task_combo is not None:
                 row.task_combo.currentIndexChanged.connect(
                     lambda _i, r=row: self._single_task_changed(r)
@@ -1747,7 +1650,6 @@ class BatchPage(QWidget):
             row.switch.setEnabled(allowed and bool(recs))
         proto = row.protocol.current_protocol()
         extract = self._mode == "extract"
-        row.edit_btn.setVisible(self._advanced and extract)
         row.details.setVisible(extract)
         row.protocol.setEnabled(extract or self._mode == "transcript")
         if not allowed:
@@ -1803,8 +1705,21 @@ class BatchPage(QWidget):
             runs.append((task, self._with_language(proto), [r.path for r in recs]))
         return runs
 
+    def _update_language_visibility(self, runs: list[tuple[str, Protocol, list[Path]]]) -> None:
+        """Jazyk jen když ho některý běh potřebuje (přepis, jazykový rozbor); bez katalogu vždy."""
+        if self._mode == "transcript":
+            needed = True
+        else:
+            infos = self._card_infos()
+            needed = not infos or any(
+                {"transcript", "nlp"} & set(infos.get(proto.name, ([], ""))[0])
+                for _task, proto, _paths in runs
+            )
+        self.language_label.setVisible(needed)
+        self.language.setVisible(needed)
+
     def _update_summary(self, runs: list[tuple[str, Protocol, list[Path]]]) -> None:
-        """Souhrnný pruh: běhy a nahrávky, zvuk, odhad a podíl úloh."""
+        """Souhrn v patičce: běhy a nahrávky, zvuk, odhad a podíl úloh."""
         durations = {rec.path: rec.duration for rec in self._recordings}
         n_files = sum(len(paths) for _t, _p, paths in runs)
         audio = sum(durations.get(path) or 0 for _t, _p, paths in runs for path in paths)
@@ -1836,7 +1751,9 @@ class BatchPage(QWidget):
             self.summary.set_hint(tr("nejdéle {task}").format(task=tasks.label(longest)))
         else:
             self.summary.set_hint("")
-        self.summary.setVisible(bool(runs))
+        extract = self._mode == "extract"
+        self.summary.setVisible(bool(runs) and extract)
+        self.status.setVisible(not (bool(runs) and extract))
 
     def short_recordings(self, task: str | None = None) -> list[Recording]:
         """Nahrávky kratší než práh délky své úlohy (podle hlavičky souboru).
@@ -1852,33 +1769,27 @@ class BatchPage(QWidget):
         return out
 
     def _update_short_warning(self) -> None:
+        """Krátké nahrávky jedním řádkem (celá věta v tooltipu); práh podle úlohy nahrávky."""
         proto = self.current_protocol()
         short = self.short_recordings()
         if not short or proto is None:
             self.short_warning.hide()
             return
-        limit = quality.min_duration(proto.task) or 0
+        names = ", ".join(r.name for r in short[:3]) + (" …" if len(short) > 3 else "")
         if len(self._task_groups()) > 1:  # víc úloh: každá má vlastní práh
-            self.short_warning.setText(
-                tr(
-                    "⚠ {n} nahrávek je kratších než práh své úlohy: {names}. Spočítají se, "
-                    "ale ve výsledcích budou označené."
-                ).format(
-                    n=len(short),
-                    names=", ".join(r.name for r in short[:3]) + (" …" if len(short) > 3 else ""),
-                )
-            )
-            self.short_warning.show()
-            return
+            limit_text = tr("pod prahem své úlohy")
+        else:
+            limit = quality.min_duration(proto.task) or 0
+            limit_text = tr("{task} pod {s} s").format(task=tasks.label(proto.task), s=f"{limit:g}")
         self.short_warning.setText(
+            tr("⚠ Krátké nahrávky ({n}, {limit}): {names} · budou označené").format(
+                n=len(short), limit=limit_text, names=names
+            )
+        )
+        self.short_warning.setToolTip(
             tr(
-                "⚠ {n} nahrávek je kratších než {s} s ({task}): {names}. Spočítají se, "
-                "ale ve výsledcích budou označené."
-            ).format(
-                n=len(short),
-                s=f"{limit:g}",
-                task=tasks.label(proto.task),
-                names=", ".join(r.name for r in short[:3]) + (" …" if len(short) > 3 else ""),
+                "Nahrávky kratší, než úloha potřebuje (prahy v Nastavení › Kontrola kvality). "
+                "Spočítají se, ale ve výsledcích budou označené jako podezřelé."
             )
         )
         self.short_warning.show()
@@ -1896,14 +1807,13 @@ class BatchPage(QWidget):
         )
         self._update_summary(runs)
         self._update_short_warning()
-        self.new_btn.setEnabled(self.editor.has_catalog())
-        self._update_editor_summary()
+        self._update_language_visibility(runs)
         self._update_step1_hint()
         multi = self._multi()
-        self.step2_title.setText(tr("Úlohy a protokoly") if multi else tr("Úloha a protokol"))
+        self.step2_title.setText(tr("Úlohy") if multi else tr("Úloha"))
         if multi:
             self.step2_hint.setText(
-                tr("úloh: {n} · každá se spustí jako samostatný běh").format(n=len(self._task_rows))
+                tr("{n} · každá úloha = samostatný běh").format(n=len(self._task_rows))
             )
         else:
             self.step2_hint.setText(
@@ -1925,13 +1835,8 @@ class BatchPage(QWidget):
             )
         self.continue_btn.setEnabled(bool(self._recordings))
         if not self._recordings:
-            self.status1.setText(tr("Vyber složku s nahrávkami."))
             self.status.setText(tr("Vyber složku s nahrávkami."))
         else:
-            folder = self._recordings[0].path.parent
-            self.status1.setText(
-                tr("{count} z {folder}").format(count=self._count_text(), folder=folder)
-            )
             if proto is None:
                 self.status.setText(tr("Vyber protokol."))
             elif self._mode == "segments":

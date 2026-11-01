@@ -46,14 +46,12 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   a `card_infos`; doba na nahrávku z minulého běhu je v nastavení
   (`stats/<slug>/seconds_per_file`).
 - **Editor feature a parametrů je jedno okno** (`ProtocolEditorDialog`
-  se `ProtocolEditor`), používají ho Analýza i Protokoly. Uživatel výslovně
-  nechce editor vestavěný do stránky. Na Analýze v rozšířeném režimu má
-  každá karta Upravit… (`dialog.edit(proto, mode="edit"|"copy")`: vlastní
-  protokol se přepíše na místě, přibalený se uloží jako kopie) a rámeček
-  Feature a parametry má Nový protokol… (`mode="new"`, jméno, popis, úloha,
-  výběr feature). Dočasné neuložené úpravy pro jeden běh neexistují:
-  `effective_protocol()` je vždy uložený protokol plus jazyk nahrávek
-  z lišty. Stránka Protokoly používá `dialog.open_for` bez jména a popisu.
+  se `ProtocolEditor`) a je **jen na stránce Protokoly** (`dialog.open_for`).
+  Uživatel výslovně nechce editor vestavěný do stránky. Od 31. 10. 2026
+  (rozhodnuto) Analýza protokoly nezakládá ani neupravuje: bez Upravit…,
+  Nového protokolu i rámečku Feature a parametry; u řádku úlohy zůstává jen ⓘ
+  (co protokol počítá, jen ke čtení). Dočasné neuložené úpravy pro jeden běh
+  neexistují: `effective_protocol()` je vždy uložený protokol plus jazyk nahrávek.
 - **Falešná knihovna** `speechscope_app.fake` má stejné příkazy a kódy jako
   skutečné CLI a vrací zachycené fixtury. Testy GUI běží jen proti ní.
   Při změně knihovny se fixtury zachytí znovu:
@@ -163,9 +161,16 @@ od 31. 10. 2026 podoba A z mockupu https://claude.ai/artifact/RbdMDqP2NUunQRc1Rd
 `docs/mockups/analyza-tabulka/` mimo git: záhlaví velkými písmeny s popisky sloupců (klíč
 v tooltipu, `MetaTable.columns`), řádky bez mřížky, tučný název, délka vpravo; podbarvení,
 modrou tečku u upravené buňky a „doplnit“ v prázdné povinné kreslí `_CellDelegate`, protože
-styl `::item` barvu položky přebíjí; nad tabulkou dlaždice `_Tile` (zvuk, odhad výpočtu,
-pacienti, klikací „bez údajů“ = jen neúplné; pacient, věk a pohlaví jsou na Analýze povinné
-jen vzhledem), řada „vybráno n“ · Vyplnit vybrané… · Odebrat · hledání · Seskupit; Seskupit
+styl `::item` barvu položky přebíjí; **zjednodušeno 31. 10. 2026** (mockup
+https://claude.ai/artifact/Ldth4usZWzyaKP28da6nmu, `docs/mockups/analyza-zjednoduseni/` mimo git):
+v hlavičce kroky „1 Nahrávky › 2 Úlohy“ (`step_label`, `_steps_html`), podtitulek jen v tooltipu
+nadpisu; složka jedním řádkem (i podsložky, Vybrat…/Změnit…); místo dlaždic souhrn jedním řádkem
+(`step1_hint`: nahrávky, zvuk, pacienti), štítek manifestu (`manifest_label`, ✓ / n z m / chyba,
+sloupce v tooltipu) a žlutý odkaz „n bez údajů · doplnit ›“ (`missing_tile`, seznam k doplnění;
+pacient, věk a pohlaví jsou povinné jen vzhledem); lišta nad tabulkou (`bars`): hledání, Seskupit,
+Vrátit odebrané a **Metadata ▾** (`meta_menu`: + Sloupec, Uložit manifest… `save_action`, Načíst
+jiný manifest…, Nepoužít manifest, Zahodit úpravy `edits_action`); s výběrem místo ní „vybráno n ·
+Vyplnit… · Odebrat · ✕ zrušit výběr“; dole jen Pokračovat; Seskupit
 (`set_group_by`, výchozí nic) jen podle sloupce metadat nebo podsložky (`GROUP_FOLDER`, jen
 když nahrávky v podsložkách jsou), nic se neodhaduje z názvů; nadpis skupiny přes celou šířku
 (hodnota, shodné údaje, počet a délka, prázdná hodnota na konci), klik označí skupinu; řádek
@@ -230,8 +235,11 @@ i složku (`history.rename_run_dir`, datum a čas zůstávají, prázdný název
 slug protokolu z `protocol.yaml`); běžící běh nebo složku s otevřeným souborem
 (Excel) přejmenovat nejde, pak zůstane jen `label`; stránky si cesty přepíší
 přes `relocate(old, new)`;
-v rozšířeném režimu souhrn feature, Upravit…, Uložit jako protokol…
-a pod úlohou řada „Spustit:“ Výpočet feature · Jen segmentace · Jen přepis
+krok 2 (zjednodušený 31. 10. 2026): Název běhu nahoře
+v kartě úloh, hlavička „Úlohy“ s nápovědou, vpravo jazyk jen když ho některý protokol potřebuje
+(`_update_language_visibility`: přepis nebo jazykový rozbor), patička s ← Nahrávky, souhrnem
+(`SummaryBar`) a Spustit; varování o krátkých nahrávkách jedním řádkem;
+v rozšířeném režimu v hlavičce úloh přepínač Výpočet feature · Jen segmentace · Jen přepis
 (`contract.RUN_MODES`, `BatchPage.set_mode`): krok 3 pak místo karet ukáže
 volby mezivýsledku (model segmentace z `contract.SEGMENT_MODELS`, vyříznutá
 řeč; model Whisperu z protokolu, jazyk z lišty), bez dialogu; přepis jen pro
@@ -556,6 +564,23 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   na kartu tak nepřepočítává ostatní (60 pacientů dřív ~3,5 s, teď ~50 ms);
   `Selection` si cachuje hodnoty sloupců a průměry po osobách
   (`subject_means`, jeden groupby pro všechny feature).
+- **Průvodci zjednodušení** (31. 10. 2026, mockup https://claude.ai/artifact/GX5BLKd1EcRkrvUTvvvGrg,
+  `docs/mockups/pruvodci-zjednoduseni/` mimo git): Hodnocení z nahrávek ve **dvou krocích**
+  (31. 10. 2026 večer, mockup https://claude.ai/artifact/LqdUbs3QgkT4YPuHdsKN6z,
+  `docs/mockups/hodnoceni-pacienti/` mimo git): **1 Nahrávky** jen složky, protokoly a jazyk (patička
+  napoví „manifest: n pacientů · k údajů chybí“, Další › Pacienti); **2 Pacienti** vždy (rozhodnuto):
+  jeden pacient = formulář (prázdný věk a pohlaví žlutě, Spustit jde i bez nich, rozhodnuto) a řádek
+  „Úlohy vyšetření“ s chybějícími úlohami oranžově (`task_checks`); víc pacientů = tabulka
+  **po vyšetřeních** `visits_table` (pacient × datum, věk a pohlaví jednou za vyšetření `_visit_edited`
+  / `set_visit_value`, úlohy ve sloupcích s počtem nahrávek, „–“ = chybí, názvy v tooltipu), filtr
+  všechna · chybí údaje (zamrazený seznam s ✓) · neúplná sada úloh (`set_visit_filter`), řádek
+  celkem (`totals`), **nepřiřazené nahrávky** ve žlutém oddílu `unassigned_box` přiřazené přímo tam
+  (varianta A: pacient z nabídky nebo nový, datum; `_assign`, `set_person`; seznam v posuvné ploše nejvýš na pět řádků a „datum pro všechny bez data“ `apply_bulk_date`). Oba kroky jsou v `_scrolled` (260 nahrávek bez data dřív zvětšilo minimální výšku okna přes 10 000 px). Opravy jsou
+  `_overrides` po nahrávkách, jen pro tento výpočet; patička se souhrnem a Spustit · n hodnocení. Nová norma na **dva kroky**
+  (1 Zdroj a úlohy, 2 Kontroly; Souhrn zrušen, `last_step` = 1): zdroj z nahrávek / z hotových běhů
+  jako přepínač v řádku kroků (`folders_card`, `runs_card` = tlačítka), název velký a Zdroj
+  s Podmínkami vedle sebe v `about_box`, jazyk u nadpisu Úlohy, varování pod tabulkou kontrol
+  (`warnings`), souhrn a Spustit/Sestavit/Přidat v patičce (`_fill_summary`, hint).
 - **Hodnocení z nahrávek** (mockup https://claude.ai/artifact/EELCDHfXjB8aHzdxxV2DJ5,
   `docs/mockups/hodnoceni-z-nahravek/` mimo git): Nové hodnocení… se nejdřív
   zeptá (`NewAssessmentChoiceDialog`: dvě klikací karty `ChoiceCard` z nahrávek /

@@ -116,8 +116,9 @@ def test_new_norm_wizard_runs_batches_and_builds_norm(
     assert controls["HC03"].age == 58 and controls["HC03"].sex == ""
     assert "chybí pohlaví" in dialog.table.item(2, 4).text()
     assert "bez DDK" in dialog.table.item(2, 4).text()
-    dialog.go_next()
-    assert dialog.step() == 2 and dialog.batches.rowCount() == 2
+    # dva kroky: souhrn v patičce a varování pod kontrolami (dřív krok 3 Souhrn)
+    assert dialog.summary.figures()[:2] == ["3 kontrol", "5 nahrávek"]
+    assert dialog.next_btn.text() == "Spustit"
     assert not dialog.warnings.isHidden() and "Čtení se vynechá" in dialog.warnings.text()
     plan = dialog.plan()
     assert [t.task for t in plan.tasks] == ["phonation", "ddk"]
@@ -211,8 +212,6 @@ def test_new_norm_wizard_with_custom_task(
     assert dialog.step() == 1 and dialog.table.rowCount() == 2
     dialog.set_age("HC01", 60)
     dialog.set_age("HC02", 70)
-    dialog.go_next()
-    assert dialog.batches.item(1, 0).text() == "Popis obrázku"
     plan = dialog.plan()
     assert [t.task for t in plan.tasks] == ["phonation", "popis-obrazku"]
     assert plan.tasks[1].proto().task == "phonation"  # knihovna dostane základní úlohu
@@ -468,8 +467,7 @@ def test_norm_from_runs_and_add_controls(
     assert dialog.table.rowCount() == 2 and not dialog.rule.isVisibleTo(dialog)
     assert "chybí věk" in dialog.table.item(1, 4).text()
     dialog.set_age("HC02", 58)
-    dialog.go_next()
-    assert dialog.next_btn.text() == "Sestavit" and "Nic se nepočítá" in dialog.summary_text.text()
+    assert dialog.next_btn.text() == "Sestavit" and "Nic se nepočítá" in dialog.hint.text()
     plan = dialog.plan()
     assert window.start_norm(plan) == 0  # nic do fronty, sestaví se hned
     norm = norms_mod.Norm.load(plan.folder)
@@ -492,13 +490,13 @@ def test_norm_from_runs_and_add_controls(
     )
     extend = window.make_new_norm_dialog(extend=load_plan(plan.folder))
     qtbot.addWidget(extend)
-    assert "Přidat kontroly" in extend.windowTitle() and extend.name.isHidden()
+    assert "Přidat kontroly" in extend.windowTitle() and extend.about_box.isHidden()
     extend.set_source(RUNS)
     newest = extend.runs_for("phonation")[0]
     assert newest.dir.name.endswith("fonace-dalsi")
     extend.set_runs("phonation", [newest])
     extend.go_next()  # Přidat kontroly má dva kroky: tabulka kontrol je poslední
-    assert extend.step_pills[2].isHidden()
+    assert len(extend.step_pills) == 2  # zdroj a kontroly, jako nová norma
     assert not extend.policy_row.isHidden() and extend.next_btn.text() == "Přidat"
     states = {extend.table.item(r, 0).text(): extend.table.item(r, 3).text() for r in range(2)}
     assert states == {"HC01": "už v normě · přeskočí se", "HC03": "nová"}
@@ -589,7 +587,6 @@ def test_pick_runs_analyses_and_assessments_with_patient_warning(
     dialog.name.setText("S hodnocením")
     dialog.set_source(RUNS)
     dialog.set_runs("phonation", [analysis, visit])
-    dialog.go_next()
     dialog.go_next()
     assert dialog.patients_in_norm() == ["HN032"]
     assert "zároveň na stránce Pacienti (HN032)" in dialog.warnings.text()

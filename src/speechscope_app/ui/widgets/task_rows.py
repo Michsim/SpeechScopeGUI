@@ -286,13 +286,12 @@ class TaskRowWidget(QFrame):
 
     Atributy pro stránky a testy: `switch`, `icon`, `label` (nebo `task_combo`),
     `sub`, `folder` a `browse`, `protocol` (`ProtocolCombo`), `status`, `count`
-    (sloupec vpravo: odhad nebo počet), `details` (odkaz „co se počítá“),
-    `edit_btn` (rozšířený režim), `remove`.
+    (sloupec vpravo: odhad nebo počet), `details` (ⓘ, co protokol počítá),
+    `remove`.
     """
 
     toggled = Signal(bool)
     details_requested = Signal()
-    edit_requested = Signal()
     clicked = Signal()
 
     def __init__(
@@ -382,16 +381,18 @@ class TaskRowWidget(QFrame):
         self.count.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(self.count)
 
-        self.details = QLabel(f"<a href='#' style='color:{theme.ACCENT}'>{tr('co se počítá')}</a>")
-        self.details.setToolTip(tr("Seznam feature a sloupců vybraného protokolu s popisem."))
-        self.details.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
-        self.details.linkActivated.connect(lambda _href: self.details_requested.emit())
+        # ⓘ = co protokol počítá (dřív odkaz „co se počítá“ na konci každého řádku)
+        self.details = QPushButton("i")
+        self.details.setFixedSize(22, 22)
+        self.details.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.details.setToolTip(tr("Co protokol počítá: feature a sloupce s popisem."))
+        self.details.setStyleSheet(
+            "QPushButton { border: 1.5px solid #9ca3af; border-radius: 11px; color: #6b7280;"
+            " font-weight: 700; padding: 0; background: transparent; }"
+            f"QPushButton:hover {{ border-color: {theme.ACCENT}; color: {theme.ACCENT}; }}"
+        )
+        self.details.clicked.connect(lambda: self.details_requested.emit())
         layout.addWidget(self.details)
-        self.edit_btn = QPushButton(tr("Upravit…"))
-        self.edit_btn.setToolTip(tr("Upraví vybraný protokol; přibalený se uloží jako kopie."))
-        self.edit_btn.clicked.connect(lambda: self.edit_requested.emit())
-        self.edit_btn.hide()
-        layout.addWidget(self.edit_btn)
 
         self.remove = QPushButton("✕")
         self.remove.setFixedSize(30, 30)
@@ -462,6 +463,7 @@ class ShareBar(QWidget):
         super().__init__(parent)
         self._parts: list[tuple[float, str]] = []
         self.setFixedSize(180, 8)
+        self.hide()  # ukáže se až s aspoň dvěma díly (set_parts)
 
     def set_parts(self, parts: list[tuple[float, str]]) -> None:
         self._parts = [(v, c) for v, c in parts if v > 0]

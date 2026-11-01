@@ -285,7 +285,6 @@ class MainWindow(QMainWindow):
         self.batch_page.run_requested.connect(self._start_batch)
         self.batch_page.prepare_requested.connect(self._start_prepare)
         self.batch_page.runs_requested.connect(self._start_runs)
-        self.batch_page.save_requested.connect(self.save_protocol)
         self.run_page.finished.connect(self._batch_finished)
         for page in (
             self.batch_page,
@@ -772,20 +771,6 @@ class MainWindow(QMainWindow):
         self.protocols_page.set_protocols(
             protocols, folder, current=self.protocols_page.current_name()
         )
-
-    def save_protocol(self, proto: Protocol) -> Path:
-        """Uloží protokol mezi uživatelské a znovu načte nabídku."""
-        folder = self.settings.protocols_dir()
-        path = proto.path or folder / f"{proto.slug()}.yaml"
-        existing = {p.name: p for p in all_protocols(folder) if not p.builtin}
-        if proto.path is None and proto.name in existing and existing[proto.name].path:
-            path = existing[proto.name].path  # přepis stejného jména, ne druhý soubor
-        proto.path = None  # do YAML nepatří
-        proto.save(path)
-        self.settings.last_protocol = proto.name
-        self.reload_protocols(proto.name)
-        self.statusBar().showMessage(tr("Protokol uložen: {path}").format(path=path), 8000)
-        return path
 
     # --- běh ------------------------------------------------------------------
 

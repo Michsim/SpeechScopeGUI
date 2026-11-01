@@ -28,7 +28,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
-    QFormLayout,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -88,7 +87,7 @@ from .widgets.clean_table import (
 )
 from .widgets.inputs import Segmented
 from .widgets.status_header import Pill
-from .widgets.task_rows import TaskRowWidget
+from .widgets.task_rows import SummaryBar, TaskRowWidget
 
 FOLDERS, RUNS = "folders", "runs"  # zdroj normy v kroku 1
 ALL_ROWS = ""  # filtr skupiny vypnutý
@@ -237,22 +236,20 @@ class NewNormDialog(QDialog):
         outer.setSpacing(12)
         steps = QHBoxLayout()
         steps.setSpacing(8)
+        # Dva kroky (31. 10. 2026, dřív tři se Souhrnem): souhrn je v patičce, varování
+        # pod tabulkou kontrol. Vpravo volba zdroje z nahrávek / z hotových běhů.
         self.step_pills = [
-            Pill(tr("1 Zdroj"), "neutral"),
+            Pill(tr("1 Zdroj a úlohy"), "neutral"),
             Pill(tr("2 Kontroly"), "neutral"),
-            Pill(tr("3 Souhrn"), "neutral"),
         ]
         for i, pill in enumerate(self.step_pills):
             if i:
                 arrow = QLabel("›")
                 arrow.setObjectName("muted")
                 steps.addWidget(arrow)
-                if i == 2 and extend is not None:
-                    arrow.hide()
             steps.addWidget(pill)
-        if extend is not None:  # Přidat kontroly: zdroj a kontroly, bez souhrnu
-            self.step_pills[2].hide()
         steps.addStretch(1)
+        self._steps_row = steps
         outer.addLayout(steps)
 
         self.stack = QStackedWidget()
@@ -263,21 +260,27 @@ class NewNormDialog(QDialog):
             _scrolled(self._build_sources(protocols, advanced, languages or [], language))
         )
         self.stack.addWidget(self._build_controls())
-        self.stack.addWidget(_scrolled(self._build_summary()))
 
-        footer = QHBoxLayout()
+        foot = QFrame()
+        foot.setObjectName("card")
+        footer = QHBoxLayout(foot)
+        footer.setContentsMargins(10, 8, 10, 8)
+        footer.setSpacing(12)
         self.back_btn = QPushButton("")
         self.back_btn.clicked.connect(self.go_back)
         footer.addWidget(self.back_btn)
-        footer.addStretch(1)
+        self.summary = SummaryBar()
+        self.summary.setStyleSheet("QFrame#summarybar { background: transparent; border: none; }")
+        footer.addWidget(self.summary, 1)
         self.hint = QLabel("")
         self.hint.setObjectName("muted")
-        footer.addWidget(self.hint)
+        self.hint.setWordWrap(True)
+        footer.addWidget(self.hint, 1)
         self.next_btn = QPushButton("")
         theme.set_role(self.next_btn, "primary")
         self.next_btn.clicked.connect(self.go_next)
         footer.addWidget(self.next_btn)
-        outer.addLayout(footer)
+        outer.addWidget(foot)
         self._show_step(0)
 
     # --- krok 1: nahrávky ---------------------------------------------------------
@@ -285,57 +288,64 @@ class NewNormDialog(QDialog):
     def _build_sources(
         self, protocols: list[Protocol], advanced: bool, languages: list[str], language: str
     ) -> QWidget:
-        from .assessment_build_dialog import ChoiceCard  # ten modul importuje tento
 
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
-        choices = QHBoxLayout()
-        choices.setSpacing(10)
-        self.folders_card = ChoiceCard(
-            tr("Z nahrávek"),
-            tr("Složka na úlohu, nahrávky se spočítají jako dávky ve frontě."),
+        # Zdroj: přepínač v řádku kroků (dřív dvě velké karty), popis v tooltipu.
+        self.folders_card = QPushButton(tr("z nahrávek"))
+        self.folders_card.setCheckable(True)
+        self.folders_card.setToolTip(
+            tr("Složka na úlohu, nahrávky se spočítají jako dávky ve frontě.")
         )
-        self.runs_card = ChoiceCard(
-            tr("Z hotových běhů"),
+        self.runs_card = QPushButton(tr("z hotových běhů"))
+        self.runs_card.setCheckable(True)
+        self.runs_card.setToolTip(
             tr("Použije tabulky běhů, které už jsou spočítané. Nic se nepočítá.")
             if self._all_runs
-            else tr("Zatím žádný hotový běh."),
+            else tr("Zatím žádný hotový běh.")
         )
         self.runs_card.setEnabled(bool(self._all_runs))
-        self.source_group = QButtonGroup(self)  # karty mají různé rodiče, výlučnost ručně
-        self.source_group.addButton(self.folders_card.radio)
-        self.source_group.addButton(self.runs_card.radio)
-        self.folders_card.radio.setChecked(True)
-        self.runs_card.radio.toggled.connect(lambda on: self.set_source(RUNS if on else FOLDERS))
-        choices.addWidget(self.folders_card, 1)
-        choices.addWidget(self.runs_card, 1)
-        layout.addLayout(choices)
-        form = QFormLayout()
+        self.source_group = QButtonGroup(self)
+        self.source_group.setExclusive(True)
+        self.source_group.addButton(self.folders_card)
+        self.source_group.addButton(self.runs_card)
+        self.folders_card.setChecked(True)
+        self.runs_card.toggled.connect(lambda on: self.set_source(RUNS if on else FOLDERS))
+        for btn in (self.folders_card, self.runs_card):
+            self._steps_row.addWidget(btn)
+        # O normě: název velký, zdroj a podmínky menší vedle sebe (nepovinné)
+        self.about_box = QFrame()
+        self.about_box.setObjectName("card")
+        about = QVBoxLayout(self.about_box)
+        about.setContentsMargins(14, 12, 14, 12)
+        about.setSpacing(8)
         self.name = QLineEdit()
-        self.name.setPlaceholderText(tr("třeba Zdravé kontroly SAMI 2026"))
+        self.name.setPlaceholderText(tr("Název normy, třeba Zdravé kontroly SAMI 2026"))
+        name_font = self.name.font()
+        name_font.setPointSizeF(name_font.pointSizeF() * 1.15)
+        self.name.setFont(name_font)
         self.name.textChanged.connect(self._update_buttons)
-        form.addRow(tr("Název normy"), self.name)
+        about.addWidget(self.name)
+        about_row = QHBoxLayout()
+        about_row.setSpacing(8)
         self.source = QLineEdit()
-        self.source.setPlaceholderText(tr("pracoviště nebo studie"))
-        form.addRow(tr("Zdroj"), self.source)
+        self.source.setPlaceholderText(tr("Odkud (pracoviště, studie) · nepovinné"))
         self.conditions = QLineEdit()
-        self.conditions.setPlaceholderText(
-            tr("místnost, mikrofon (pomůže posoudit, k čemu normu použít)")
-        )
-        form.addRow(tr("Podmínky"), self.conditions)
+        self.conditions.setPlaceholderText(tr("Podmínky (místnost, mikrofon) · nepovinné"))
+        self.conditions.setToolTip(tr("Pomůže posoudit, k čemu normu použít."))
+        about_row.addWidget(self.source, 1)
+        about_row.addWidget(self.conditions, 1)
+        about.addLayout(about_row)
+        layout.addWidget(self.about_box)
         self.language = QComboBox()
         for code in languages or [language]:
             self.language.addItem(contract.language_label(code), code)
         idx = self.language.findData(language)
         self.language.setCurrentIndex(max(idx, 0))
-        form.addRow(tr("Jazyk nahrávek"), self.language)
-        self.form = form
-        layout.addLayout(form)
         if self._extend is not None:  # norma už má jméno, popis i jazyk
-            for field_widget in (self.name, self.source, self.conditions, self.language):
-                form.setRowVisible(field_widget, False)
+            self.about_box.hide()
             self.name.blockSignals(True)  # tlačítka ještě nejsou
             self.name.setText(self._extend.info.name)
             self.name.blockSignals(False)
@@ -347,30 +357,17 @@ class NewNormDialog(QDialog):
         folders_layout = QVBoxLayout(self.folders_box)
         folders_layout.setContentsMargins(0, 0, 0, 0)
         folders_layout.setSpacing(12)
-        # řádky úloh jako na Analýze (widgets/task_rows.py), pod sebou
-        rows_box = QWidget()
-        self.task_rows_layout = QVBoxLayout(rows_box)
-        self.task_rows_layout.setContentsMargins(0, 0, 0, 0)
-        self.task_rows_layout.setSpacing(6)
-        self._protocols = protocols
-        self._advanced = advanced
-        self.rows: dict[str, TaskRow] = {}
-        for task in contract.TASKS:
-            self._add_row(TaskRow(task, protocols, advanced))
-        folders_layout.addWidget(rows_box)
-        options = QHBoxLayout()
-        self.recursive = QCheckBox(tr("včetně podsložek"))
-        self.recursive.toggled.connect(self._rescan_all)
-        options.addWidget(self.recursive)
-        self.add_task_btn = QPushButton(tr("+ Přidat vlastní úlohu…"))
-        self.add_task_btn.setToolTip(
-            tr("Další úloha pod vlastním jménem, počítá se jako jedna z úloh knihovny.")
-        )
-        self.add_task_btn.clicked.connect(lambda: self._ask_custom_task())
-        options.addWidget(self.add_task_btn)
-        options.addStretch(1)
-        folders_layout.addLayout(options)
-        note = QLabel(
+        tasks_head = QHBoxLayout()
+        tasks_head.setSpacing(10)
+        tasks_title = QLabel(tr("Úlohy"))
+        tasks_title.setObjectName("card_title")
+        tasks_head.addWidget(tasks_title)
+        tasks_hint = QLabel(tr("složka s nahrávkami kontrol pro každou úlohu"))
+        tasks_hint.setObjectName("muted")
+        tasks_head.addWidget(tasks_hint)
+        info = QLabel("ⓘ")
+        info.setObjectName("muted")
+        info.setToolTip(
             tr(
                 "Protokol je přibalený pro danou úlohu; jiný jde vybrat jen v rozšířeném "
                 "režimu. Vlastní úloha má svůj výchozí protokol a počítá se jako jedna z úloh "
@@ -383,9 +380,41 @@ class NewNormDialog(QDialog):
                 "Do složek s nahrávkami se nic nezapisuje."
             )
         )
-        note.setObjectName("muted")
-        note.setWordWrap(True)
-        folders_layout.addWidget(note)
+        tasks_head.addWidget(info)
+        tasks_head.addStretch(1)
+        self.language_label = QLabel(tr("Jazyk"))
+        self.language_label.setObjectName("muted")
+        tasks_head.addWidget(self.language_label)
+        tasks_head.addWidget(self.language)
+        if self._extend is not None:
+            self.language_label.hide()
+            self.language.hide()
+        folders_layout.addLayout(tasks_head)
+        # řádky úloh jako na Analýze (widgets/task_rows.py), pod sebou
+        rows_box = QWidget()
+        self.task_rows_layout = QVBoxLayout(rows_box)
+        self.task_rows_layout.setContentsMargins(0, 0, 0, 0)
+        self.task_rows_layout.setSpacing(6)
+        self._protocols = protocols
+        self._advanced = advanced
+        self.rows: dict[str, TaskRow] = {}
+        for task in contract.TASKS:
+            self._add_row(TaskRow(task, protocols, advanced))
+        folders_layout.addWidget(rows_box)
+        options = QHBoxLayout()
+        self.recursive = QCheckBox(tr("i podsložky"))
+        self.recursive.toggled.connect(self._rescan_all)
+        options.addWidget(self.recursive)
+        options.addStretch(1)
+        self.add_task_btn = QPushButton(tr("+ Vlastní úloha…"))
+        self.add_task_btn.setFlat(True)
+        self.add_task_btn.setToolTip(
+            tr("Další úloha pod vlastním jménem, počítá se jako jedna z úloh knihovny.")
+        )
+        self.add_task_btn.clicked.connect(lambda: self._ask_custom_task())
+        options.addWidget(self.add_task_btn)
+        options.addStretch(1)
+        folders_layout.addLayout(options)
         layout.addWidget(self.folders_box)
         if self._extend is not None:
             self.add_task_btn.hide()
@@ -476,11 +505,9 @@ class NewNormDialog(QDialog):
         if source == RUNS and not self._all_runs:
             return
         self._source = source
-        (self.runs_card if source == RUNS else self.folders_card).radio.setChecked(True)
+        (self.runs_card if source == RUNS else self.folders_card).setChecked(True)
         self.folders_box.setVisible(source == FOLDERS)
         self.runs_box.setVisible(source == RUNS)
-        if self._extend is None:
-            self.form.setRowVisible(self.language, source == FOLDERS)  # běhy jazyk už mají
         self._update_buttons()
 
     def runs_for(self, task: str) -> list[RunInfo]:
@@ -757,16 +784,19 @@ class NewNormDialog(QDialog):
         self.extend_summary.setWordWrap(True)
         self.extend_summary.setVisible(self._extend is not None)
         layout.addWidget(self.extend_summary)
-        note = QLabel(
+        self.counts.setToolTip(
             tr(
                 "Kontrolu bez věku nebo pohlaví jde použít, jen se nevybere podle věkového "
                 "okna nebo pohlaví. Když ve složce je manifest.csv, pacient, věk a pohlaví "
                 "se vezmou z něj."
             )
         )
-        note.setObjectName("muted")
-        note.setWordWrap(True)
-        layout.addWidget(note)
+        # varování (dřív krok Souhrn): málo kontrol, vynechaná úloha, pacient v normě…
+        self.warnings = QLabel("")
+        self.warnings.setWordWrap(True)
+        self.warnings.setStyleSheet(f"color: {theme.WARN};")
+        self.warnings.hide()
+        layout.addWidget(self.warnings)
         return page
 
     def _regroup(self) -> None:
@@ -1017,6 +1047,8 @@ class NewNormDialog(QDialog):
         if no_age:
             parts.append(tr("{n} bez věku").format(n=no_age))
         self.counts.setText(" · ".join(parts))
+        if hasattr(self, "next_btn"):  # souhrn v patičce a varování podle kontrol
+            self._update_buttons()
 
     def _load_csv(self) -> None:
         source, _ = QFileDialog.getOpenFileName(self, tr("Věk a pohlaví kontrol"), "", CSV_FILTER)
@@ -1048,38 +1080,6 @@ class NewNormDialog(QDialog):
 
     # --- krok 3: souhrn -----------------------------------------------------------
 
-    def _build_summary(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-        self.summary_title = QLabel("")
-        self.summary_title.setObjectName("headline")
-        layout.addWidget(self.summary_title)
-        self.summary_text = QLabel("")
-        self.summary_text.setWordWrap(True)
-        layout.addWidget(self.summary_text)
-        self.batches = QTableWidget()
-        style_table(self.batches, [tr("úloha"), tr("dávka"), tr("odhad")])
-        header = self.batches.horizontalHeader()
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setStretchLastSection(False)
-        layout.addWidget(card(self.batches))
-        self.total = QLabel("")
-        layout.addWidget(self.total)
-        self.warnings = QLabel("")
-        self.warnings.setObjectName("card")
-        theme.set_role(self.warnings, "warn")
-        self.warnings.setWordWrap(True)
-        self.warnings.setContentsMargins(12, 8, 12, 8)
-        layout.addWidget(self.warnings)
-        self.summary_info = QLabel("")
-        self.summary_info.setObjectName("muted")
-        self.summary_info.setWordWrap(True)
-        layout.addWidget(self.summary_info)
-        layout.addStretch(1)
-        return page
-
     def replace_existing(self) -> bool:
         """Přidat kontroly: nahrávky kontroly, která úlohu v normě má, nahradit."""
         return self.policy.current() == self.REPLACE
@@ -1104,16 +1104,17 @@ class NewNormDialog(QDialog):
         return add, dup
 
     def _fill_summary(self) -> None:
-        if self.step() != 2:
+        """Souhrn v patičce a varování pod kontrolami (krok 2; dřív samostatný krok 3)."""
+        if self.step() != 1:
             return
         from_runs = self._source == RUNS
-        if self._extend is not None:
-            self.summary_title.setText(self._extend.info.display_name)
-        else:
-            self.summary_title.setText(self.name.text().strip())
         controls = list(self._controls.values())
-        complete = sum(1 for c in controls if c.age is not None and c.sex)
         by_task = self.recordings_by_task()
+        n_rec = sum(len(v) for v in by_task.values())
+        figures = [
+            (tr("{n} kontrol").format(n=len(controls)), tr("{k} úloh").format(k=len(by_task))),
+            (tr("{n} nahrávek").format(n=n_rec), tr("z hotových běhů") if from_runs else ""),
+        ]
         if self._extend is not None:
             add, dup = self._addition_counts()
             text = tr("Přidá se {a} nahrávek, {d} se přeskočí (v normě už jsou).").format(
@@ -1125,85 +1126,45 @@ class NewNormDialog(QDialog):
                 else tr("Přidané nahrávky se spočítají, pak se norma sestaví znovu.")
             )
         elif from_runs:
-            text = tr(
-                "{n} kontrol, {k} s věkem i pohlavím, {r} nahrávek z hotových běhů. Nic se "
-                "nepočítá, norma se sestaví hned."
-            ).format(n=len(controls), k=complete, r=sum(len(v) for v in by_task.values()))
+            text = tr("Nic se nepočítá, norma se sestaví hned.")
         else:
-            text = tr(
-                "{n} kontrol, {k} s věkem i pohlavím. Spočítá se dávek: {b}, každá na stránce "
-                "Výpočet jako běžná analýza."
-            ).format(n=len(controls), k=complete, b=len(by_task))
-        self.summary_text.setText(text)
-        self.summary_info.setText(
-            tr(
-                "Norma se sestaví z tabulek vybraných běhů a objeví se na stránce Normy. "
-                "Přepočítat ji půjde, dokud jsou nahrávky na disku."
-            )
-            if from_runs
-            else tr(
-                "Dávky se zařadí do fronty na stránce Výpočet jako běžná analýza. Po poslední "
-                "se norma sestaví sama a objeví se na stránce Normy. Když některá dávka "
-                "spadne, jde normu sestavit z hotových, nebo chybné dopočítat."
-            )
-        )
+            total, known = 0.0, True
+            for row in self.active_rows():
+                proto = row.current_protocol()
+                rate = self._rate(proto.slug()) if proto is not None else None
+                if rate and row.scan.audio_seconds:
+                    total += rate / 60 * row.scan.audio_seconds
+                else:
+                    known = False
+            if total:
+                figures.append(
+                    ("~" + format_duration(total), tr("odhad") if known else tr("odhad (část)"))
+                )
+            text = tr("po výpočtu se norma sestaví sama")
+        self.summary.set_figures(figures)
+        self.summary.show()
+        self.hint.setText(text)
         self.next_btn.setText(
             (tr("Přidat") if from_runs else tr("Spustit"))
             if self._extend is not None
             else (tr("Sestavit") if from_runs else tr("Spustit"))
         )
-        if from_runs:
-            self._fill_runs_summary(by_task)
-            return
-        rows = self.active_rows()
-        self.batches.setRowCount(len(rows))
-        total = 0.0
-        known = True
-        for r, row in enumerate(rows):
-            proto = row.current_protocol()
-            assert proto is not None
-            set_text(self.batches, r, 0, row.label.text(), bold=True)
-            self.batches.setItem(
-                r,
-                1,
-                QTableWidgetItem(
-                    tr("{n} nahrávek · {proto}").format(
-                        n=len(row.scan.recordings), proto=proto.display_name
-                    )
-                ),
-            )
-            rate = self._rate(proto.slug())
-            if rate and row.scan.audio_seconds:
-                seconds = rate / 60 * row.scan.audio_seconds
-                total += seconds
-                estimate = format_duration(seconds)
-            else:
-                known = False
-                estimate = tr("po prvním běhu")
-            set_text(self.batches, r, 2, estimate, muted=True)
-        height = self.batches.horizontalHeader().height() + 4
-        height += sum(self.batches.rowHeight(i) for i in range(len(rows)))
-        self.batches.setFixedHeight(height)
-        if total:
-            text = tr("Celkem odhad asi {t}").format(t=format_duration(total))
-            self.total.setText(
-                text if known else text + tr(" (bez úloh, které se ještě nepočítaly)")
-            )
-        else:
-            self.total.setText(tr("Odhad času bude po prvním běhu protokolu."))
         problems = []
-        for row in self.rows.values():
-            if not row.scan.recordings and self._extend is None:
-                problems.append(
-                    tr(
-                        "{task} se vynechá (bez nahrávek). Dimenze, které ji potřebují, s touto "
-                        "normou porovnat nepůjdou."
-                    ).format(task=row.label.text())
-                )
+        if from_runs:
+            problems += self._runs_problems_text()
+        else:
+            for row in self.rows.values():
+                if not row.scan.recordings and self._extend is None:
+                    problems.append(
+                        tr(
+                            "{task} se vynechá (bez nahrávek). Dimenze, které ji potřebují, s "
+                            "touto normou porovnat nepůjdou."
+                        ).format(task=row.label.text())
+                    )
         if self._extend is None:
             problems += self._few_controls(by_task)
         problems += self._patient_warning()
-        self.warnings.setText("\n".join(problems))
+        self.warnings.setText("\n".join("⚠ " + p for p in problems))
         self.warnings.setVisible(bool(problems))
 
     def patients_in_norm(self) -> list[str]:
@@ -1234,28 +1195,8 @@ class NewNormDialog(QDialog):
                 )
         return out
 
-    def _fill_runs_summary(self, by_task: dict[str, list[Path]]) -> None:
-        """Souhrn zdroje z běhů: úloha, kolik nahrávek z kolika běhů, nic se nepočítá."""
-        tasks = [t for t in self._chosen if by_task.get(t)]
-        self.batches.setRowCount(len(tasks))
-        for r, task in enumerate(tasks):
-            runs = self._chosen[task]
-            names = sorted({run.protocol_name for run in runs if run.protocol_name})
-            set_text(self.batches, r, 0, self._task_name(task), bold=True)
-            self.batches.setItem(
-                r,
-                1,
-                QTableWidgetItem(
-                    tr("{n} nahrávek z {k} běhů · {proto}").format(
-                        n=len(by_task[task]), k=len(runs), proto=", ".join(names) or "–"
-                    )
-                ),
-            )
-            set_text(self.batches, r, 2, tr("hotovo, nepočítá se"), muted=True)
-        height = self.batches.horizontalHeader().height() + 4
-        height += sum(self.batches.rowHeight(i) for i in range(len(tasks)))
-        self.batches.setFixedHeight(height)
-        self.total.setText("")
+    def _runs_problems_text(self) -> list[str]:
+        """Varování zdroje z běhů (jiný protokol, kontrola z názvu souboru, chybné řádky)."""
         problems = runs_problems(self._chosen)
         if self.runs_warning.text():
             problems = self.runs_warning.text().split("\n")
@@ -1264,7 +1205,7 @@ class NewNormDialog(QDialog):
             problems.append(
                 tr(
                     "{n} nahrávek nemá pacienta v metadatech běhu, kontrola je podle názvu "
-                    "souboru (pravidlo v kroku 2)."
+                    "souboru (pravidlo nahoře)."
                 ).format(n=scan.from_name)
             )
         if scan.no_subject:
@@ -1277,11 +1218,7 @@ class NewNormDialog(QDialog):
             problems.append(
                 tr("{n} chybných řádků (knihovna vrátila chybu) se vynechá.").format(n=scan.errors)
             )
-        if self._extend is None:
-            problems += self._few_controls(by_task)
-        problems += self._patient_warning()
-        self.warnings.setText("\n".join(problems))
-        self.warnings.setVisible(bool(problems))
+        return problems
 
     # --- kroky ---------------------------------------------------------------------
 
@@ -1293,18 +1230,16 @@ class NewNormDialog(QDialog):
         for i, pill in enumerate(self.step_pills):
             theme.set_role(pill, "accent" if i == index else ("ok" if i < index else "neutral"))
         self.back_btn.setText(tr("Storno") if index == 0 else tr("‹ Zpět"))
-        self.next_btn.setText(tr("Spustit") if index == 2 else tr("Další ›"))
-        if index == 1 and self._extend is not None:  # Přidat kontroly končí tabulkou kontrol
-            self.next_btn.setText(tr("Přidat") if self._source == RUNS else tr("Spustit"))
+        self.next_btn.setText(tr("Další › Kontroly"))
+        self.summary.setVisible(index == 1)
         if index == 1:
             self._regroup()
-        elif index == 2:
             self._fill_summary()
         self._update_buttons()
 
     def last_step(self) -> int:
-        """Přidat kontroly má dva kroky (zdroj, kontroly), nová norma tři."""
-        return 1 if self._extend is not None else 2
+        """Dva kroky: zdroj a úlohy, kontroly (dřív nová norma tři se Souhrnem)."""
+        return 1
 
     def _update_buttons(self) -> None:
         hint = ""
@@ -1332,11 +1267,14 @@ class NewNormDialog(QDialog):
                 hint = tr("úloh: {k} · nahrávek: {n}").format(k=len(rows), n=n)
         elif self.step() == 1:
             ok = bool(self._controls)
-            hint = "" if ok else tr("Žádná kontrola.")
             if ok and self._extend is not None:
-                add, dup = self._addition_counts()
+                add, _dup = self._addition_counts()
                 ok = add > 0
-                hint = tr("přidá se {a} nahrávek, {d} se přeskočí").format(a=add, d=dup)
+            self.next_btn.setEnabled(ok)
+            self._fill_summary()
+            if not self._controls:
+                self.hint.setText(tr("Žádná kontrola."))
+            return
         self.next_btn.setEnabled(ok)
         self.hint.setText(hint)
 

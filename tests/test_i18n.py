@@ -40,10 +40,10 @@ def test_every_source_text_has_english() -> None:
 def test_activate_and_labels() -> None:
     assert i18n.available()[:2] == ["cs", "en"]
     assert i18n.activate("cs") == "cs"
-    assert i18n.tr("Nahrávky") == "Nahrávky"
+    assert i18n.tr("Úlohy") == "Úlohy"
     assert contract.TASK_LABELS["spontaneous"] == "Spontánní řeč (pohádka, monolog)"
     assert i18n.activate("en") == "en"
-    assert i18n.tr("Nahrávky") == "Recordings"
+    assert i18n.tr("Úlohy") == "Tasks"
     assert i18n.tr("text bez překladu") == "text bez překladu"
     assert contract.TASK_LABELS["spontaneous"] == "Spontaneous speech (story, monologue)"
     assert contract.TASK_LABELS.get("spontaneous") == "Spontaneous speech (story, monologue)"
