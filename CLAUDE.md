@@ -518,7 +518,9 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   kroužek; barvu nese jen štítek pásma za názvem dimenze, bod a číslo SD, řádky bez
   podbarvení, položka navíc tečkou (`band_dot`) a názvem barvou pásma (i zelená v normě,
   bez hodnoty šedě), úloha položky šedým štítkem (`DimensionTreeDelegate`); šířku názvu a osy
-  dopočítá `fit_columns` včetně sbalených položek, Stretch smrskl název; ve výchozím
+  dopočítá `fit_columns` včetně sbalených položek; od 1. 11. 2026 název podle obsahu nejvýš
+  `NAME_MAX` = 320 px (delší zkrácený s tooltipem, v úzkém okně až `NAME_MIN`), osa hned za ním,
+  volné místo až za posledním sloupcem (dřív dostal název všechno volné místo a čísla odjela); ve výchozím
   stavu vše sbalené, „rozbalit vše“ · „sbalit vše“; strom je vysoký podle viditelných
   řádků (`fit_height`, `refit`) bez vlastního svislého posuvníku, roluje stránka),
   chybějící dimenze
@@ -829,7 +831,9 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   „<0.001“ zmizí jako značka), efekt s pruhem a slovem, tabulka skupin se dvojicí podle metody
   (medián a IQR, nebo x̄ a SD; druhá v tooltipu, čtyři čísla se do panelu nevešla), normalita
   štítky, párová porovnání; tabulky v panelu `_narrow` (bez vodorovného posuvníku, šířku určuje
-  panel).
+  panel). Úprava 1. 11. 2026 večer: záhlaví „● A“, „● B“ v tabulce barvou skupiny jako v grafu
+  (`clean_table.ColorHeader` kreslí text barvou z `setForeground` záhlaví, styl tabulky ji jinak
+  přebije); u krabice v grafu jen „n 6“, medián je v tabulce skupin pod grafem.
 
 ## Kontrola kvality nahrávek (31. 10. 2026)
 - **Knihovna měří, GUI soudí.** Knihovna má od 31. 10. 2026 feature

@@ -791,6 +791,8 @@ class AssessmentPage(QWidget):
         self.tree.setStyleSheet(
             f"QTreeWidget {{ background: {theme.CARD}; border: none; }}"
             f"QTreeWidget::item {{ border-bottom: 1px solid {theme.NEUTRAL_SOFT}; }}"
+            # volné místo za posledním sloupcem (od 1. 11. 2026) barvou karty, ne šedě
+            f"QHeaderView {{ background: {theme.CARD}; border: none; }}"
             f"QHeaderView::section {{ background: {theme.CARD}; color: {theme.MUTED};"
             f" border: none; border-bottom: 1px solid {theme.BORDER}; padding: 6px;"
             " font-weight: 600; }"

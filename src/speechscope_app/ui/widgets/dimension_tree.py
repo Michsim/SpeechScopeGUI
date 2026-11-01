@@ -25,6 +25,9 @@ from .spider_chart import BAND_COLORS, MAX_SD, MIN_SD, fraction
 
 AXIS_PAD = 14  # vodorovný okraj osy v buňce i v záhlaví, aby čísla seděla nad body
 AXIS_MIN, AXIS_MAX = 200, 360  # šířka sloupce osy podle místa (`DimensionTree.fit_columns`)
+# název dimenze / položky: podle obsahu, nejvýš NAME_MAX (delší se zkrátí, celý v tooltipu),
+# v úzkém okně až na NAME_MIN; volné místo zůstává za posledním sloupcem (1. 11. 2026)
+NAME_MIN, NAME_MAX = 160, 320
 BAND_ROLE = Qt.ItemDataRole.UserRole + 40  # pásmo dimenze → štítek za názvem
 PILL_ROLE = Qt.ItemDataRole.UserRole + 41  # text štítku za názvem dimenze
 TASK_PILL_ROLE = Qt.ItemDataRole.UserRole + 42  # úloha položky jako šedý štítek
@@ -152,11 +155,13 @@ class AxisHeader(QHeaderView):
 class DimensionTree(QTreeWidget):
     """Strom se záhlavím stupnice; šířky sloupců názvu a osy dopočítává sám.
 
-    Název dostane aspoň svou šířku podle obsahu, osa zbytek mezi `AXIS_MIN`
-    a `AXIS_MAX`, co zbude, jde zase názvu. Režim Stretch by v užším okně
-    smrskl název na pár písmen. Ostatní sloupce jsou podle obsahu. Se
-    skrytou osou (bez normy) se nic nepočítá a název se roztahuje. Výška je
-    podle viditelných řádků (`fit_height`), vlastní svislý posuvník strom nemá.
+    Název dostane šířku podle obsahu, nejvýš `NAME_MAX` (1. 11. 2026: dřív dostal
+    i všechno volné místo a osa s čísly odjela doprava), osa ze zbytku mezi
+    `AXIS_MIN` a `AXIS_MAX`, volné místo zůstane za posledním sloupcem. V úzkém
+    okně se napřed zúží osa, pak název (až na `NAME_MIN`, delší se zkrátí a celý
+    je v tooltipu). Ostatní sloupce jsou podle obsahu, i bez normy (skrytá osa).
+    Výška je podle viditelných řádků (`fit_height`), vlastní svislý posuvník strom
+    nemá.
     """
 
     def __init__(self, axis_column: int, parent: QWidget | None = None) -> None:
@@ -188,21 +193,36 @@ class DimensionTree(QTreeWidget):
 
     def fit_columns(self) -> None:
         header = self.header()
-        if self.isColumnHidden(self.axis_column):
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-            return
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(self.axis_column, QHeaderView.ResizeMode.Interactive)
-        name = self._name_width()  # i rozvržení, po něm mají sloupce podle obsahu šířku
+        has_axis = not self.isColumnHidden(self.axis_column)
+        if has_axis:
+            header.setSectionResizeMode(self.axis_column, QHeaderView.ResizeMode.Interactive)
+        content = self._name_width()  # i rozvržení, po něm mají sloupce podle obsahu šířku
         others = sum(
             header.sectionSize(c)
             for c in range(1, self.columnCount())
             if c != self.axis_column and not self.isColumnHidden(c)
         )
-        free = self.viewport().width() - others
-        axis = max(AXIS_MIN, min(AXIS_MAX, free - name))
-        header.resizeSection(self.axis_column, axis)
-        header.resizeSection(0, max(name, free - axis))
+        room = self.viewport().width() - others - (AXIS_MIN if has_axis else 0)
+        name = max(NAME_MIN, min(content, NAME_MAX, room))
+        header.resizeSection(0, name)
+        if has_axis:
+            free = self.viewport().width() - others - name
+            header.resizeSection(self.axis_column, max(AXIS_MIN, min(AXIS_MAX, free)))
+        self._tooltips_for_elided(name)
+
+    def _tooltips_for_elided(self, width: int) -> None:
+        """Zkrácený název má celý text v tooltipu (jen když tooltip nemá vlastní)."""
+        metrics = self.fontMetrics()
+        stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]
+        while stack:
+            item = stack.pop()
+            stack.extend(item.child(i) for i in range(item.childCount()))
+            text = item.text(0)
+            indent = self.indentation() * (2 if item.parent() is not None else 1)
+            cut = metrics.horizontalAdvance(text) + indent + 12 > width
+            if cut and not item.toolTip(0):
+                item.setToolTip(0, text)
 
     def fit_height(self) -> None:
         self.doItemsLayout()
