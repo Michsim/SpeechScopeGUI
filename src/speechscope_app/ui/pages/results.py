@@ -79,6 +79,7 @@ class ResultsPage(QWidget):
     assess_requested = Signal(object, int)  # složka běhu, řádek ve features.csv → Hodnocení
     open_assessment_requested = Signal(str)  # id hodnocení: Otevřít v Hodnocení
     task_shown = Signal(object)  # RunInfo: zvolená úloha vyšetření (Průběh ji ukáže taky)
+    compare_groups_requested = Signal(object)  # složka běhu: Porovnat skupiny podle sloupce
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -137,6 +138,17 @@ class ResultsPage(QWidget):
         self.meta_btn.setEnabled(False)
         self.meta_btn.clicked.connect(lambda: self.edit_metadata())
         self.header.add_button(self.meta_btn)
+        # porovnání skupin podle sloupce (group…) přímo tam, kde je sloupec vidět (1. 11. 2026)
+        self.groups_btn = QPushButton(tr("Porovnat skupiny…"))
+        self.groups_btn.hide()
+        self.groups_btn.clicked.connect(
+            lambda: (
+                self.compare_groups_requested.emit(self._path.parent)
+                if self._path is not None
+                else None
+            )
+        )
+        self.header.add_button(self.groups_btn)
         # Jen segmentace / přepis: živé mezivýsledky ve work\<úloha>, tam se opravují.
         self.work_btn = QPushButton(tr("Otevřít mezivýsledky"))
         self.work_btn.setToolTip(
@@ -337,6 +349,7 @@ class ResultsPage(QWidget):
         self.summary.setToolTip("")
         self.open_btn.setEnabled(False)
         self.meta_btn.setEnabled(False)
+        self.groups_btn.hide()
         self.detail_btn.setEnabled(False)
         self.rerun_btn.hide()
         self.close_card()
@@ -459,7 +472,8 @@ class ResultsPage(QWidget):
         self.detail_btn.setEnabled(False)
         self.rerun_btn.hide()
         self.open_btn.setEnabled(True)
-        self.meta_btn.setEnabled(False)  # bez tabulky (běží, mezivýsledek) není co doplnit
+        self.meta_btn.setEnabled(False)
+        self.groups_btn.hide()  # bez tabulky (běží, mezivýsledek) není co doplnit
         if info.status == "running":
             self.summary.setText(
                 note
@@ -492,6 +506,7 @@ class ResultsPage(QWidget):
             self.header.set_role("missing")
             self.detail_btn.setEnabled(False)
             self.meta_btn.setEnabled(False)
+            self.groups_btn.hide()
             self.rerun_btn.hide()
             return
         info = read_run(path.parent)
@@ -500,9 +515,25 @@ class ResultsPage(QWidget):
         self.header.set_role(STATUS_ROLES.get(info.status, "neutral") if info else "neutral")
         self.open_btn.setEnabled(True)
         self.meta_btn.setEnabled(info is None or info.status != "running")
+        self._update_groups_btn()
         self._refresh()
         if refresh_history:
             self.refresh()
+
+    def _update_groups_btn(self) -> None:
+        """Porovnat skupiny… jen u tabulky se sloupcem, podle kterého jde dělit (2–10 hodnot)."""
+        from ...backend import compare as cmp
+
+        columns = cmp.group_columns([self._frame]) if self._frame is not None else {}
+        self.groups_btn.setVisible(bool(columns))
+        if columns:
+            name = "group" if "group" in columns else next(iter(columns))
+            values = " · ".join(f"{v} {n}" for v, n in columns[name].items() if v)
+            self.groups_btn.setToolTip(
+                tr("Porovnat skupiny podle sloupce {column}: {values}").format(
+                    column=name, values=values
+                )
+            )
 
     def edit_metadata(self) -> bool:
         """Údaje nahrávek… : okno s manifestem a tabulkou, po uložení tabulku znovu načte."""
@@ -541,6 +572,7 @@ class ResultsPage(QWidget):
         self.rerun_btn.hide()
         self.open_btn.setEnabled(False)
         self.meta_btn.setEnabled(False)
+        self.groups_btn.hide()
         self.summary.setToolTip("")
         self.summary.setText(tr("Zatím žádný výstup."))
         self.history.refresh()

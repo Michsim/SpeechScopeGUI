@@ -579,7 +579,7 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   šedě „spočítáno“, nová s polem data (prázdné žlutě), věkem a Vybrat…/Změnit… na úlohu, ✕;
   „Načíst z manifestu…“ jen předvyplní, manifest se sloupcem `task` ve složce doplní ostatní
   prázdné úlohy téhož vyšetření; `problems()` hlídá datum i duplicitu proti katalogu; dávka na
-  úlohu × datum, rok narození do katalogu `Catalog.set_birth_year` přes
+  úlohu (od 1. 11. 2026 jedna pro všechna data, modely se načtou jednou), rok narození do katalogu `Catalog.set_birth_year` přes
   `MainWindow._remember_birth_year`, pacienti z `_series_patients`), **Víc pacientů** (`MULTI`,
   jen s manifestem, dva kroky jako dřív, víc pacientů se už nedetekuje samo). Další vyšetření
   (`prefill`) otevře Vývoj v čase. Buňky mřížky mají pevnou minimální šířku (`_polished_width`),
@@ -659,8 +659,9 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   ISO i „14. 10. 2026“), průvodce schová pole pacienta a ukáže tabulku
   nahrávek (`people_table` = `MetaTable` s českými hlavičkami a povinnými pacient
   a datum; prázdné dopsat dvojklikem, jen pro tento výpočet, `set_person`,
-  úpravy přežijí přeskenování, `_merged_people`), dávka je na úlohu **a datum** (`TaskPlan.visit`,
-  klíč `úloha@datum` = `TaskPlan.key`, `Job.plan_task`), `AssessmentPlan.people`
+  úpravy přežijí přeskenování, `_merged_people`), dávka je od 1. 11. 2026 **jedna na úlohu**
+  pro všechny pacienty a data (každá dávka = nový proces knihovny a nové načtení Whisperu
+  a Stanzy; dřív úloha × datum, `TaskPlan.visit` a klíč `úloha@datum` zůstávají pro starší plány), `AssessmentPlan.people`
   (nahrávka → `PersonRow`) jde do manifestu dávky, běhy zůstávají mezi
   analýzami (`Job.plan_group=False`, v `run.json` bez `assessment`), po
   poslední dávce `finish_plan` vrátí seznam vyšetření po (pacient, datum),
@@ -891,6 +892,11 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   tabulkou jen „Liší se (k) · Všechny (n)“ (`only`, výchozí Liší se, když se něco liší, `_only_auto`)
   a hledání; řazení klikem na záhlaví feature / rozdíl (`_header_clicked`, `sort` skrytý, šipka přes
   sort indicator); tabulka bez sloupce normalita, rozdíl s pruhem a slovem, q se zelenou tečkou.
+- **Skupiny podle sloupce viditelně** (1. 11. 2026): v hlavičce Porovnání řádek „Skupiny: běhu ·
+  sloupce [group ▾] a zaškrtávátka hodnot“ (`groups_row`, jen když běhy mají sloupec skupin
+  `group_columns`; Nastavení ▾ má jen metodu, po osobě, log, nepoužitelné); v Hodnotách tlačítko
+  Porovnat skupiny… (`ResultsPage.groups_btn`, `_update_groups_btn`, tooltip „group: PD 12 · HC 10“,
+  `compare_groups_requested` → `RunsPage._compare_groups` → `open_compare([běh])`).
 
 ## Kontrola kvality nahrávek (31. 10. 2026)
 - **Knihovna měří, GUI soudí.** Knihovna má od 31. 10. 2026 feature

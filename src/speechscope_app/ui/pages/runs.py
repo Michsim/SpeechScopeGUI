@@ -55,7 +55,14 @@ from PySide6.QtWidgets import (
 
 from ...backend import compare as cmp
 from ...backend import tasks
-from ...backend.history import KIND_ASSESSMENT, KIND_NORM, KINDS, RunGroup, RunInfo
+from ...backend.history import (
+    KIND_ASSESSMENT,
+    KIND_NORM,
+    KINDS,
+    RunGroup,
+    RunInfo,
+    read_run,
+)
 from ...i18n import tr
 from .. import theme
 from ..widgets.clean_table import card, cell, pill, style_table
@@ -395,6 +402,7 @@ class RunsPage(QWidget):
             old_layout.removeWidget(self.task_bar)
         dl.addWidget(self.task_bar)
         results_page.task_shown.connect(self._task_shown)
+        results_page.compare_groups_requested.connect(self._compare_groups)
         tabs = QHBoxLayout()
         tabs.setSpacing(6)
         self.values_tab = QPushButton(tr("Hodnoty"))
@@ -833,6 +841,18 @@ class RunsPage(QWidget):
         if self.compare_problem(entries):
             return False
         return self.open_compare([e for e in entries if isinstance(e, RunInfo)])
+
+    def _compare_groups(self, run_dir: Path) -> None:
+        """Porovnat skupiny… z Hodnot: jeden běh, skupiny podle sloupce (group…)."""
+        entry = self._find(run_dir)
+        if entry is None:  # běh mimo filtr přehledu (otevřený třeba z Pacientů)
+            entry = read_run(run_dir)
+        if isinstance(entry, RunInfo):
+            self.open_compare([entry])
+        elif isinstance(entry, RunGroup):
+            run = next((r for r in entry.runs if r.dir == run_dir), None)
+            if run is not None:
+                self.open_compare([run])
 
     def open_compare(self, runs: list[RunInfo]) -> bool:
         if not runs:

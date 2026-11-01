@@ -308,7 +308,7 @@ class ComparePage(QWidget):
         top.addStretch(1)
         self.settings_btn = QPushButton(tr("Nastavení ▾"))
         self.settings_btn.setToolTip(
-            tr("Skupiny, metoda, průměr po osobě, logaritmus, nepoužitelné nahrávky")
+            tr("Metoda, průměr po osobě, logaritmus, nepoužitelné nahrávky")
         )
         self.settings_btn.clicked.connect(lambda: self.open_settings())
         top.addWidget(self.settings_btn)
@@ -316,6 +316,12 @@ class ComparePage(QWidget):
         self.export_btn.clicked.connect(lambda: self.export_csv())
         top.addWidget(self.export_btn)
         head_layout.addLayout(top)
+        # řádek skupin: jen když běhy mají sloupec, podle kterého jde dělit (group…)
+        self.groups_row = QWidget()
+        self._groups_flow = FlowLayout(self.groups_row, spacing=8)
+        self._groups_flow.setContentsMargins(0, 0, 0, 0)
+        self.groups_row.hide()
+        head_layout.addWidget(self.groups_row)
         self.cards_box = QWidget()
         self.cards_layout = QHBoxLayout(self.cards_box)
         self.cards_layout.setContentsMargins(0, 0, 0, 0)
@@ -376,9 +382,9 @@ class ComparePage(QWidget):
         self.log.toggled.connect(lambda _c: self._recompute())
         self.include_bad = ToggleSwitch(False)
         self.include_bad.toggled.connect(lambda _c: self._recompute())
+        # Skupiny podle běhu / sloupce jsou v hlavičce (1. 11. 2026: v Nastavení byly
+        # schované), tady jen volby, které se mění zřídka
         rows = (
-            (tr("Skupiny podle"), by_box, ""),
-            ("", self.values_box, ""),
             (tr("Metoda"), self.method, "method"),
             (
                 tr("Průměr po osobě"),
@@ -412,6 +418,11 @@ class ComparePage(QWidget):
                 if note == "method":
                     self.method_hint = hint
         self.method_hint.setText(tr(self.METHOD_HINTS[self.method_key()]))
+        groups_label = QLabel(tr("Skupiny:"))
+        groups_label.setObjectName("muted")
+        self._groups_flow.addWidget(groups_label)
+        self._groups_flow.addWidget(by_box)
+        self._groups_flow.addWidget(self.values_box)
         self._settings_menu = QMenu(self)
         action = QWidgetAction(self._settings_menu)
         action.setDefaultWidget(self.settings_panel)
@@ -582,6 +593,7 @@ class ComparePage(QWidget):
         self.column.setCurrentIndex(max(idx, 0))
         self.by.set_current(self.BY_COLUMN if len(runs) == 1 else self.BY_RUN)
         self.by.setEnabled(bool(self._columns) and len(runs) > 1)
+        self.groups_row.setVisible(bool(self._columns))
         self._busy = False
         self._current = ""
         self._by_changed()

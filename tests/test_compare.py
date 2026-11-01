@@ -202,5 +202,13 @@ def test_compare_from_results_page(qtbot, tmp_path: Path, monkeypatch) -> None: 
     assert runs.open_compare([mix])
     assert page.by_key() == compare.BY_COLUMN and page.chosen_values() == ["HC", "PD"]
     assert [g.name for g in page.comparison().groups] == ["HC", "PD"]
+    assert not page.groups_row.isHidden()  # skupiny podle sloupce vidět v hlavičce
+    # Porovnat skupiny… z Hodnot běhu se sloupcem group
+    runs.show_overview()
+    runs.open_entry(mix)
+    assert not runs.results_page.groups_btn.isHidden()
+    assert "PD" in runs.results_page.groups_btn.toolTip()
+    runs.results_page.groups_btn.click()
+    assert runs.in_compare() and page.by_key() == compare.BY_COLUMN
     page.set_value_checked("HC", False)
     assert page.comparison() is None  # jedna skupina nestačí
