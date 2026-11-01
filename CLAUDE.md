@@ -398,6 +398,20 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   YAML se projeví hned při příštím zobrazení (norma má jen surové hodnoty
   kontrol, z-skóre, log i směr se počítají až při prohlížení), aplikaci stačí
   restartovat; nová feature v dimenzi musí být i v tabulce normy.
+- **Stránka Dimenze** (1. 11. 2026, mockup https://claude.ai/artifact/XZFXixJuPiT6wmPctQTLV9,
+  `docs/mockups/dimenze/` mimo git; `ui/pages/dimensions.py`, `DimensionsPage`, `PAGE_DIMENSIONS` dole mezi
+  Normami a Prostředím, ikona pavouka `_dimensions`, Ctrl+7, Prostředí Ctrl+8): vlevo dimenze v pořadí os pavouka
+  (`QListWidget` s `_DimensionDelegate`, tažením, štítky upraveno · normy: n bez · vypnuto), vpravo název cs/en,
+  vypínač „v pavouku“ (`Dimension.enabled`) a položky: použít (`Item.enabled`, náhrada zakomentovaných řádků
+  YAML), feature (štítek + sloupec), úlohy (štítky), horší je vyšší · nižší · obojí, log, „v normách“
+  (`coverage`: ve kolika normách má sloupec hodnotu u některé z úloh, vlastní úloha podle `base`), ✕;
+  + Přidat feature… = `FeaturePickerDialog` (katalog po skupinách, hledání, filtr úlohy, „už v dimenzi“);
+  náhled os `AxisPreview`. Úpravy jsou rozpracované (žlutý pruh „Neuloženo · n změn“, Zahodit/Uložit);
+  `save` kontroluje `dimensions.problems` a zapíše `settings.dimensions_file()` (`dimensions.yaml` v datech
+  aplikace, `save_dimensions` přes `.part`), signál `saved` → `AssessmentPage.set_dimensions` (vypnuté vynechá
+  `active_dimensions`, cache vyhodnocení zahodí). Při startu `dimensions.load_effective` (vlastní soubor, při
+  chybě přibalené a pruh s chybou). Import… = neuložené úpravy, Export… YAML, Obnovit výchozí… smaže vlastní
+  soubor. Bez rozšířeného režimu jen ke čtení. Přibalené `assets/dimensions.yaml` zůstává výchozí sada.
 - **Verze feature** (30. 10. 2026): verze knihovny se mění málo, feature často
   (intenzita 2.0, CPP 1.3 při téže 0.4.0). Hlavní okno proto při spuštění dávky
   zapíše do `run.json` `library_version` a `feature_versions` (feature → verze

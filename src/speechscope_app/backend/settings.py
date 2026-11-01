@@ -325,6 +325,10 @@ class AppSettings:
         """Časy startu aplikace (`backend/startup_log.py`), jde i do diagnostiky."""
         return app_data_dir() / "startup.log"
 
+    def dimensions_file(self) -> Path:
+        """Vlastní dimenze ze stránky Dimenze; bez souboru platí přibalené."""
+        return app_data_dir() / "dimensions.yaml"
+
     def tasks_file(self) -> Path:
         """Vlastní úlohy uživatele (`backend/tasks.py`), vedle protokolů a norem."""
         return app_data_dir() / "tasks.json"

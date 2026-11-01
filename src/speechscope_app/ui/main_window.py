@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__, contract
+from ..backend import dimensions as dimensions_mod
 from ..backend import history as history_mod
 from ..backend import quality, startup_log, tasks
 from ..backend.assessment_build import (
@@ -85,6 +86,7 @@ from .models_install_dialog import ModelsInstallDialog
 from .new_norm_dialog import NewNormDialog
 from .pages.assessment import AssessmentPage
 from .pages.batch import BatchPage
+from .pages.dimensions import DimensionsPage
 from .pages.environment import EnvironmentPage
 from .pages.home import HomePage
 from .pages.norms import NormsPage
@@ -104,8 +106,9 @@ from .widgets.sidebar_nav import SidebarNav, parse_progress
     PAGE_ASSESSMENT,
     PAGE_PROTOCOLS,
     PAGE_NORMS,
+    PAGE_DIMENSIONS,
     PAGE_ENV,
-) = range(7)
+) = range(8)
 # Výpočet je od 31. 10. 2026 záložka Průběh v detailu běhu na Výsledcích (`RunsPage`).
 PAGE_RUN = PAGE_RESULTS
 
@@ -182,6 +185,7 @@ class MainWindow(QMainWindow):
         self.runs_page = RunsPage(self.run_page, self.results_page)
         self.assessment_page = AssessmentPage()
         self.norms_page = NormsPage()
+        self.dimensions_page = DimensionsPage()  # které feature patří do které dimenze
         self.home_page = HomePage()
 
         self.nav_labels = (
@@ -191,6 +195,7 @@ class MainWindow(QMainWindow):
             tr("Pacienti"),
             tr("Protokoly"),
             tr("Normy"),
+            tr("Dimenze"),
             tr("Prostředí"),
         )
         # Protokoly, Normy a Prostředí sedí u dolního okraje, nad nimi je mezera.
@@ -203,6 +208,7 @@ class MainWindow(QMainWindow):
             self.assessment_page,
             self.protocols_page,
             self.norms_page,
+            self.dimensions_page,
             self.env_page,
         ):
             self.pages.addWidget(page)
@@ -276,6 +282,11 @@ class MainWindow(QMainWindow):
             history.filter_changed.connect(self._history_filter_changed)
         self.results_page.open_assessment_requested.connect(self.open_assessment)
         self.assessment_page.open_run_requested.connect(self.open_run)
+        # dimenze: vlastní ze stránky Dimenze, jinak přibalené; uložení jde rovnou Pacientům
+        dims, dims_error = dimensions_mod.load_effective(self.settings.dimensions_file())
+        self.assessment_page.set_dimensions(dims)
+        self.dimensions_page.set_source(dims, self.settings.dimensions_file(), dims_error)
+        self.dimensions_page.saved.connect(self.assessment_page.set_dimensions)
         self.assessment_page.set_orientation(self.settings.spider_orientation)
         self.assessment_page.orientation_changed.connect(self._spider_orientation_changed)
         self.assessment_page.set_scale(self.settings.trend_scale, emit=False)
@@ -360,6 +371,8 @@ class MainWindow(QMainWindow):
             self.assessment_page.refresh()
         elif index == PAGE_NORMS:
             self.norms_page.reload()
+        elif index == PAGE_DIMENSIONS:
+            self.dimensions_page.set_norms(all_norms(self.settings.norms_dir()))
         elif index == PAGE_ENV:
             self.env_page.refresh_cache()
 
@@ -542,6 +555,8 @@ class MainWindow(QMainWindow):
         self.results_page.set_library(self.library)
         self.assessment_page.set_library(self.library)
         self.norms_page.set_library(self.library)
+        self.dimensions_page.set_library(self.library)
+        self.dimensions_page.set_advanced(self.settings.advanced)
         self._apply_folders()
         self.protocols_page.set_advanced(self.settings.advanced)
         self.reload_protocols(self.settings.last_protocol)

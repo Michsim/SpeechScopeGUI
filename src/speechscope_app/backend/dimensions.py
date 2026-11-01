@@ -1,6 +1,10 @@
 """Dimenze řeči (kvalita hlasu, artikulace, prozódie…) a jejich skóre proti normě.
 
-Definice je v `assets/dimensions.yaml`: dimenze → položky (sloupec, úlohy,
+Výchozí definice je v `assets/dimensions.yaml`, úpravy ze stránky Dimenze
+(1. 11. 2026) jdou do dat aplikace (`settings.dimensions_file`, `load_effective`,
+`save_dimensions`); vypnutá položka nebo dimenze (`enabled: false`) zůstává
+v souboru, ale do výpočtu nejde (`active_dimensions`).
+Dimenze → položky (sloupec, úlohy,
 směr patologie `higher` / `lower` / `both`, logaritmus). Směr `both` = odchylka
 na kteroukoli stranu je horší (tempo řeči: zrychlené i zpomalené); z-skóre se
 bere v absolutní hodnotě, percentil mezi kontrolami podle |z|, a strana
@@ -54,6 +58,7 @@ class Item:
     tasks: tuple[str, ...]
     direction: int = HIGHER  # HIGHER: vyšší = horší, LOWER: nižší = horší, BOTH: obojí
     log: bool = False
+    enabled: bool = True  # vypnutá položka zůstává v definici, do výpočtu nejde
 
     @property
     def feature(self) -> str:
@@ -68,6 +73,7 @@ class Dimension:
     name: str
     items: list[Item]
     names: dict[str, str] = field(default_factory=dict)
+    enabled: bool = True  # vypnutá dimenze není v pavouku ani ve stromu
 
     @property
     def display_name(self) -> str:
@@ -91,6 +97,7 @@ def _parse_item(data: dict[str, Any]) -> Item:
         tasks=tuple(contract.canonical_task(str(t)) for t in tasks),
         direction=directions[direction],
         log=bool(data.get("log", False)),
+        enabled=bool(data.get("enabled", True)),
     )
 
 
@@ -109,6 +116,7 @@ def parse_dimensions(data: dict[str, Any]) -> list[Dimension]:
                     for k, v in entry.items()
                     if k.startswith("name_") and isinstance(v, str)
                 },
+                enabled=bool(entry.get("enabled", True)),
             )
         )
     return out
@@ -123,6 +131,117 @@ def load_dimensions(path: Path | None = None) -> list[Dimension]:
     else:
         text = path.read_text(encoding="utf-8")
     return parse_dimensions(yaml.safe_load(text) or {})
+
+
+DIRECTION_NAMES = {HIGHER: "higher", LOWER: "lower", BOTH: "both"}
+
+
+def load_effective(path: Path | None) -> tuple[list[Dimension], str]:
+    """Dimenze, které platí: vlastní soubor ze stránky Dimenze, jinak přibalené.
+
+    Vrátí i chybu čtení vlastního souboru (pak platí přibalené), aby ji stránka ukázala."""
+    if path is not None and path.is_file():
+        try:
+            return load_dimensions(path), ""
+        except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as exc:
+            return load_dimensions(), str(exc)
+    return load_dimensions(), ""
+
+
+def active_dimensions(dimensions: list[Dimension]) -> list[Dimension]:
+    """Jen zapnuté dimenze a v nich zapnuté položky (do výpočtu, pavouka a stromu)."""
+    return [
+        Dimension(d.key, d.name, [i for i in d.items if i.enabled], dict(d.names))
+        for d in dimensions
+        if d.enabled
+    ]
+
+
+def copy_dimensions(dimensions: list[Dimension]) -> list[Dimension]:
+    return [
+        Dimension(
+            d.key,
+            d.name,
+            [Item(i.column, tuple(i.tasks), i.direction, i.log, i.enabled) for i in d.items],
+            dict(d.names),
+            d.enabled,
+        )
+        for d in dimensions
+    ]
+
+
+def dump_dimensions(dimensions: list[Dimension]) -> dict[str, Any]:
+    """Tvar souboru `dimensions.yaml` (pro uložení a export)."""
+    out: list[dict[str, Any]] = []
+    for d in dimensions:
+        entry: dict[str, Any] = {"key": d.key, "name": d.name}
+        for lang, name in d.names.items():
+            if name:
+                entry[f"name_{lang}"] = name
+        if not d.enabled:
+            entry["enabled"] = False
+        items = []
+        for i in d.items:
+            item: dict[str, Any] = {
+                "column": i.column,
+                "tasks": list(i.tasks),
+                "direction": DIRECTION_NAMES[i.direction],
+            }
+            if i.log:
+                item["log"] = True
+            if not i.enabled:
+                item["enabled"] = False
+            items.append(item)
+        entry["items"] = items
+        out.append(entry)
+    return {"format": DIMENSIONS_FORMAT, "dimensions": out}
+
+
+def dumps_dimensions(dimensions: list[Dimension]) -> str:
+    header = (
+        "# Dimenze řeči pro srovnání s normou (SpeechScope, stránka Dimenze).\n"
+        "# direction: higher = vyšší je horší, lower = nižší je horší, both = obojí.\n"
+    )
+    return header + yaml.safe_dump(dump_dimensions(dimensions), allow_unicode=True, sort_keys=False)
+
+
+def save_dimensions(path: Path, dimensions: list[Dimension]) -> None:
+    """Zapíše dimenze přes dočasný soubor (rozepsaný soubor nikdy nezůstane)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".part")
+    tmp.write_text(dumps_dimensions(dimensions), encoding="utf-8")
+    tmp.replace(path)
+
+
+def problems(dimensions: list[Dimension]) -> list[str]:
+    """Co brání uložení: prázdný název, zapnutá dimenze bez zapnuté položky, položka
+    bez úlohy, dvakrát tentýž klíč."""
+    out: list[str] = []
+    keys: set[str] = set()
+    for d in dimensions:
+        name = d.name.strip() or d.key
+        if not d.name.strip():
+            out.append(tr("Dimenze bez názvu."))
+        if d.key in keys:
+            out.append(tr("Dvě dimenze se stejným klíčem {key}.").format(key=d.key))
+        keys.add(d.key)
+        if d.enabled and not any(i.enabled for i in d.items):
+            out.append(tr("{name}: žádná zapnutá položka.").format(name=name))
+        for i in d.items:
+            if not i.tasks:
+                out.append(
+                    tr("{name}: položka {column} nemá úlohu.").format(name=name, column=i.column)
+                )
+    return out
+
+
+def new_key(name: str, existing: set[str]) -> str:
+    """Klíč nové dimenze ze jména (slug), jedinečný."""
+    base = tasks.slug(name) or "dimenze"
+    key, n = base, 2
+    while key in existing:
+        key, n = f"{base}-{n}", n + 1
+    return key
 
 
 # --- vyšetření ------------------------------------------------------------------

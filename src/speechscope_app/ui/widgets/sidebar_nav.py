@@ -6,7 +6,7 @@ https://claude.ai/artifact/8Hf6JPLaZd8XZ83FQx3itR, `docs/mockups/lista/` mimo gi
 Nahoře každodenní stránky, dole pod nadpisem Nastavení ostatní. Vybraná položka
 je bílá karta s modrým proužkem vlevo. Položka může nést štítek (počet hotových
 nahrávek běžící dávky) a tenký průběh pod sebou. Ctrl+B lištu sbalí na samé
-ikony, Ctrl+1 … Ctrl+7 přepnou stránku.
+ikony, Ctrl+1 … Ctrl+8 přepnou stránku.
 
 Navenek se chová jako dřív jeden `QListWidget` (`setCurrentRow`, `currentRow`,
 `item`, `currentRowChanged`), ostatní kód se o vzhled nestará. Ikony se kreslí
@@ -130,6 +130,15 @@ def _environment(p: QPainterPath) -> None:
         _line(p, 17.5, y, 20.5, y)
 
 
+def _dimensions(p: QPainterPath) -> None:
+    """Pavouk: šestiúhelník, osy a menší vnitřní tvar (stránka Dimenze)."""
+    outer = [(12, 3.5), (19.5, 7.8), (19.5, 16.2), (12, 20.5), (4.5, 16.2), (4.5, 7.8)]
+    _poly(p, *outer, outer[0])
+    for x, y in outer[::2]:
+        _line(p, 12, 12, x, y)
+    _poly(p, (12, 7.5), (16, 13.5), (9, 15), (12, 7.5))
+
+
 def _panel(p: QPainterPath) -> None:
     p.addRoundedRect(QRectF(3.5, 4.5, 17, 15), 2, 2)
     _line(p, 9, 4.5, 9, 19.5)
@@ -152,13 +161,15 @@ ICONS: dict[str, Callable[[QPainterPath], None]] = {
     "users": _users,
     "protocol": _protocol,
     "norm": _norm,
+    "dimensions": _dimensions,
     "environment": _environment,
     "collapse": _collapse,
     "expand": _expand,
 }
 
-# ikona podle pořadí stránky (Domů · Analýza · Výsledky · Pacienti · Protokoly · Normy · Prostředí)
-PAGE_ICONS = ("home", "wave", "table", "users", "protocol", "norm", "environment")
+# ikona podle pořadí stránky (Domů · Analýza · Výsledky · Pacienti · Protokoly · Normy ·
+# Dimenze · Prostředí)
+PAGE_ICONS = ("home", "wave", "table", "users", "protocol", "norm", "dimensions", "environment")
 
 
 def draw_icon(painter: QPainter, name: str, rect: QRectF, color: QColor | str) -> None:

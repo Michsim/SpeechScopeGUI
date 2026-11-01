@@ -65,6 +65,7 @@ from ...backend.dimensions import (
     DimensionResult,
     Evaluation,
     ItemResult,
+    active_dimensions,
     evaluate,
     load_dimensions,
 )
@@ -374,7 +375,7 @@ class AssessmentPage(QWidget):
         self._norms_dir: Path | None = None
         self._library: Library | None = None
         self._columns: dict[str, ColumnInfo] | None = None
-        self._dimensions: list[Dimension] = load_dimensions()
+        self._dimensions: list[Dimension] = active_dimensions(load_dimensions())
         self._cards: list[PatientCard | PendingCard] = []
         self.visit_buttons: list[QPushButton] = []
         # id hodnocení → (otisk vyšetření, vyhodnocení); otisk = odkazy a čas změny tabulek,
@@ -1068,6 +1069,14 @@ class AssessmentPage(QWidget):
     def set_library(self, library: Library | None) -> None:
         self._library = library
         self._columns = None
+
+    def set_dimensions(self, dimensions: list[Dimension]) -> None:
+        """Dimenze ze stránky Dimenze (vypnuté vynechá); hotová vyhodnocení zahodí
+        a otevřenou stránku překreslí, nic jiného se nepřepočítává."""
+        self._dimensions = active_dimensions(dimensions)
+        self._eval_cache.clear()
+        if self._loaded:
+            self.refresh()
 
     def set_orientation(self, orientation: str) -> None:
         """Orientace pavouka z nastavení (bez signálu zpět)."""
