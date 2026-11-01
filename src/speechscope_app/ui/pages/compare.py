@@ -14,17 +14,19 @@ import math
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtCore import QPoint, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -33,13 +35,14 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from ...backend import compare as cmp
 from ...backend import tasks
 from ...backend.history import RunInfo
 from ...backend.library import FeatureInfo
-from ...i18n import tr
+from ...i18n import N_, tr
 from .. import theme
 from ..feature_detail import split_unit
 from ..recording_detail import column_index
@@ -53,11 +56,13 @@ from ..widgets.clean_table import (
     set_text,
     style_table,
 )
+from ..widgets.elided_label import ElidedLabel
 from ..widgets.flow_layout import FlowLayout
 from ..widgets.inputs import Segmented, ToggleSwitch
-from ..widgets.status_header import Pill, StatusHeader
+from ..widgets.status_header import Pill
 
 GROUP_COLORS = ("#2563eb", "#d97706", "#7c3aed", "#0d9488", "#db2777", "#4b5563")
+GROUP_SOFT = ("#e8efff", "#fff4e0", "#f3edff", "#e6f7f5", "#fdeef5", "#f1f2f4")
 GROUP_ROLES = ("accent", "warn", "neutral", "neutral", "neutral", "neutral")
 PANEL_WIDTH = 360
 TEXT_ROLE = Qt.ItemDataRole.UserRole + 1  # text buňky, kterou kreslí popisek
@@ -287,68 +292,151 @@ class ComparePage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(8)
-        self.header = StatusHeader(subtitle_below=True)
+        # Zjednodušeno 1. 11. 2026 (mockup https://claude.ai/artifact/EAcPNALzd8xARofqmr3t3F,
+        # `docs/mockups/porovnani-zjednoduseni/` mimo git): nahoře kdo proti komu (karty skupin)
+        # a věta výsledku, zřídka měněné volby v Nastavení ▾, nad tabulkou jen filtr a hledání.
+        head = QFrame()
+        head.setObjectName("card")
+        head_layout = QVBoxLayout(head)
+        head_layout.setContentsMargins(16, 12, 16, 12)
+        head_layout.setSpacing(10)
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        self.title = QLabel(tr("Porovnání"))
+        self.title.setObjectName("card_title")
+        top.addWidget(self.title)
+        top.addStretch(1)
+        self.settings_btn = QPushButton(tr("Nastavení ▾"))
+        self.settings_btn.setToolTip(
+            tr("Skupiny, metoda, průměr po osobě, logaritmus, nepoužitelné nahrávky")
+        )
+        self.settings_btn.clicked.connect(lambda: self.open_settings())
+        top.addWidget(self.settings_btn)
         self.export_btn = QPushButton(tr("Export CSV…"))
         self.export_btn.clicked.connect(lambda: self.export_csv())
-        self.header.add_button(self.export_btn)
-        outer.addWidget(self.header)
+        top.addWidget(self.export_btn)
+        head_layout.addLayout(top)
+        self.cards_box = QWidget()
+        self.cards_layout = QHBoxLayout(self.cards_box)
+        self.cards_layout.setContentsMargins(0, 0, 0, 0)
+        self.cards_layout.setSpacing(10)
+        self._cards: list[QWidget] = []
+        head_layout.addWidget(self.cards_box)
+        verdict = QWidget()
+        self.notes_flow = FlowLayout(verdict, spacing=8)
+        self.notes_flow.setContentsMargins(0, 0, 0, 0)
+        self.verdict = QLabel("")
+        self.verdict.setTextFormat(Qt.TextFormat.RichText)
+        self.verdict.linkActivated.connect(lambda _l: self.open_settings())
+        self.notes_flow.addWidget(self.verdict)
+        self._note_pills: list[Pill] = []
+        head_layout.addWidget(verdict)
+        outer.addWidget(head)
 
-        # řada ovládání
-        controls = QFrame()
-        controls.setObjectName("card")
-        flow = FlowLayout(controls, spacing=10)
-        flow.setContentsMargins(12, 8, 12, 8)
+        # volby, které se mění zřídka: v rozbalovacím okně Nastavení ▾
+        self.settings_panel = QFrame()
+        self.settings_panel.setObjectName("settings_panel")
+        # vlastní pozadí: okno nabídky je v tématu průhledné, bez něj prosvítala stránka
+        self.settings_panel.setAutoFillBackground(True)
+        self.settings_panel.setStyleSheet(
+            f"QFrame#settings_panel {{ background: {theme.CARD};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 10px; }}"
+            "QFrame#settings_panel QLabel { background: transparent; border: none; }"
+        )
+        grid = QGridLayout(self.settings_panel)
+        grid.setContentsMargins(14, 12, 14, 12)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(8)
         self.BY_RUN, self.BY_COLUMN = tr("běhu"), tr("sloupce")
         self.by = Segmented([self.BY_RUN, self.BY_COLUMN])
         self.by.currentChanged.connect(lambda _v: self._by_changed())
-        flow.addWidget(self._labelled(tr("Skupiny podle"), self.by))
         self.column = QComboBox()
         self.column.currentIndexChanged.connect(lambda _i: self._column_changed())
-        flow.addWidget(self.column)
+        by_box = QWidget()
+        by_row = QHBoxLayout(by_box)
+        by_row.setContentsMargins(0, 0, 0, 0)
+        by_row.setSpacing(8)
+        by_row.addWidget(self.by)
+        by_row.addWidget(self.column)
+        by_row.addStretch(1)
         self.values_box = QWidget()
         self.values_layout = QHBoxLayout(self.values_box)
         self.values_layout.setContentsMargins(0, 0, 0, 0)
         self.values_layout.setSpacing(8)
-        flow.addWidget(self.values_box)
         self.METHOD_LABELS = {
             cmp.NONPARAMETRIC: tr("Neparametrická"),
             cmp.PARAMETRIC: tr("Parametrická"),
             cmp.AUTO: tr("Podle normality"),
         }
         self.method = Segmented(list(self.METHOD_LABELS.values()))
-        self.method.currentChanged.connect(lambda _v: self._recompute())
-        flow.addWidget(self._labelled(tr("Metoda"), self.method))
+        self.method.currentChanged.connect(lambda _v: self._method_changed())
         self.by_subject = ToggleSwitch(True)
         self.by_subject.toggled.connect(lambda _c: self._recompute())
-        self.by_subject.setToolTip(
-            tr("Víc nahrávek jedné osoby ve skupině se zprůměruje; n jsou osoby.")
-        )
-        flow.addWidget(self._labelled(tr("Po osobě"), self.by_subject))
         self.log = ToggleSwitch(False)
         self.log.toggled.connect(lambda _c: self._recompute())
-        self.log.setToolTip(tr("Testy z logaritmu hodnot (jen kladné feature)."))
-        flow.addWidget(self._labelled(tr("Po logaritmu"), self.log))
         self.include_bad = ToggleSwitch(False)
         self.include_bad.toggled.connect(lambda _c: self._recompute())
-        self.include_bad.setToolTip(
-            tr("Zahrnout nahrávky, které kontrola kvality označila jako nepoužitelné.")
+        rows = (
+            (tr("Skupiny podle"), by_box, ""),
+            ("", self.values_box, ""),
+            (tr("Metoda"), self.method, "method"),
+            (
+                tr("Průměr po osobě"),
+                self.by_subject,
+                tr("víc nahrávek jedné osoby = jeden bod; bez sloupce pacient po nahrávkách"),
+            ),
+            (
+                tr("Po logaritmu"),
+                self.log,
+                tr("testy z logaritmu hodnot (jen kladné feature, šikmá rozdělení)"),
+            ),
+            (
+                tr("I nepoužitelné"),
+                self.include_bad,
+                tr("nahrávky, které kontrola kvality označila jako nepoužitelné"),
+            ),
         )
-        flow.addWidget(self._labelled(tr("I nepoužitelné"), self.include_bad))
+        row = 0
+        for label, widget, note in rows:
+            if label:
+                title = QLabel(label)
+                title.setStyleSheet("font-weight: 600;")
+                grid.addWidget(title, row, 0)
+            grid.addWidget(widget, row, 1, Qt.AlignmentFlag.AlignLeft)
+            row += 1
+            if note:
+                hint = QLabel(note)
+                hint.setObjectName("muted")
+                grid.addWidget(hint, row, 1)
+                row += 1
+                if note == "method":
+                    self.method_hint = hint
+        self.method_hint.setText(tr(self.METHOD_HINTS[self.method_key()]))
+        self._settings_menu = QMenu(self)
+        action = QWidgetAction(self._settings_menu)
+        action.setDefaultWidget(self.settings_panel)
+        self._settings_menu.addAction(action)
+
+        # nad tabulkou jen filtr a hledání; řadí se klikem na záhlaví (feature / rozdíl)
+        controls = QHBoxLayout()
+        controls.setSpacing(10)
         self.BY_EFFECT, self.BY_FEATURE = tr("podle efektu"), tr("podle feature")
         self.sort = Segmented([self.BY_EFFECT, self.BY_FEATURE])
         self.sort.currentChanged.connect(lambda _v: self._fill_table())
-        flow.addWidget(self._labelled(tr("Řadit"), self.sort))
-        self.ALL, self.SIGNIFICANT = tr("všechny"), tr("jen odlišné")
-        self.only = Segmented([self.ALL, self.SIGNIFICANT])
-        self.only.currentChanged.connect(lambda _v: self._fill_table())
-        flow.addWidget(self.only)
+        self.sort.hide()  # stav řazení; mění se klikem na záhlaví tabulky
+        self.SIGNIFICANT, self.ALL = tr("liší se"), tr("všechny")
+        self.only = Segmented([self.SIGNIFICANT, self.ALL])
+        self.only.currentChanged.connect(lambda _v: self._only_chosen())
+        self._only_auto = True  # bez volby uživatele: Liší se, když se něco liší
+        controls.addWidget(self.only)
         self.search = QLineEdit()
         self.search.setPlaceholderText(tr("hledat feature"))
         self.search.setClearButtonEnabled(True)
-        self.search.setMaximumWidth(220)
+        self.search.setMaximumWidth(240)
         self.search.textChanged.connect(lambda _t: self._fill_table())
-        flow.addWidget(self.search)
-        outer.addWidget(controls)
+        controls.addWidget(self.search)
+        controls.addStretch(1)
+        outer.addLayout(controls)
 
         # tabulka a panel
         body = QHBoxLayout()
@@ -358,6 +446,8 @@ class ComparePage(QWidget):
         self.table.setHorizontalHeader(ColorHeader(self.table))
         style_table(self.table, [tr("feature")], selectable=True)
         self.table.currentCellChanged.connect(lambda r, _c, _pr, _pc: self._row_changed(r))
+        self.table.horizontalHeader().setSectionsClickable(True)
+        self.table.horizontalHeader().sectionClicked.connect(self._header_clicked)
         body.addWidget(card(self.table), 1)
         body.addWidget(self._build_panel())
         outer.addLayout(body, 1)
@@ -496,6 +586,37 @@ class ComparePage(QWidget):
         self._current = ""
         self._by_changed()
 
+    def open_settings(self) -> None:
+        """Nastavení ▾: skupiny, metoda, po osobě, log, nepoužitelné (pod tlačítkem)."""
+        self._settings_menu.popup(
+            self.settings_btn.mapToGlobal(self.settings_btn.rect().bottomRight())
+            - QPoint(self.settings_panel.sizeHint().width(), 0)
+        )
+
+    METHOD_HINTS = {
+        cmp.NONPARAMETRIC: N_("Mann-Whitney / Kruskal-Wallis, efekt Cliffovo δ / ε², medián"),
+        cmp.PARAMETRIC: N_("Welchův t-test / Welchova ANOVA, efekt Hedgesovo g / η², průměr"),
+        cmp.AUTO: N_("podle Shapiro-Wilk u každé feature zvlášť, test je u q"),
+    }
+
+    def _method_changed(self) -> None:
+        self.method_hint.setText(tr(self.METHOD_HINTS[self.method_key()]))
+        self._recompute()
+
+    def _header_clicked(self, section: int) -> None:
+        """Klik na záhlaví: feature = řadit podle feature, rozdíl = podle efektu."""
+        result = self._result
+        if result is None:
+            return
+        if section == 0:
+            self.sort.set_current(self.BY_FEATURE)
+        elif section == 1 + len(result.groups):
+            self.sort.set_current(self.BY_EFFECT)
+
+    def _only_chosen(self) -> None:
+        self._only_auto = False
+        self._fill_table()
+
     def set_by(self, by: str, column: str = "", values: list[str] | None = None) -> None:
         """Skupiny podle běhu, nebo podle sloupce (a které hodnoty)."""
         self._busy = True
@@ -590,13 +711,18 @@ class ComparePage(QWidget):
             excluded_errors=errors,
             excluded_bad=bad,
         )
+        if self._only_auto:  # dokud uživatel nevybral: Liší se, když se aspoň něco liší
+            self.only.blockSignals(True)
+            self.only.set_current(self.SIGNIFICANT if self._result.significant else self.ALL)
+            self.only.blockSignals(False)
         self._fill_header()
         self._fill_table()
 
     def _show_empty(self, text: str) -> None:
-        self.header.title.setText(tr("Porovnání"))
-        self.header.subtitle.setText(text)
-        self.header.set_pills([])
+        self.title.setText(tr("Porovnání"))
+        self._set_cards([])
+        self.verdict.setText(text)
+        self._set_notes([])
         self.table.setRowCount(0)
         self._shown = []
         self._show_feature(None)
@@ -606,29 +732,35 @@ class ComparePage(QWidget):
         return ", ".join(sorted(names))
 
     def _fill_header(self) -> None:
+        """Karty skupin (kdo proti komu) a věta výsledku s tím, jak se počítalo."""
         result = self._result
         assert result is not None
-        self.header.title.setText(tr("Porovnání · {task}").format(task=self._task_label()))
+        self.title.setText(tr("Porovnání · {task}").format(task=self._task_label()))
+        self._set_cards(result.groups)
         first = next((r for r in result.results if r.test), None)
         test = TEST_NAMES.get(first.test, "") if first else ""
-        unit = tr("osob") if result.by_subject else tr("nahrávek")
-        sizes = " · ".join(
-            f"{self.short(i)} {self._group_n(g)}" for i, g in enumerate(result.groups)
+        how = [test or tr("bez testu")]
+        if result.by_subject:
+            how.append(tr("průměr po osobě"))
+        elif result.no_subject:
+            how.append(tr("po nahrávkách (některý běh nemá sloupec pacient)"))
+        else:
+            how.append(tr("po nahrávkách"))
+        if result.log:
+            how.append(tr("po logaritmu"))
+        how.append(tr("korekce FDR"))
+        self.verdict.setText(
+            "<b style='font-size:15px'>"
+            + tr("Liší se {k} z {n} feature").format(k=result.significant, n=len(result.results))
+            + f"</b> <span style='color:{theme.MUTED}'>· "
+            + ", ".join(how)
+            + f" · </span><a href='settings' style='color:{theme.ACCENT}'>"
+            + tr("změnit")
+            + "</a>"
         )
-        self.header.subtitle.setText(
-            tr("{sizes} {unit} · {n} společných feature · {test}, korekce FDR").format(
-                sizes=sizes, unit=unit, n=len(result.results), test=test or "–"
-            )
-        )
-        pills = [
-            (self._pill_text(i, g), GROUP_ROLES[i % len(GROUP_ROLES)], g.name, None)
-            for i, g in enumerate(result.groups)
-        ]
-        pills.append(
-            (tr("liší se {n} feature").format(n=result.significant), "neutral", "q < 0,05", None)
-        )
+        notes: list[tuple[str, str, str, object]] = []
         for name, columns in result.only_in.items():
-            pills.append(
+            notes.append(
                 (
                     tr("jen v {group}: {n} sloupců").format(group=name, n=len(columns)),
                     "neutral",
@@ -642,20 +774,11 @@ class ComparePage(QWidget):
         if result.excluded_bad:
             skipped.append(tr("{n} nepoužitelné").format(n=result.excluded_bad))
         if skipped:
-            pills.append(
+            notes.append(
                 (tr("vynecháno: {what}").format(what=", ".join(skipped)), "neutral", "", None)
             )
-        if result.no_subject:
-            pills.append(
-                (
-                    tr("po nahrávkách"),
-                    "warn",
-                    tr("Některý běh nemá sloupec pacienta, počítá se po nahrávkách."),
-                    None,
-                )
-            )
         if result.shared_subjects:
-            pills.append(
+            notes.append(
                 (
                     tr("osoby ve víc skupinách: {n}").format(n=len(result.shared_subjects)),
                     "warn",
@@ -663,8 +786,63 @@ class ComparePage(QWidget):
                     None,
                 )
             )
-        self.header.set_pills(pills)
-        self.header.set_role("accent")
+        self._set_notes(notes)
+
+    def _set_cards(self, groups: list[cmp.Group]) -> None:
+        """Karta na skupinu barvou grafu: zkratka, počet osob (nahrávek), odkud je."""
+        for old in self._cards:
+            self.cards_layout.removeWidget(old)
+            old.hide()  # jinak se do smazání z fronty událostí kreslí přes nové
+            old.deleteLater()
+        self._cards = []
+        result = self._result
+        unit_people = result is not None and result.by_subject
+        for i, group in enumerate(groups):
+            if i == 1 and len(groups) == 2:
+                versus = QLabel(tr("proti"))
+                versus.setObjectName("muted")
+                self.cards_layout.addWidget(versus)
+                self._cards.append(versus)
+            color = color_of(i)
+            soft = GROUP_SOFT[i % len(GROUP_SOFT)]
+            box = QFrame()
+            box.setObjectName("groupcard")
+            box.setStyleSheet(
+                f"QFrame#groupcard {{ background: {soft}; border: none;"
+                f" border-left: 4px solid {color}; border-radius: 8px; }}"
+                "QFrame#groupcard QLabel { background: transparent; border: none; }"
+            )
+            layout = QVBoxLayout(box)
+            layout.setContentsMargins(12, 8, 12, 8)
+            layout.setSpacing(1)
+            short = QLabel(self.short(i))
+            short.setStyleSheet(f"color: {color}; font-weight: 700;")
+            layout.addWidget(short)
+            n = self._group_n(group)
+            count = QLabel(
+                tr("{n} osob").format(n=n) if unit_people else tr("{n} nahrávek").format(n=n)
+            )
+            count.setStyleSheet("font-size: 17px; font-weight: 600;")
+            layout.addWidget(count)
+            detail = ElidedLabel(group.name if self.short(i) != group.name else "")
+            detail.setObjectName("muted")
+            layout.addWidget(detail)
+            box.setToolTip(group.name)
+            self.cards_layout.addWidget(box, 1)
+            self._cards.append(box)
+
+    def _set_notes(self, notes: list) -> None:
+        """Malé štítky za větou výsledku (jen v jedné skupině, vynechané, sdílené osoby)."""
+        for old in self._note_pills:
+            self.notes_flow.removeWidget(old)
+            old.hide()
+            old.deleteLater()
+        self._note_pills = []
+        for text, role, tooltip, action in notes:
+            pill = Pill(text, role, action)
+            pill.setToolTip(tooltip)
+            self.notes_flow.addWidget(pill)
+            self._note_pills.append(pill)
 
     def short(self, index: int) -> str:
         """Krátký název skupiny do tabulky, grafu a panelu: hodnota sloupce, nebo písmeno,
@@ -807,13 +985,14 @@ class ComparePage(QWidget):
         shown = self._ordered(shown)
         self._shown = shown
         grouped = self.sort.current() == self.BY_FEATURE
-        self.only.buttons[1].setText(tr("jen odlišné {n}").format(n=result.significant))
+        self.only.buttons[0].setText(tr("Liší se ({n})").format(n=result.significant))
+        self.only.buttons[1].setText(tr("Všechny ({n})").format(n=len(result.results)))
         groups = result.groups
         first = next((r for r in result.results if r.effect_name), None)
         effect_name = EFFECT_NAMES.get(first.effect_name, tr("efekt")) if first else tr("efekt")
         headers = [tr("feature")]
         headers += [f"● {self.short(i)}" for i in range(len(groups))]
-        headers += [effect_name, tr("normalita"), "q"]
+        headers += [effect_name, "q"]  # normalita je v panelu vpravo
         # řádky tabulky: výsledek, nebo jméno feature = nadpis skupiny
         rows: list[cmp.FeatureResult | str] = []
         last = None
@@ -841,7 +1020,13 @@ class ComparePage(QWidget):
             if item is not None:
                 item.setForeground(QColor(color_of(i)))
         n_groups = len(groups)
-        right_header(table, *range(1, 1 + n_groups), 3 + n_groups)
+        right_header(table, *range(1, 1 + n_groups), 2 + n_groups)
+        # šipka u sloupce, podle kterého se řadí (feature, nebo rozdíl)
+        sort_col = 0 if grouped else 1 + n_groups
+        table.horizontalHeader().setSortIndicatorShown(True)
+        table.horizontalHeader().setSortIndicator(
+            sort_col, Qt.SortOrder.AscendingOrder if grouped else Qt.SortOrder.DescendingOrder
+        )
         header = table.horizontalHeader()
         header.setStretchLastSection(False)
         for c in range(len(headers)):
@@ -869,7 +1054,9 @@ class ComparePage(QWidget):
                 if r.versions:
                     bar.setStyleSheet(f"QProgressBar::chunk {{ background: {theme.WARN}; }}")
                 set_text(table, row, col_effect, "")
-                table.setCellWidget(row, col_effect, cell(bar, QLabel(self._effect_text(r))))
+                word = QLabel(effect_size_word(r.effect_name, r.effect))
+                word.setObjectName("muted")
+                table.setCellWidget(row, col_effect, cell(bar, QLabel(self._effect_text(r)), word))
             else:
                 note = {
                     "few": tr("málo hodnot"),
@@ -877,16 +1064,14 @@ class ComparePage(QWidget):
                     "constant": tr("bez rozptylu"),
                 }.get(r.note, "")
                 set_text(table, row, col_effect, note, muted=True)
-            normal = tr("≈ normální") if r.normal else tr("šikmé") if r.normal is False else "–"
-            shapiro = ", ".join(f"{self.short(i)} p={fmt_p(p)}" for i, p in enumerate(r.shapiro))
-            norm_item = set_text(table, row, 2 + n_groups, normal, muted=r.normal is None)
-            norm_item.setToolTip(tr("Shapiro–Wilk: {p}").format(p=shapiro))
-            if r.normal is False:
-                norm_item.setForeground(QColor(theme.WARN))
             q_text = fmt_p(r.q)
             if r.tested and self.method_key() == cmp.AUTO:
                 q_text = f"{q_text} ({r.test})"
-            q_item = set_text(table, row, 3 + n_groups, q_text, right=True, muted=not r.significant)
+            q_item = set_text(table, row, 2 + n_groups, q_text, right=True, muted=not r.significant)
+            q_item.setIcon(_dot_icon(theme.OK if r.significant else "#d1d5db"))
+            q_item.setToolTip(
+                tr("liší se (q < 0,05)") if r.significant else tr("rozdíl není významný")
+            )
             if r.significant:
                 font = q_item.font()
                 font.setBold(True)
@@ -1116,3 +1301,21 @@ class ComparePage(QWidget):
             return None
         self.notice.emit(tr("Porovnání uloženo: {path}").format(path=path))
         return path
+
+
+_DOTS: dict[str, QIcon] = {}
+
+
+def _dot_icon(color: str) -> QIcon:
+    """Tečka u q: zelená = liší se, šedá = ne."""
+    if color not in _DOTS:
+        pixmap = QPixmap(20, 20)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(color))
+        painter.drawEllipse(5, 5, 10, 10)
+        painter.end()
+        _DOTS[color] = QIcon(pixmap)
+    return _DOTS[color]

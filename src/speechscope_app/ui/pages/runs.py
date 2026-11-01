@@ -18,11 +18,22 @@ běhu přepisuje `features.csv` a otevřený soubor by jí přejmenování zablo
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QShortcut
+from PySide6.QtCore import QPointF, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPixmap,
+    QPolygonF,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -259,6 +270,12 @@ class RunsPage(QWidget):
         self.search.textChanged.connect(lambda _t: self._apply_search())
         bar.addWidget(self.search)
         bar.addStretch(1)
+        # přejmenování bylo jen v pravém tlačítku a pod F2 (1. 11. 2026: nešlo najít)
+        self.rename_btn = QPushButton(tr("Přejmenovat…"))
+        self.rename_btn.setToolTip(tr("Název vybraného běhu (F2); složka se přejmenuje taky."))
+        self.rename_btn.setEnabled(False)
+        self.rename_btn.clicked.connect(lambda: self._rename_selected())
+        bar.addWidget(self.rename_btn)
         self.delete_btn = QPushButton(tr("Smazat…"))
         self.delete_btn.setToolTip(
             tr("Přesune složku vybraného běhu do Koše. Nahrávek se to netýká.")
@@ -310,6 +327,7 @@ class RunsPage(QWidget):
         # víc řádků (Ctrl/Shift+klik) kvůli porovnání; jinak se chová jako jeden výběr
         self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.table.itemSelectionChanged.connect(self._update_compare_bar)
+        self.table.itemSelectionChanged.connect(self._update_rename_btn)
         self.table.cellDoubleClicked.connect(lambda r, _c: self.open_row(r))
         self.table.itemActivated.connect(lambda item: self.open_row(item.row()))
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -350,7 +368,17 @@ class RunsPage(QWidget):
         crumb_font = self.crumb.font()
         crumb_font.setBold(True)
         self.crumb.setFont(crumb_font)
-        nav.addWidget(self.crumb, 1)
+        nav.addWidget(self.crumb)
+        # tužka kreslená v QPainter: znak ✎ se ve stylu tlačítek kreslil jako tečka
+        self.rename_detail_btn = QPushButton()
+        self.rename_detail_btn.setIcon(_pencil_icon())
+        self.rename_detail_btn.setIconSize(QSize(18, 18))
+        self.rename_detail_btn.setFlat(True)
+        self.rename_detail_btn.setFixedWidth(40)
+        self.rename_detail_btn.setToolTip(tr("Přejmenovat běh (F2)"))
+        self.rename_detail_btn.clicked.connect(lambda: self._rename_detail())
+        nav.addWidget(self.rename_detail_btn)
+        nav.addStretch(1)
         self.prev_btn = QPushButton(tr("‹ předchozí"))
         self.prev_btn.clicked.connect(lambda: self.step(-1))
         self.next_btn = QPushButton(tr("další ›"))
@@ -359,6 +387,7 @@ class RunsPage(QWidget):
         nav.addWidget(self.next_btn)
         dl.addLayout(nav)
         QShortcut(QKeySequence(Qt.Key.Key_Escape), detail, lambda: self.show_overview())
+        QShortcut(QKeySequence(Qt.Key.Key_F2), detail, lambda: self._rename_detail())
         # řada úloh vyšetření (z ResultsPage) nad záložkami: platí pro Hodnoty i Průběh
         self.task_bar = results_page.task_bar
         old_layout = self.task_bar.parentWidget().layout() if self.task_bar.parentWidget() else None
@@ -538,6 +567,11 @@ class RunsPage(QWidget):
         entry = self._selected_entry()
         if self.history.can_rename(entry):
             self.history.rename_requested.emit(entry)
+
+    def _rename_detail(self) -> None:
+        """✎ a F2 v detailu: přejmenuje otevřený běh (vyšetření pacienta se nepřejmenovává)."""
+        if self.history.can_rename(self._detail):
+            self.history.rename_requested.emit(self._detail)
 
     def _menu(self, pos) -> None:  # noqa: ANN001
         row = self.table.rowAt(pos.y())
@@ -767,6 +801,15 @@ class RunsPage(QWidget):
                 return tr("jeden běh jde porovnat jen podle sloupce skupiny, tento ho nemá")
         return ""
 
+    def _update_rename_btn(self) -> None:
+        selected = self.selected_entries()
+        self.rename_btn.setEnabled(len(selected) == 1 and self.history.can_rename(selected[0]))
+        self.rename_btn.setToolTip(
+            tr("Vyšetření pacienta se jmenuje podle pacienta.")
+            if len(selected) == 1 and isinstance(selected[0], RunGroup)
+            else tr("Název vybraného běhu (F2); složka se přejmenuje taky.")
+        )
+
     def _update_compare_bar(self) -> None:
         entries = self.selected_entries()
         show = len(entries) >= 2  # jeden běh = běžný klik; skupiny v něm přes pravé tlačítko
@@ -839,6 +882,9 @@ class RunsPage(QWidget):
     def relocate(self, old: Path, new: Path) -> None:
         if self._live_dir == old:
             self._live_dir = new
+        # přejmenovaný otevřený běh: detail zůstane otevřený, jen na nové složce
+        if isinstance(self._detail, RunInfo) and self._detail.dir == old:
+            self._detail = replace(self._detail, dir=new)
 
     def _update_detail_chrome(self) -> None:
         entry = self._detail
@@ -864,11 +910,32 @@ class RunsPage(QWidget):
         else:
             self.tab_note.setText("")
         self.crumb.setText(entry.display_name if entry is not None else self.run_title.text())
+        self.rename_detail_btn.setVisible(self.history.can_rename(entry))
         rows = self.visible_rows()
         row = self._row_of(entry)
         position = rows.index(row) if row in rows else -1
         self.prev_btn.setEnabled(position > 0)
         self.next_btn.setEnabled(0 <= position < len(rows) - 1)
+
+
+def _pencil_icon() -> QIcon:
+    """Tužka pro „Přejmenovat“ (čárová jako ikony lišty, barva textu)."""
+    size = 36  # kreslí se dvojnásobně, ikona 18 px je ostrá i na zvětšené obrazovce
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(theme.TEXT), 3.0)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    painter.setPen(pen)
+    body = QPolygonF(
+        [QPointF(24, 6), QPointF(30, 12), QPointF(13, 29), QPointF(6, 30), QPointF(7, 23)]
+    )
+    painter.drawPolygon(body)
+    painter.drawLine(QPointF(20, 10), QPointF(26, 16))
+    painter.end()
+    return QIcon(pixmap)
 
 
 __all__ = ["PROGRESS", "VALUES", "RunsPage"]

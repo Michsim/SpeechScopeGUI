@@ -25,6 +25,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -125,6 +126,17 @@ class ResultsPage(QWidget):
         self.open_btn.setEnabled(False)
         self.open_btn.clicked.connect(self._open_folder)
         self.header.add_button(self.open_btn)
+        # údaje nahrávek doplněné po výpočtu (1. 11. 2026): pacient, datum, věk, skupina
+        self.meta_btn = QPushButton(tr("Údaje nahrávek…"))
+        self.meta_btn.setToolTip(
+            tr(
+                "Načíst manifest nebo doplnit pacienta, věk, pohlaví a skupinu k hotovému běhu; "
+                "hodnoty feature se nepřepočítávají."
+            )
+        )
+        self.meta_btn.setEnabled(False)
+        self.meta_btn.clicked.connect(lambda: self.edit_metadata())
+        self.header.add_button(self.meta_btn)
         # Jen segmentace / přepis: živé mezivýsledky ve work\<úloha>, tam se opravují.
         self.work_btn = QPushButton(tr("Otevřít mezivýsledky"))
         self.work_btn.setToolTip(
@@ -324,6 +336,7 @@ class ResultsPage(QWidget):
         self.summary.setText(tr("Načítám…"))
         self.summary.setToolTip("")
         self.open_btn.setEnabled(False)
+        self.meta_btn.setEnabled(False)
         self.detail_btn.setEnabled(False)
         self.rerun_btn.hide()
         self.close_card()
@@ -446,6 +459,7 @@ class ResultsPage(QWidget):
         self.detail_btn.setEnabled(False)
         self.rerun_btn.hide()
         self.open_btn.setEnabled(True)
+        self.meta_btn.setEnabled(False)  # bez tabulky (běží, mezivýsledek) není co doplnit
         if info.status == "running":
             self.summary.setText(
                 note
@@ -477,6 +491,7 @@ class ResultsPage(QWidget):
             self._show_table(False)
             self.header.set_role("missing")
             self.detail_btn.setEnabled(False)
+            self.meta_btn.setEnabled(False)
             self.rerun_btn.hide()
             return
         info = read_run(path.parent)
@@ -484,9 +499,24 @@ class ResultsPage(QWidget):
         self.title_label.setText(self._title_for(info, path.parent.name))
         self.header.set_role(STATUS_ROLES.get(info.status, "neutral") if info else "neutral")
         self.open_btn.setEnabled(True)
+        self.meta_btn.setEnabled(info is None or info.status != "running")
         self._refresh()
         if refresh_history:
             self.refresh()
+
+    def edit_metadata(self) -> bool:
+        """Údaje nahrávek… : okno s manifestem a tabulkou, po uložení tabulku znovu načte."""
+        if self._path is None or not self._path.is_file():
+            return False
+        from ..run_meta_dialog import RunMetaDialog  # okno jen na vyžádání
+
+        dialog = RunMetaDialog(self._path.parent, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        if dialog.changed_cells or dialog.restored:
+            self.load(self._path, note=self._note)
+            return True
+        return False
 
     def current_dir(self) -> Path | None:
         return self._path.parent if self._path is not None else None
@@ -510,6 +540,7 @@ class ResultsPage(QWidget):
         self.detail_btn.setEnabled(False)
         self.rerun_btn.hide()
         self.open_btn.setEnabled(False)
+        self.meta_btn.setEnabled(False)
         self.summary.setToolTip("")
         self.summary.setText(tr("Zatím žádný výstup."))
         self.history.refresh()

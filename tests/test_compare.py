@@ -168,7 +168,12 @@ def test_compare_from_results_page(qtbot, tmp_path: Path, monkeypatch) -> None: 
     result = page.comparison()
     assert result is not None and len(result.groups) == 2
     assert page.by_key() == compare.BY_RUN and page.method_key() == compare.NONPARAMETRIC
-    assert page.table.rowCount() == len(result.results) and page.panel_title.text()
+    # výchozí filtr Liší se (něco se liší), Všechny ukážou celou tabulku
+    assert page.only.current() == page.SIGNIFICANT
+    assert page.table.rowCount() == result.significant and page.panel_title.text()
+    page.only.set_current(page.ALL)
+    assert page.table.rowCount() == len(result.results)
+    assert "Liší se 1 z 2 feature" in page.verdict.text() and len(page._cards) == 3  # A, proti, B
     assert page.table.horizontalHeaderItem(3).text() == "Cliffovo δ"
     # buňka feature jako v Hodnotách: „feature · sloupec“, popis jen v tooltipu
     assert page.feature_label(HNR)[0] == "perturbation · hnr"

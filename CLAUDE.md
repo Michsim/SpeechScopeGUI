@@ -818,6 +818,26 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `dimensions.yaml`). Testy `tests/test_tasks.py`, průvodce v `test_norms_page`,
   dialog a strom v `test_assessment`; `conftest` registr před každým testem maže.
 
+## Údaje nahrávek k hotovému běhu (1. 11. 2026, varianta A)
+- Výsledky › Hodnoty › **Údaje nahrávek…** (`ResultsPage.meta_btn`, `edit_metadata`; ne u běžícího běhu
+  ani bez tabulky) otevře `ui/run_meta_dialog.py` `RunMetaDialog`: `MetaTable` jako v kroku 1 Analýzy
+  (dvojklik, + Sloupec, Vyplnit vybrané…), Načíst manifest… (`read_manifest(keep_missing=True)`:
+  řádky i bez souboru vedle manifestu), Uložit manifest…, Vrátit původní tabulku. Backend
+  `backend/run_meta.py`: `read_table` čte `features.csv` jako text (hodnoty feature se přepíší přesně
+  beze změny), `match_manifest` páruje podle cesty, pak podle jedinečného názvu souboru,
+  `apply_metadata` zapíše změněné buňky (nové sloupce před první feature, kanonické názvy,
+  `meta.normalize_value`; `task`, `path`, `file`… chráněné `PROTECTED`), poprvé zálohuje
+  `features.puvodni.csv`, nahrazuje přes dočasný soubor a `os.replace` (otevřený Excel = OSError
+  a hláška); `restore_original` zálohu vrátí. Porovnání, Hodnocení a Norma z hotových běhů i index
+  nahrávek čtou tutéž tabulku, takže údaje vidí bez další úpravy (katalog podle otisku souboru).
+- **Odebrat jeden sloupec** (1. 11. 2026, varianta 1 + 2): `MetaTable` má pravé tlačítko na záhlaví
+  sloupce metadat (`_header_menu` → `request_remove`, dotaz `confirm_remove`) a `remove_column`:
+  přidaný sloupec zmizí i s hodnotami, sloupec ze základu (manifest) jen v `_removed` (soubor se
+  nemění, nejde knihovně; `removed_columns`, `restore_columns`, Zahodit úpravy vrátí). Analýza:
+  Metadata ▾ › Odebrat sloupec › a Vrátit odebrané sloupce (n); sloupec úloha s dotazem (vrátí režim
+  jedné úlohy, `_confirm_remove_column`). Údaje nahrávek: + Sloupec › Odebrat sloupec, po Uložit do
+  výsledků se smaže i z `features.csv` (`apply_metadata(remove=…)`, jen sloupce údajů, se zálohou).
+
 ## Porovnání skupin (31. 10. 2026)
 - Mockup https://claude.ai/artifact/LaQwfCHYfEx4kptyEDoWk3 (`docs/mockups/porovnani-skupin/`
   mimo git). Na Výsledcích Ctrl/Shift+klik na 2 a víc běhů → lišta „vybráno n · Porovnat…“
@@ -856,6 +876,15 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   panel). Úprava 1. 11. 2026 večer: záhlaví „● A“, „● B“ v tabulce barvou skupiny jako v grafu
   (`clean_table.ColorHeader` kreslí text barvou z `setForeground` záhlaví, styl tabulky ji jinak
   přebije); u krabice v grafu jen „n 6“, medián je v tabulce skupin pod grafem.
+- **Zjednodušeno 1. 11. 2026 večer** (mockup https://claude.ai/artifact/EAcPNALzd8xARofqmr3t3F,
+  `docs/mockups/porovnani-zjednoduseni/` mimo git; panel vpravo beze změny, rozhodnutí uživatele):
+  hlavička = karty skupin barvou grafu (`_set_cards`: zkratka, n osob nebo nahrávek, celý název) a věta
+  „Liší se k z n feature · test, po osobě…, korekce FDR · změnit“ (`verdict`, štítky jen v jedné skupině,
+  vynechané a sdílené osoby `_set_notes`); zřídka měněné volby v **Nastavení ▾** (`open_settings`,
+  `settings_panel` v QMenu přes QWidgetAction, vlastní pozadí; nápověda metody `METHOD_HINTS`); nad
+  tabulkou jen „Liší se (k) · Všechny (n)“ (`only`, výchozí Liší se, když se něco liší, `_only_auto`)
+  a hledání; řazení klikem na záhlaví feature / rozdíl (`_header_clicked`, `sort` skrytý, šipka přes
+  sort indicator); tabulka bez sloupce normalita, rozdíl s pruhem a slovem, q se zelenou tečkou.
 
 ## Kontrola kvality nahrávek (31. 10. 2026)
 - **Knihovna měří, GUI soudí.** Knihovna má od 31. 10. 2026 feature

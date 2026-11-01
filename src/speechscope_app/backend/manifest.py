@@ -64,8 +64,11 @@ def find_manifest(folder: Path) -> Path | None:
     return None
 
 
-def read_manifest(path: Path, base: Path | None = None) -> Manifest:
-    """Načte CSV z Excelu i z knihovny; chyby jdou do `problems`, ne výjimkou."""
+def read_manifest(path: Path, base: Path | None = None, *, keep_missing: bool = False) -> Manifest:
+    """Načte CSV z Excelu i z knihovny; chyby jdou do `problems`, ne výjimkou.
+
+    `keep_missing` nechá i řádky, jejichž soubor vedle manifestu není (údaje k hotovému
+    běhu, `backend/run_meta.py`: páruje se pak i podle názvu souboru)."""
     manifest = Manifest(path=path)
     base = base or path.parent
     try:
@@ -107,7 +110,7 @@ def read_manifest(path: Path, base: Path | None = None) -> Manifest:
         target = Path(rel)
         if not target.is_absolute():
             target = base / target
-        if not target.is_file():
+        if not keep_missing and not target.is_file():
             manifest.problems.append(
                 tr("Řádek {line}: soubor {path} neexistuje").format(line=lineno, path=target)
             )

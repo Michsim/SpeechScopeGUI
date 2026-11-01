@@ -132,9 +132,12 @@ def task_problem(runs: list[RunInfo]) -> str:
 def read_table(run: RunInfo) -> pd.DataFrame:
     frame = pd.read_csv(run.dir / "features.csv")
     frame = frame.rename(columns={c: meta.canonical_column(str(c)) for c in frame.columns})
-    frame["_run"] = str(run.dir)  # složka běhu: názvy běhů se mohou opakovat
-    frame["_task"] = run.task or ""
-    return frame
+    # oba sloupce naráz (assign) na scelené tabulce: přidávání po jednom do tabulky se
+    # stovkami sloupců pandas hlásil jako PerformanceWarning („highly fragmented“)
+    return frame.copy().assign(
+        _run=str(run.dir),  # složka běhu: názvy běhů se mohou opakovat
+        _task=run.task or "",
+    )
 
 
 def group_columns(frames: list[pd.DataFrame]) -> dict[str, dict[str, int]]:

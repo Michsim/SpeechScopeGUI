@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QHeaderView,
+    QMenu,
     QStyle,
     QStyledItemDelegate,
     QTableWidget,
@@ -226,6 +227,11 @@ class MetaTable(QTableWidget):
         self._index: dict[Path, MetaRow] = {}  # klíč -> řádek (hledání bez procházení)
         self._columns: list[str] = []  # sloupce metadat ze základu
         self._extra: list[str] = []  # sloupce přidané uživatelem
+        # sloupce základu (z manifestu), které uživatel odebral (1. 11. 2026); soubor se
+        # nemění, sloupec jen není v tabulce ani v `rows_merged`
+        self._removed: set[str] = set()
+        # dotaz před odebráním (Analýza: úloha mění počet běhů); None = bez dotazu
+        self.confirm_remove: Callable[[str], bool] | None = None
         self._edits: dict[Path, dict[str, str]] = {}
         self._required: set[str] = set()
         # sloupce s nabídkou hodnot (úloha): hodnota -> popisek v buňce, záhlaví
@@ -272,6 +278,10 @@ class MetaTable(QTableWidget):
         self.setItemDelegate(_CellDelegate(self))
         self.itemChanged.connect(self._item_changed)
         self.cellClicked.connect(self._cell_clicked)
+        # pravé tlačítko na záhlaví sloupce metadat: Odebrat sloupec
+        header = self.horizontalHeader()
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        header.customContextMenuRequested.connect(self._header_menu)
 
     # --- stav -----------------------------------------------------------------------------
 
@@ -282,7 +292,7 @@ class MetaTable(QTableWidget):
     @property
     def columns(self) -> list[str]:
         """Sloupce metadat, jak jsou v tabulce (základ, pak přidané)."""
-        out = list(self._columns)
+        out = [c for c in self._columns if c not in self._removed]
         for column in self._extra:
             if column not in out:
                 out.append(column)
@@ -383,7 +393,11 @@ class MetaTable(QTableWidget):
         return sum(len(v) for v in self._edits.values())
 
     def has_changes(self) -> bool:
-        return bool(self._edits or self._extra)
+        return bool(self._edits or self._extra or self._removed)
+
+    def removed_columns(self) -> list[str]:
+        """Sloupce základu odebrané uživatelem (v pořadí základu)."""
+        return [c for c in self._columns if c in self._removed]
 
     def merged(self, key: Path) -> dict[str, str]:
         """Metadata řádku: základ přepsaný úpravami, pro všechny sloupce tabulky."""
@@ -506,11 +520,62 @@ class MetaTable(QTableWidget):
         column = meta.canonical_column(name.strip()) if name.strip() else ""
         if not column or column == "path" or (column == "task" and column not in self._choices):
             return ""
-        if column not in self.columns:
+        if column in self._removed:  # odebraný sloupec základu zpátky
+            self._removed.discard(column)
+            self.refill()
+            self.edited.emit()
+        elif column not in self.columns:
             self._extra.append(column)
             self.refill()
             self.edited.emit()
         return column
+
+    def remove_column(self, column: str) -> bool:
+        """Odebere sloupec metadat i s hodnotami vyplněnými v tabulce (1. 11. 2026).
+
+        Přidaný sloupec zmizí úplně, sloupec ze základu (manifest) se jen nepoužije;
+        vrátí ho Zahodit úpravy nebo `restore_columns`."""
+        if column not in self.columns:
+            return False
+        for edits in self._edits.values():
+            edits.pop(column, None)
+        self._edits = {k: v for k, v in self._edits.items() if v}
+        if column in self._extra:
+            self._extra.remove(column)
+        if column in self._columns:
+            self._removed.add(column)
+        if self._group_by == column:
+            self._group_by = ""
+        self.refill()
+        self.edited.emit()
+        return True
+
+    def restore_columns(self) -> None:
+        """Vrátí odebrané sloupce základu."""
+        if self._removed:
+            self._removed.clear()
+            self.refill()
+            self.edited.emit()
+
+    def request_remove(self, column: str) -> bool:
+        """Odebrat sloupec z nabídky: napřed dotaz (`confirm_remove`), pak `remove_column`."""
+        if self.confirm_remove is not None and not self.confirm_remove(column):
+            return False
+        return self.remove_column(column)
+
+    def _header_menu(self, pos) -> None:  # noqa: ANN001
+        logical = self.horizontalHeader().logicalIndexAt(pos)
+        columns = self.columns
+        index = logical - self.meta_from
+        if not 0 <= index < len(columns):
+            return
+        column = columns[index]
+        menu = QMenu(self)
+        action = menu.addAction(
+            tr("Odebrat sloupec „{name}“").format(name=self._header_text(column).lower())
+        )
+        action.triggered.connect(lambda: self.request_remove(column))
+        menu.exec(self.horizontalHeader().mapToGlobal(pos))
 
     def set_value(self, key: Path, column: str, value: str) -> str:
         """Hodnota jednoho řádku (jako dvojklik); vrátí normalizovanou podobu."""
@@ -541,6 +606,7 @@ class MetaTable(QTableWidget):
     def discard(self) -> None:
         self._edits.clear()
         self._extra.clear()
+        self._removed.clear()
         self.refill()
         self.edited.emit()
 
@@ -548,6 +614,7 @@ class MetaTable(QTableWidget):
         """Zapomene úpravy i přidané sloupce bez překreslení (jiná složka, nový základ)."""
         self._edits.clear()
         self._extra.clear()
+        self._removed.clear()
 
     def _select_table_rows(self, rows: list[int]) -> None:
         model = self.selectionModel()
@@ -620,6 +687,10 @@ class MetaTable(QTableWidget):
         finally:
             self.setUpdatesEnabled(True)
             self._filling = False
+
+    def display_header(self, column: str) -> str:
+        """Popisek sloupce jako v záhlaví (pro nabídky)."""
+        return self._header_text(column)
 
     def _header_text(self, column: str) -> str:
         if column in self._choice_headers:

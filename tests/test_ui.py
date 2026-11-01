@@ -146,6 +146,16 @@ def test_window_runs_batch_end_to_end(
     assert window.rename_run(results.history.current(), "")  # prázdný = podle protokolu
     assert results.history.card(0).title.text() == "Fonace, základní"
     assert run_dirs[0].is_dir() and not renamed.exists()  # i složka zpět na protokol
+    # přejmenování jde najít: tlačítko v liště přehledu a ✎ v detailu, detail zůstane
+    runs.show_overview()
+    runs.table.selectRow(0)
+    assert runs.rename_btn.isEnabled()
+    runs.open_entry(runs._rows[0])
+    assert runs.in_detail() and not runs.rename_detail_btn.isHidden()
+    assert window.rename_run(runs._detail, "Kontrola")
+    assert runs.in_detail() and runs.crumb.text() == "Kontrola"
+    assert window.rename_run(runs._detail, "")
+    assert run_dirs[0].is_dir() and runs.crumb.text() == "Fonace, základní"
     # záznam průběhu a jeho přehrání na Výpočtu
     events = (run_dirs[0] / "events.jsonl").read_text(encoding="utf-8").splitlines()
     assert events[0].startswith('{"event": "inputs"')  # řádek GUI se seznamem nahrávek
@@ -590,6 +600,41 @@ def test_manifest_metadata_reach_results(
     assert page.files.item(0, 2).text() == "labely, přepis"  # p01 má labely i přepis
     page.set_advanced(False)
     assert page.files.columnCount() == 2
+
+
+def test_remove_one_metadata_column_in_analysis(
+    qtbot: QtBot, settings: AppSettings, recordings: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Odebrat jeden sloupec metadat: manifest ve složce se nemění, sloupec nejde knihovně;
+    úloha se odebírá s dotazem (mění počet běhů)."""
+    from PySide6.QtWidgets import QMessageBox
+
+    (recordings / "manifest.csv").write_text(
+        "path;pacient;skupina;task\np01.wav;PD001;PD;phonation\n", encoding="utf-8"
+    )
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    page = window.batch_page
+    page.set_folder(recordings)
+    assert set(page.files.columns) == {"subject", "group", "task"}
+    assert page.remove_meta_column("group")
+    assert set(page.files.columns) == {"subject", "task"}
+    assert "group" not in page.manifest().columns
+    assert page.restore_columns_action.isVisible()
+    page.files.restore_columns()
+    assert "group" in page.files.columns
+    # úloha: odmítnutý dotaz nic neodebere, potvrzený vrátí režim jedné úlohy
+    monkeypatch.setattr(
+        "speechscope_app.ui.pages.batch.QMessageBox.question",
+        lambda *_a, **_k: QMessageBox.StandardButton.No,
+    )
+    assert not page.remove_meta_column("task") and "task" in page.files.columns
+    monkeypatch.setattr(
+        "speechscope_app.ui.pages.batch.QMessageBox.question",
+        lambda *_a, **_k: QMessageBox.StandardButton.Yes,
+    )
+    assert page.remove_meta_column("task") and not page._multi()
+    assert (recordings / "manifest.csv").read_text(encoding="utf-8").startswith("path;pacient")
 
 
 def test_metadata_edits_and_custom_columns_reach_run(

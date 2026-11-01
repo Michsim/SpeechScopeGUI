@@ -281,6 +281,12 @@ class BatchPage(QWidget):
         self.manifest_clear_action.triggered.connect(lambda: self.clear_manifest())
         self.manifest_clear_action.setVisible(False)
         self.meta_menu.addSeparator()
+        # odebrat jeden sloupec (i pravým tlačítkem na záhlaví), 1. 11. 2026
+        self.remove_menu = self.meta_menu.addMenu(tr("Odebrat sloupec"))
+        self.remove_menu.aboutToShow.connect(self._fill_remove_menu)
+        self.restore_columns_action = self.meta_menu.addAction("")
+        self.restore_columns_action.triggered.connect(lambda: self.files.restore_columns())
+        self.restore_columns_action.setVisible(False)
         self.edits_action = self.meta_menu.addAction("")
         self.edits_action.setToolTip(
             tr("Zahodí úpravy metadat i přidané sloupce; manifest zůstane.")
@@ -330,6 +336,7 @@ class BatchPage(QWidget):
         # jsou „povinné“ jen vzhledem: prázdné žlutě, když sloupec v tabulce je.
         self.files = MetaTable([tr("nahrávka"), tr("délka")], labels=True, right_columns=(1,))
         self.files.set_required({meta.SUBJECT, meta.AGE, meta.SEX})
+        self.files.confirm_remove = self._confirm_remove_column
         # Úloha je sloupec s nabídkou (31. 10. 2026): dvojklik = rozbalovací seznam úloh,
         # prázdná buňka šedě „jako …“ podle „počítat jako“ z kroku 2; nic neblokuje.
         self.files.set_choices(
@@ -1094,6 +1101,34 @@ class BatchPage(QWidget):
     def discard_meta_edits(self) -> None:
         self.files.discard()
 
+    def remove_meta_column(self, column: str) -> bool:
+        """Odebere sloupec metadat z tabulky (manifest ve složce se nemění)."""
+        return self.files.request_remove(column)
+
+    def _confirm_remove_column(self, column: str) -> bool:
+        """Úloha mění počet běhů: před odebráním se zeptat; ostatní bez dotazu."""
+        if column != TASK:
+            return True
+        answer = QMessageBox.question(
+            self,
+            tr("Odebrat sloupec úloha"),
+            tr(
+                "Bez sloupce úloha se všechny nahrávky spočítají jako jedna úloha, kterou "
+                "vyberete v kroku 2 (místo běhu na každou úlohu). Odebrat?"
+            ),
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _fill_remove_menu(self) -> None:
+        self.remove_menu.clear()
+        columns = self.files.columns
+        if not columns:
+            self.remove_menu.addAction(tr("žádný sloupec")).setEnabled(False)
+        for column in columns:
+            label = tr("úloha (task)") if column == TASK else self.files.display_header(column)
+            action = self.remove_menu.addAction(label)
+            action.triggered.connect(lambda _c=False, col=column: self.remove_meta_column(col))
+
     def save_manifest(self, target: Path | None = None) -> Path | None:
         """Zapíše metadata z tabulky jako CSV, kam uživatel ukáže (výchozí složka nahrávek).
 
@@ -1330,6 +1365,11 @@ class BatchPage(QWidget):
         columns = self.files.columns
         self.manifest_clear_action.setVisible(base is not None)
         self.edits_action.setVisible(self.files.has_changes())
+        removed = self.files.removed_columns()
+        self.restore_columns_action.setVisible(bool(removed))
+        self.restore_columns_action.setText(
+            tr("Vrátit odebrané sloupce ({n})").format(n=len(removed))
+        )
         self.edits_action.setText(tr("Zahodit úpravy ({n})").format(n=edits))
         self.save_action.setEnabled(self.manifest() is not None)
         role, tip = "neutral", ""

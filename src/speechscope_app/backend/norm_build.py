@@ -409,7 +409,9 @@ def _select_rows(
     (`known`, i nahrazené; starší běh s jinými cestami) zůstane celá.
 
     Přidá sloupec `_key` (cesta nahrávky) kvůli nahrávce ve dvou dávkách."""
-    frame = frame.rename(columns={c: meta.canonical_column(str(c)) for c in frame.columns})
+    # .copy() scelí tabulku: přidávání sloupců do tabulky se stovkami feature jinak pandas
+    # hlásil jako PerformanceWarning („highly fragmented“)
+    frame = frame.rename(columns={c: meta.canonical_column(str(c)) for c in frame.columns}).copy()
     raw = frame["path"] if "path" in frame else pd.Series([None] * len(frame))
     keys = [_key(Path(p)) if isinstance(p, str) and p.strip() else None for p in raw]
     frame["_key"] = [str(k) if k is not None else f"#{id(frame)}-{i}" for i, k in enumerate(keys)]
