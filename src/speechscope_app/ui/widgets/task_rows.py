@@ -234,6 +234,14 @@ class ProtocolCombo(QComboBox):
             )
             .adjusted(4, 0, -2, 0)
         )
+        if self.count() == 0 and self.placeholderText():  # úloha ještě není vybraná
+            painter.setPen(QColor(theme.MUTED))
+            painter.drawText(
+                rect,
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                self.placeholderText(),
+            )
+            return
         name = self.currentText()
         sub = self.current_sub()
         bold = QFont(self.font())

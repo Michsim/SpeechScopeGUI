@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -43,7 +44,7 @@ from PySide6.QtWidgets import (
 
 from ...backend import compare as cmp
 from ...backend import tasks
-from ...backend.history import KINDS, RunGroup, RunInfo
+from ...backend.history import KIND_ASSESSMENT, KIND_NORM, KINDS, RunGroup, RunInfo
 from ...i18n import tr
 from .. import theme
 from ..widgets.clean_table import card, cell, pill, style_table
@@ -232,6 +233,8 @@ class RunsPage(QWidget):
         self._queue_widgets = (self.queue_list, self.queue_remove_btn, self.queue_clear_btn)
         for widget in self._queue_widgets:
             widget.hide()  # fronta jen, když něco čeká (`set_queue`)
+        # karta jen na výšku obsahu: s prázdným filtrem se jinak natáhla přes stránku
+        self.running_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         ov.addWidget(self.running_card)
         self.running_card.hide()
 
@@ -319,7 +322,7 @@ class RunsPage(QWidget):
         self.empty = QLabel(tr("Zatím žádný běh. Spusťte analýzu na stránce Analýza nahrávek."))
         self.empty.setObjectName("muted")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ov.addWidget(self.empty)
+        ov.addWidget(self.empty, 1)  # bez řádků bere volné místo prázdný stav, ne karta běhu
         self.empty.hide()
         hint = QLabel(
             tr(
@@ -415,6 +418,17 @@ class RunsPage(QWidget):
     def tab(self) -> str:
         return self._tab
 
+    def _empty_text(self) -> str:
+        """Prázdný přehled podle filtru a hledání."""
+        if self.search.text().strip():
+            return tr("Hledání nic nenašlo.")
+        kind = self.history.filter()
+        if kind == KIND_ASSESSMENT:
+            return tr("Zatím žádné hodnocení. Založte ho na stránce Domů nebo Pacienti.")
+        if kind == KIND_NORM:
+            return tr("Zatím žádná norma. Založte ji na stránce Normy.")
+        return tr("Zatím žádný běh. Spusťte analýzu na stránce Analýza nahrávek.")
+
     def _sync_filter(self) -> None:
         for kind, btn in self.filter_buttons.items():
             btn.setText(self.history.filter_buttons[kind].text())
@@ -425,6 +439,7 @@ class RunsPage(QWidget):
         """Tabulka z položek skryté historie; detail zmizelého běhu vrátí přehled."""
         self._sync_filter()
         self._rows = list(self.history.entries())
+        self._live_cells: list[tuple[QProgressBar, QLabel, QTableWidgetItem]] = []
         self.table.setRowCount(len(self._rows))
         for r, entry in enumerate(self._rows):
             role = STATUS_ROLES.get(entry.status, "neutral")
@@ -454,9 +469,13 @@ class RunsPage(QWidget):
                     bar.setValue(entry.processed or 0)
                     count = QLabel(text)
                     self.table.setCellWidget(r, c, cell(bar, count))
+                    # průběh v řádku se mění s každou nahrávkou (`set_progress`), ne až
+                    # po návratu na stránku
+                    self._live_cells.append((bar, count, item))
                 elif c in (2, 5, COL_WHEN, COL_CHEVRON):
                     item.setForeground(QColor(theme.MUTED))
                 self.table.setItem(r, c, item)
+        self.empty.setText(self._empty_text())
         self.empty.setVisible(not self._rows)
         self.table_card.setVisible(bool(self._rows))
         self.table.resizeColumnToContents(0)
@@ -570,6 +589,12 @@ class RunsPage(QWidget):
     def set_progress(self, done: int, total: int) -> None:
         self.run_bar.setRange(0, max(1, total))
         self.run_bar.setValue(done)
+        text = f"{done}/{total}" if done != total else str(total)
+        for bar, count, item in getattr(self, "_live_cells", []):
+            bar.setRange(0, max(1, total))
+            bar.setValue(done)
+            count.setText(text)
+            item.setData(TEXT_ROLE, text)
 
     def clear_running(self) -> None:
         self._live_dir = None

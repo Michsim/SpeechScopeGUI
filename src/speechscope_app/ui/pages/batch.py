@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
@@ -122,7 +123,9 @@ class BatchPage(QWidget):
         # řádky úloh v kroku 2 (31. 10. 2026): bez úloh v manifestu jeden řádek s výběrem
         # úlohy (`_single_task`), jinak řádek na úlohu manifestu; nahrávky bez úlohy jdou
         # do `_unassigned_task` („počítat jako“). Vybraný protokol si pamatuje úloha.
-        self._single_task = contract.TASKS[0]
+        # bez manifestu žádná předvolená úloha (1. 11. 2026): řádek je červený a Spustit
+        # nejde, dokud se úloha nevybere; jiná složka volbu vynuluje
+        self._single_task = ""
         self._unassigned_task = ""
         self._unassigned_auto = True
         self._row_choice: dict[str, str] = {}  # základní úloha -> jméno protokolu
@@ -563,8 +566,22 @@ class BatchPage(QWidget):
         self.prepare_box.hide()
         task_layout.addWidget(self.prepare_box)
 
-        page2_layout.addWidget(task_card)
-        page2_layout.addStretch(1)
+        # karta v posuvné ploše: volby Jen segmentace / Jen přepis nesmí zvětšovat
+        # minimální výšku okna (1. 11. 2026, okno při přepnutí režimu měnilo velikost)
+        body = QWidget()
+        body.setObjectName("step2_body")
+        body.setStyleSheet("#step2_body { background: transparent; }")
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.addWidget(task_card)
+        body_layout.addStretch(1)
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        area.setStyleSheet("QScrollArea { background: transparent; }")
+        area.setWidget(body)
+        page2_layout.addWidget(area, 1)
 
         # Patička: zpět, souhrn (běhy, nahrávky, zvuk, odhad) a Spustit. Dřív souhrnný pruh
         # v kartě a stavový řádek dole říkaly totéž dvakrát. U Jen segmentace / Jen přepis
@@ -580,7 +597,9 @@ class BatchPage(QWidget):
         self.summary = SummaryBar()
         self.summary.setStyleSheet("QFrame#summarybar { background: transparent; border: none; }")
         bottom.addWidget(self.summary, 1)
-        self.status = QLabel("")
+        # stav se zkracuje (celý v tooltipu): dlouhý text ve Výpočtu feature roztahoval
+        # minimální šířku okna a okno při přepnutí režimu měnilo velikost
+        self.status = ElidedLabel("")
         self.status.setObjectName("muted")
         bottom.addWidget(self.status, 1)
         self.run_btn = QPushButton(tr("Spustit"))
@@ -974,6 +993,8 @@ class BatchPage(QWidget):
             self._scanned_folder = text
             self._fix_mode = ""  # seznam k doplnění patří složce
             self.files.freeze(None)
+            self._single_task = ""  # úloha bez manifestu patří složce, nic se nepředvybírá
+            self._rows_key = ()
         self._found = (
             find_recordings(Path(text), recursive=self.recursive.isChecked()) if text else []
         )
@@ -1499,6 +1520,8 @@ class BatchPage(QWidget):
 
     def _choice_for(self, task: str) -> str:
         """Protokol řádku: naposledy vybraný pro úlohu, jinak přibalený výchozí."""
+        if not task:
+            return ""  # úloha ještě není vybraná
         base = tasks.base_task(task)
         names = [p.name for p in self._protocols_for(task)]
         chosen = self._row_choice.get(base, "")
@@ -1562,6 +1585,9 @@ class BatchPage(QWidget):
                 lambda t=task: self.show_protocol_detail(self._row_protocol(t))
             )
             if row.task_combo is not None:
+                if not task:  # bez předvolby: nahoře výzva, dokud se úloha nevybere
+                    row.task_combo.insertItem(0, tr("vyberte úlohu…"), "")
+                    row.task_combo.setCurrentIndex(0)
                 row.task_combo.currentIndexChanged.connect(
                     lambda _i, r=row: self._single_task_changed(r)
                 )
@@ -1644,6 +1670,22 @@ class BatchPage(QWidget):
                 )
         row.sub.setText(sub)
         row.sub.setTextFormat(Qt.TextFormat.RichText)
+        if not task:  # úloha ještě není vybraná: červený řádek, bez protokolu
+            row.protocol.set_protocols([])
+            row.protocol.setPlaceholderText(tr("protokol podle úlohy"))
+            row.protocol.setEnabled(False)
+            row.details.hide()
+            row.set_status("none", "")
+            row.set_count("–")
+            row.sub.setText(sub)
+            if row.task_combo is not None:
+                row.task_combo.setToolTip(tr("Vyberte, jako jaká úloha se nahrávky počítají."))
+                row.task_combo.setStyleSheet("QComboBox { border: 1px solid #f87171; }")
+            row.set_off_look(False)
+            row.setProperty("state", "missing")
+            row.style().unpolish(row)
+            row.style().polish(row)
+            return
         allowed = self._task_allows(task, self._mode)
         row.set_off_look(not row.is_on() or not recs or not allowed)
         if row.switch is not None:
@@ -1834,10 +1876,14 @@ class BatchPage(QWidget):
                 proto.display_name if proto is not None else tr("Co se má spočítat.")
             )
         self.continue_btn.setEnabled(bool(self._recordings))
+        self.status.setStyleSheet("")
         if not self._recordings:
             self.status.setText(tr("Vyber složku s nahrávkami."))
         else:
-            if proto is None:
+            if not multi and not self._single_task:
+                self.status.setText(tr("Vyberte úlohu."))
+                self.status.setStyleSheet("color: #b91c1c; font-weight: 600;")
+            elif proto is None:
                 self.status.setText(tr("Vyber protokol."))
             elif self._mode == "segments":
                 self.status.setText(

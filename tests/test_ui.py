@@ -53,6 +53,12 @@ def test_window_runs_batch_end_to_end(
 
     window.batch_page.set_folder(recordings)
     assert window.batch_page.files.rowCount() == 4
+    # bez manifestu žádná předvolená úloha: řádek červeně, Spustit nejde
+    (empty,) = window.batch_page.task_rows().values()
+    assert empty.property("state") == "missing" and empty.task_combo.currentData() == ""
+    assert not window.batch_page.run_btn.isEnabled()
+    assert window.batch_page.status.text() == "Vyberte úlohu."
+    empty.task_combo.setCurrentIndex(empty.task_combo.findData("phonation"))
     assert window.batch_page.run_btn.isEnabled()
 
     assert window.batch_page.select_protocol("Fonace, základní")

@@ -204,7 +204,9 @@ Analýze zmizely; `widgets/task_rows.py` `TaskRowWidget` = vypínač, ikona úlo
 řádky: název, pod ním `SUB_ROLE` = sloupce a cena), stav tečkou (`set_status`), odhad
 (`set_count`), co se počítá, Upravit… (rozšířený režim); pod řádky `SummaryBar` (běhy
 a nahrávky, zvuk, odhad, `ShareBar` podíl úloh). Bez sloupce `task` v manifestu jeden řádek
-s výběrem úlohy (`_single_task`); se sloupcem úloha řádek na úlohu, nahrávky bez
+s výběrem úlohy (`_single_task`; od 1. 11. 2026 bez předvolby: „vyberte úlohu…“, řádek červeně
+`state=missing`, protokol prázdný „protokol podle úlohy“, Spustit neaktivní a v patičce „Vyberte úlohu.“,
+jiná složka volbu vynuluje); se sloupcem úloha řádek na úlohu, nahrávky bez
 úlohy „počítat jako“ ve žlutém pruhu nad úlohami (`unassigned_row`, `unassigned_combo`, výchozí
 první úloha, která v tabulce chybí, `set_unassigned_task`; odkaz „nebo doplnit v kroku 1 ›“ =
 `show_without_task`: krok 1 se seznamem k doplnění úloh, viz níže; cílový
@@ -238,7 +240,8 @@ přes `relocate(old, new)`;
 krok 2 (zjednodušený 31. 10. 2026): Název běhu nahoře
 v kartě úloh, hlavička „Úlohy“ s nápovědou, vpravo jazyk jen když ho některý protokol potřebuje
 (`_update_language_visibility`: přepis nebo jazykový rozbor), patička s ← Nahrávky, souhrnem
-(`SummaryBar`) a Spustit; varování o krátkých nahrávkách jedním řádkem;
+(`SummaryBar`) a Spustit; varování o krátkých nahrávkách jedním řádkem; karta kroku 2 je v posuvné ploše a stav v patičce je `ElidedLabel` (1. 11. 2026:
+okno při přepnutí Výpočet feature · Jen segmentace · Jen přepis měnilo velikost);
 v rozšířeném režimu v hlavičce úloh přepínač Výpočet feature · Jen segmentace · Jen přepis
 (`contract.RUN_MODES`, `BatchPage.set_mode`): krok 3 pak místo karet ukáže
 volby mezivýsledku (model segmentace z `contract.SEGMENT_MODELS`, vyříznutá

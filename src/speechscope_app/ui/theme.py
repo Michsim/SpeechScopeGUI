@@ -99,6 +99,7 @@ QFrame#taskrow {{
 }}
 QFrame#taskrow:hover {{ border-color: #c7d2fe; }}
 QFrame#taskrow[state="off"] {{ background: #f9fafb; }}
+QFrame#taskrow[state="missing"] {{ background: #fef2f2; border: 1px solid #f87171; }}
 QFrame#taskrow QLabel {{ background: transparent; border: none; }}
 QFrame#summarybar {{
     background: #f8fafc; border: 1px solid {BORDER}; border-radius: 10px;
