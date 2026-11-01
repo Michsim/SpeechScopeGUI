@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
+from ... import contract
 from ...backend import compare as cmp
 from ...backend import tasks
 from ...backend.history import RunInfo
@@ -66,6 +67,16 @@ GROUP_SOFT = ("#e8efff", "#fff4e0", "#f3edff", "#e6f7f5", "#fdeef5", "#f1f2f4")
 GROUP_ROLES = ("accent", "warn", "neutral", "neutral", "neutral", "neutral")
 PANEL_WIDTH = 360
 FEATURE_MIN, FEATURE_MAX = 160, 320  # sloupec názvu feature v tabulce porovnání
+# výšky řádků podoby A (1. 11. 2026): feature na dva řádky, nadpis domény, pruh feature
+FEATURE_ROW, DOMAIN_ROW, BAND_ROW = 48, 30, 36
+BAND_BG = "#eff6ff"  # pruh feature: světlejší než výběr řádku (ACCENT_SOFT)
+
+
+class _Domain(str):
+    """Nadpis domény v řazení podle feature (`acoustic.timing`); jako jméno feature je to
+    řádek bez výsledku, proto podtřída `str`."""
+
+
 TEXT_ROLE = Qt.ItemDataRole.UserRole + 1  # text buňky, kterou kreslí popisek
 SHORT_MAX = 10  # delší názvy skupin se v tabulce a grafu nahradí písmeny A, B, C
 CSV_FILTER = "CSV (*.csv)"
@@ -962,8 +973,10 @@ class ComparePage(QWidget):
         return sorted(results, key=key)
 
     def _feature_cell(self, row: int, r: cmp.FeatureResult, grouped: bool) -> None:
-        """Buňka feature: šedě feature, tučně sloupec, šedě jednotka (rich text přes buňku;
-        text položky zůstává kvůli hledání a testům, jen není vidět)."""
+        """Buňka feature, podoba A (1. 11. 2026, mockup docs/mockups/porovnani-feature/):
+        nahoře tučně čitelný název z popisu knihovny a šedě jednotka, pod ním malým písmem
+        technické `feature · sloupec` (v řazení podle feature jen sloupec). Bez popisu jen
+        technické jméno na jednom řádku. Text položky zůstává kvůli hledání a testům."""
         prefix, short, unit, text, _name = self.feature_parts(r.column)
         label, _u = self.feature_label(r.column)
         plain = label + (f" ({unit})" if unit else "") + ("  ⚠" if r.versions else "")
@@ -975,23 +988,67 @@ class ComparePage(QWidget):
         item = set_text(self.table, row, 0, "", tooltip=tooltip)
         item.setData(Qt.ItemDataRole.UserRole, r.column)
         item.setData(TEXT_ROLE, plain)  # text buňky pod popiskem (hledání, testy)
-        muted = theme.MUTED
-        html = "" if grouped or not prefix else f"<span style='color:{muted}'>{prefix} ·</span> "
-        html += f"<b>{short}</b>"
+        technical = short if grouped or not prefix else f"{prefix} · {short}"
+        readable = text.strip()
+        holder = QWidget()
+        holder.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        lines = QVBoxLayout(holder)
+        lines.setContentsMargins(24 if grouped else 8, 0, 8, 0)
+        lines.setSpacing(0)
+        top = QHBoxLayout()
+        top.setSpacing(6)
+        name = ElidedLabel(readable or technical)
+        bold = name.font()
+        bold.setBold(True)
+        name.setFont(bold)
+        name.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        name.setMinimumWidth(0)
+        top.addWidget(name)  # jednotka hned za názvem, ne u pravého okraje
         if unit:
-            html += f" <span style='color:{muted}'>{unit}</span>"
+            unit_label = QLabel(unit)
+            unit_label.setObjectName("muted")
+            top.addWidget(unit_label)
         if r.versions:
-            html += f" <span style='color:{theme.WARN}'>⚠</span>"
-        widget = QLabel(html)
-        widget.setTextFormat(Qt.TextFormat.RichText)
-        holder = cell(widget)
-        if grouped:
-            holder.layout().setContentsMargins(24, 0, 8, 0)
+            warn = QLabel("⚠")
+            warn.setStyleSheet(f"color: {theme.WARN};")
+            top.addWidget(warn)
+        top.addStretch(1)
+        lines.addStretch(1)
+        lines.addLayout(top)
+        if readable and readable != technical:
+            tech = ElidedLabel(technical)
+            font = QFont("Consolas")
+            font.setStyleHint(QFont.StyleHint.Monospace)
+            font.setPointSizeF(max(7.0, self.font().pointSizeF() * 0.85))
+            tech.setFont(font)
+            tech.setStyleSheet(f"color: {theme.MUTED};")
+            tech.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+            tech.setMinimumWidth(0)
+            lines.addWidget(tech)
+        lines.addStretch(1)
         holder.setToolTip(tooltip)
         self.table.setCellWidget(row, 0, holder)
 
+    def _domain_header(self, row: int, group: str, columns: int) -> None:
+        """Nadpis domény velkými písmeny („AKUSTIKA · ČASOVÁNÍ“) nad pruhy jejích feature."""
+        item = set_text(self.table, row, 0, "")
+        item.setData(TEXT_ROLE, str(group))
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        self.table.setSpan(row, 0, 1, columns)
+        label = QLabel(contract.GROUP_LABELS.get(group, group).upper())
+        font = label.font()
+        font.setBold(True)
+        font.setPointSizeF(font.pointSizeF() * 0.85)
+        font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 106)
+        label.setFont(font)
+        label.setStyleSheet(f"color: {theme.MUTED}; padding-left: 8px; padding-top: 6px;")
+        label.setToolTip(str(group))
+        self.table.setCellWidget(row, 0, label)
+        self.table.setRowHeight(row, DOMAIN_ROW)
+
     def _group_header(self, row: int, name: str, columns: int) -> None:
-        """Nadpis feature přes celou šířku (řazení podle feature)."""
+        """Pruh feature přes celou šířku (řazení podle feature): tučně popis feature z knihovny,
+        šedě technické jméno, vpravo počet sloupců."""
         description = ""
         feature = next((f for f in self._catalog if f.name == name), None)
         if feature is not None and feature.description:
@@ -1000,13 +1057,29 @@ class ComparePage(QWidget):
         item.setData(TEXT_ROLE, name)
         item.setFlags(Qt.ItemFlag.ItemIsEnabled)
         self.table.setSpan(row, 0, 1, columns)
-        html = f"<b>{name}</b>"
+        short = name.split(".", 2)[-1] if name.count(".") >= 2 else name
+        band = QWidget()
+        band.setObjectName("feature_band")
+        band.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        band.setStyleSheet(f"QWidget#feature_band {{ background: {BAND_BG}; }}")
+        layout = QHBoxLayout(band)
+        layout.setContentsMargins(8, 0, 12, 0)
+        layout.setSpacing(8)
+        title = QLabel(f"<b>{escape(description or short)}</b>")
+        title.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(title)
         if description:
-            html += f" <span style='color:{theme.MUTED}'>· {description}</span>"
-        label = QLabel(html)
-        label.setTextFormat(Qt.TextFormat.RichText)
-        label.setStyleSheet(f"background: {theme.NEUTRAL_SOFT}; padding-left: 8px;")
-        self.table.setCellWidget(row, 0, label)
+            tech = QLabel(short)
+            tech.setObjectName("muted")
+            layout.addWidget(tech)
+        layout.addStretch(1)
+        n = getattr(self, "_band_counts", {}).get(name, 0)
+        count = QLabel(tr("1 sloupec") if n == 1 else tr("{n} sloupců").format(n=n))
+        count.setObjectName("muted")
+        layout.addWidget(count)
+        band.setToolTip(name)
+        self.table.setCellWidget(row, 0, band)
+        self.table.setRowHeight(row, BAND_ROW)
 
     def _fill_table(self) -> None:
         result = self._result
@@ -1035,10 +1108,16 @@ class ComparePage(QWidget):
         headers += [effect_name, "q"]  # normalita je v panelu vpravo
         # řádky tabulky: výsledek, nebo jméno feature = nadpis skupiny
         rows: list[cmp.FeatureResult | str] = []
-        last = None
+        last = last_group = None
+        self._band_counts: dict[str, int] = {}
         for r in shown:
             name = self.feature_parts(r.column)[4]
+            self._band_counts[name] = self._band_counts.get(name, 0) + 1
             if grouped and name != last:
+                group = ".".join(name.split(".")[:2])
+                if group != last_group:
+                    rows.append(_Domain(group))
+                    last_group = group
                 rows.append(name)
                 last = name
             rows.append(r)
@@ -1074,11 +1153,15 @@ class ComparePage(QWidget):
         table.setRowCount(len(rows))
         select_row = -1
         for row, entry in enumerate(rows):
+            if isinstance(entry, _Domain):
+                self._domain_header(row, entry, len(headers))
+                continue
             if isinstance(entry, str):
                 self._group_header(row, entry, len(headers))
                 continue
             r = entry
             self._feature_cell(row, r, grouped)
+            table.setRowHeight(row, FEATURE_ROW)
             for i in range(n_groups):
                 set_text(
                     table, row, 1 + i, fmt(r.center[i]), right=True,

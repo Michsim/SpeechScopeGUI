@@ -915,6 +915,13 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `group_columns`; Nastavení ▾ má jen metodu, po osobě, log, nepoužitelné); v Hodnotách tlačítko
   Porovnat skupiny… (`ResultsPage.groups_btn`, `_update_groups_btn`, tooltip „group: PD 12 · HC 10“,
   `compare_groups_requested` → `RunsPage._compare_groups` → `open_compare([běh])`).
+- **Názvy feature v tabulce porovnání, podoba A** (1. 11. 2026, mockup
+  https://claude.ai/artifact/ApYwTw8PcrgaPppfk6zkt1, `docs/mockups/porovnani-feature/` mimo git): buňka na dva
+  řádky (`FEATURE_ROW` = 48 px): nahoře tučně čitelný název z popisu sloupce v katalogu (`split_unit`, jazyk GUI)
+  a šedě jednotka hned za ním, pod ním malým strojovým písmem `feature · sloupec` (podle feature jen sloupec);
+  bez popisu jen technické jméno. Podle feature: nadpis domény velkými písmeny z `contract.GROUP_LABELS`
+  (`_Domain`, podtřída `str`, `_domain_header`) a světle modrý pruh feature `BAND_BG` s popisem feature,
+  technickým jménem a počtem sloupců (`_group_header`, `_band_counts`).
 - Tabulka porovnání (1. 11. 2026): sloupec feature podle obsahu nejvýš `FEATURE_MAX` = 320 px (v úzkém
   okně až `FEATURE_MIN`, přepočet při změně velikosti přes eventFilter na viewport), čísla hned za ním,
   volné místo za posledním sloupcem (`_fit_feature_column`; dřív Stretch jako strom dimenzí).
