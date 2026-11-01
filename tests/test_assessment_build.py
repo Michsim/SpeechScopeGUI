@@ -475,28 +475,24 @@ def test_wizard_with_manifest_runs_batches_per_date_and_creates_visits(
     assert dialog.unassigned_table.item(0, 4).text() == "70"
     dialog.end_unassigned()
     assert dialog.unassigned_box.isHidden()
-    assert dialog.summary.figures()[:2] == ["2 pacienti", "3 dávek"]  # fonace × 3 různá data
+    # jedna dávka na úlohu (modely se načtou jednou), vyšetření se rozdělí až po výpočtu
+    assert dialog.summary.figures()[0] == "2 pacienti"
     plan = dialog.plan()
     assert plan.multi and plan.visits() == 4 and plan.subjects() == ["P1", "P2"]
-    assert [t.key for t in plan.tasks] == [
-        "phonation@2025-10-14",
-        "phonation@2026-10-14",
-        "phonation@2026-10-20",
-    ]
-    manifest = plan.manifest_for(next(t for t in plan.tasks if t.visit == "2026-10-14"))
+    assert [t.key for t in plan.tasks] == ["phonation"]
+    manifest = plan.manifest_for(plan.tasks[0])
     assert manifest.meta_for(data / "p2_2026.wav") == {
         "subject": "P2",
         "age": "70",
         "sex": "f",
         "visit": "2026-10-14",
     }
-    assert plan.title(plan.tasks[0]) == "Hodnocení P1 · Fonace · 2025-10-14"
-    assert plan.title(plan.tasks[1]) == "Hodnocení P1, P2 · Fonace · 2026-10-14"
+    assert plan.title(plan.tasks[0]) == "Hodnocení P1, P2 · Fonace"
     reloaded = AssessmentPlan.load(plan.save())
-    assert reloaded.multi and reloaded.tasks[0].visit == "2025-10-14"
+    assert reloaded.multi and len(reloaded.tasks) == 1
     assert reloaded.people[(data / "p1_2025.wav").resolve()].age == 63.0
 
-    assert window.start_plan("assessment", reloaded) == 3
+    assert window.start_plan("assessment", reloaded) == 1
     qtbot.waitUntil(lambda: not reloaded.path.exists(), timeout=60000)
     qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=10000)
     page = window.assessment_page
@@ -515,7 +511,7 @@ def test_wizard_with_manifest_runs_batches_per_date_and_creates_visits(
     # běhy zůstaly mezi analýzami: žádná karta hodnocení, žádné slučování do složky pacienta
     history = window.results_page.history
     history.refresh()
-    assert history.filter_buttons["analysis"].text() == "Analýzy (3)"
+    assert history.filter_buttons["analysis"].text() == "Analýzy (1)"  # jedna dávka
     assert history.filter_buttons["assessment"].text() == "Hodnocení"
     assert not any(read_group(p) for p in settings.work_root.iterdir() if p.is_dir())
     assert {p.name for p in data.rglob("*")} == before
@@ -612,16 +608,12 @@ def test_series_wizard_runs_visits_of_one_patient(
     series.set_date(second, "3. 12. 2026")
     plan = dialog.plan()
     assert plan.multi and plan.visits() == 2 and plan.subjects() == ["P-017"]
-    assert sorted(t.key for t in plan.tasks) == [
-        "ddk@2026-10-14",
-        "phonation@2026-10-14",
-        "phonation@2026-12-03",
-    ]
+    assert sorted(t.key for t in plan.tasks) == ["ddk", "phonation"]  # dávka na úlohu
     ages = {p.visit: p.age for p in plan.people.values()}
     assert ages == {"2026-10-14": 64.0, "2026-12-03": 64.0}  # z roku narození
     # Spustit: rok narození k pacientovi do katalogu, po výpočtu dvě hodnocení
     window._remember_birth_year(dialog.widget)
-    assert window.start_plan("assessment", plan) == 3
+    assert window.start_plan("assessment", plan) == 2
     qtbot.waitUntil(lambda: not plan.path.exists(), timeout=40000)
     qtbot.waitUntil(lambda: not window.run_page.runner.running, timeout=10000)
     stored = [a for a in window.catalog.assessments() if a.subject == "P-017"]

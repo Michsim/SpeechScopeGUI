@@ -67,7 +67,6 @@ from ..backend.assessment_build import (
     patients_text,
     people_from_scans,
     split_by_task,
-    split_by_visit,
     write_manifest_template,
 )
 from ..backend.assessments import patient_key
@@ -1309,26 +1308,24 @@ class AssessmentBuildWidget(QWidget):
     def _task_plans(self) -> list[TaskPlan]:
         language = str(self.language.currentData() or "")
         plans: list[TaskPlan] = []
+        # Jedna dávka na úlohu i u víc vyšetření (1. 11. 2026): každá dávka je nový proces
+        # knihovny a znovu načítá modely (Whisper, Stanza), dřív dávka na úlohu × datum.
+        # Pacient a datum jdou v manifestu dávky (`people`), `finish_plan` z nich výsledky
+        # rozdělí na vyšetření stejně jako dřív.
         if self._mode == SERIES:
-            # vývoj v čase: dávka na úlohu a datum, protokol z mřížky (jako minule)
             for task, by_date in self.series.task_inputs().items():
                 proto = self.series.protocol_for(task)
                 if proto is None:
                     continue
                 protocol = with_language(proto, language).to_dict()
-                for visit, recs in sorted(by_date.items()):
-                    plans.append(TaskPlan(task, protocol, list(recs), visit=visit))
+                recs = [r for _visit, rs in sorted(by_date.items()) for r in rs]
+                plans.append(TaskPlan(task, protocol, recs))
             return plans
         for row in self.active_rows():
             proto = row.current_protocol()
             assert proto is not None
             protocol = with_language(proto, language).to_dict()
-            if self._multi:
-                people = self._merged_people()
-                for visit, recs in split_by_visit(list(row.scan.recordings), people).items():
-                    plans.append(TaskPlan(row.task, protocol, recs, visit=visit))
-            else:
-                plans.append(TaskPlan(row.task, protocol, list(row.scan.recordings)))
+            plans.append(TaskPlan(row.task, protocol, list(row.scan.recordings)))
         return plans
 
     # --- krok 2 -------------------------------------------------------------------
