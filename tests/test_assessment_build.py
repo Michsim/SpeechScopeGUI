@@ -164,10 +164,14 @@ def test_wizard_runs_batches_and_creates_assessment(
     assert dialog.sex.currentData() == "m"
     assert dialog.date.date().toString("yyyy-MM-dd") == "2026-10-28"
     assert not dialog.prefill_note.isHidden() and "manifest.csv" in dialog.prefill_note.text()
-    assert dialog.next_btn.isEnabled() and "nahrávek: 3" in dialog.hint.text()
-    dialog.go_next()
-    assert dialog.step() == 1 and dialog.batches.rowCount() == 2
-    assert "Čtení" in dialog.warnings.text() and "Spontánní řeč" in dialog.warnings.text()
+    assert "bez složky" in dialog.rows["reading"].sub.text()
+    assert dialog.next_btn.isEnabled() and dialog.next_btn.text() == "Další › Pacienti"
+    dialog.go_next()  # krok 2 Pacient: formulář a kontrola úloh
+    assert dialog.step() == 1 and not dialog.person_box.isHidden()
+    assert (
+        dialog.next_btn.text() == "Spustit hodnocení" and dialog.summary.figures()[0] == "2 úlohy"
+    )
+    assert "Čtení –" in dialog.task_checks.text()
     plan = dialog.plan()
     assert [t.task for t in plan.tasks] == ["phonation", "ddk"]
     assert plan.patient == Patient("RBD239", 65.0, "m", "2026-10-28")
@@ -338,9 +342,9 @@ def test_home_runs_wizard_in_place(qtbot: QtBot, settings: AppSettings, tmp_path
     builder.subject.setText("P1")
     builder.set_folder("phonation", data)
     assert builder.rows["phonation"].count.text() == "1 ✓" and builder.next_btn.isEnabled()
-    builder.go_next()
-    assert builder.step() == 1 and builder.batches.rowCount() == 1
-    builder.go_next()  # Spustit
+    builder.go_next()  # Další › Pacienti
+    assert builder.step() == 1
+    builder.go_next()  # Spustit hodnocení
     assert window.nav.currentRow() == PAGE_RUN and home.step() == 0 and home.builder is None
     # nabídka další návštěvy téhož pacienta: průvodce s předvyplněným pacientem
     assert not home.next_visit.isHidden() and "P1" in home.next_visit_text.text()
@@ -412,26 +416,40 @@ def test_wizard_with_manifest_runs_batches_per_date_and_creates_visits(
     dialog = window.make_assessment_build_dialog()
     qtbot.addWidget(dialog)
     dialog.set_folder("phonation", data)
-    assert dialog.is_multi() and dialog.person_box.isHidden() and not dialog.people_box.isHidden()
-    assert dialog.people_table.rowCount() == 4 and dialog.template_btn.isEnabled()
+    assert dialog.is_multi() and dialog.step() == 0
+    # krok 1 napoví, co čeká v kroku 2
     assert (
-        dialog.people_summary.text()
-        == "2 pacienti · vyšetření: 3 · nahrávek: 4 · bez pacienta nebo data: 1"
+        dialog.next_btn.text() == "Další › Pacienti"
+        and "manifest: 2 pacienti" in dialog.hint.text()
     )
-    assert [dialog.people_table.item(r, 0).text() for r in range(4)] == [
-        "p1_2025.wav",
-        "p1_2026.wav",
-        "p2_bezdata.wav",
-        "p2_2026.wav",
+    assert "1 údajů chybí" in dialog.hint.text()
+    dialog.go_next()
+    assert dialog.step() == 1 and dialog.person_box.isHidden() and not dialog.people_box.isHidden()
+    # řádek = vyšetření (pacient × datum), úlohy ve sloupcích s počtem nahrávek
+    table = dialog.visits_table
+    headers = [table.horizontalHeaderItem(c).text().lower() for c in range(table.columnCount())]
+    assert headers == ["pacient", "datum vyšetření", "věk", "pohlaví", "fonace"]
+    rows = [[table.item(r, c).text() for c in range(5)] for r in range(table.rowCount())]
+    assert rows == [
+        ["P1", "14. 10. 2025", "63", "muž", "1"],
+        ["P1", "14. 10. 2026", "64", "muž", "1"],
+        ["P2", "14. 10. 2026", "70", "žena", "1"],
     ]
-    assert (
-        dialog.people_table.item(2, 3).text() == ""
-        and dialog.people_table.item(3, 3).text() == "2026-10-14"
-    )
-    assert [dialog.people_table.item(r, 1).text() for r in range(4)] == ["Fonace"] * 4
-    headers = [dialog.people_table.horizontalHeaderItem(c).text().lower() for c in range(6)]
-    assert headers == ["soubor", "úloha", "pacient", "datum vyšetření", "věk", "pohlaví"]
-    assert dialog.next_btn.isEnabled() and "2 pacienti · vyšetření: 3" in dialog.hint.text()
+    assert dialog.people_summary.text() == "2 pacienti · 3 vyšetření"
+    assert dialog.totals.text() == "celkem: Fonace 3"
+    assert dialog.filter_buttons["all"].text() == "všechna 3"
+    # nepřiřazená nahrávka (bez data) ve žlutém oddílu
+    assert not dialog.unassigned_box.isHidden()
+    assert dialog.next_btn.isEnabled() and dialog.next_btn.text() == "Spustit · 3 hodnocení"
+    assert "1 nahrávek se jen spočítá" in dialog.hint.text()
+    # věk vyšetření platí pro všechny jeho nahrávky; filtr „chybí údaje“ = seznam k doplnění
+    dialog.set_visit_value("P2", "2026-10-14", "age", "")
+    assert dialog.filter_buttons["missing"].text() == "chybí údaje 1"
+    dialog.set_visit_filter("missing")
+    assert table.rowCount() == 1 and table.item(0, 0).text() == "P2"
+    dialog.set_visit_value("P2", "2026-10-14", "age", "70")
+    assert table.rowCount() == 1 and table.item(0, 0).text().endswith("✓")  # zůstane s fajfkou
+    dialog.set_visit_filter("all")
     # šablona manifestu kam uživatel ukáže; do složky s nahrávkami nic
     template = dialog.save_template(tmp_path / "sablona.csv")
     assert template is not None and template.read_text(encoding="utf-8-sig").startswith(
@@ -439,12 +457,11 @@ def test_wizard_with_manifest_runs_batches_per_date_and_creates_visits(
     )
     assert "p2_bezdata.wav;;;phonation;;" in template.read_text(encoding="utf-8-sig")
     assert {p.name for p in data.rglob("*")} == before
-    # doplněné datum jen pro tento výpočet
-    dialog.set_person((data / "p2_bezdata.wav").resolve(), visit="2026-10-20")
-    assert dialog.people_summary.text() == "2 pacienti · vyšetření: 4 · nahrávek: 4"
-    dialog.go_next()
-    assert dialog.step() == 1 and dialog.batches.rowCount() == 3  # fonace × 3 různá data
-    assert dialog.summary_title.text() == "2 pacienti · 4 vyšetření"
+    # přiřazení nepřiřazené nahrávky jen pro tento výpočet: datum → nové vyšetření
+    dialog.set_person((data / "p2_bezdata.wav").resolve(), visit="20. 10. 2026")
+    assert dialog.people_summary.text() == "2 pacienti · 4 vyšetření"
+    assert dialog.unassigned_box.isHidden() and dialog.next_btn.text() == "Spustit · 4 hodnocení"
+    assert dialog.summary.figures()[:2] == ["2 pacienti", "3 dávek"]  # fonace × 3 různá data
     plan = dialog.plan()
     assert plan.multi and plan.visits() == 4 and plan.subjects() == ["P1", "P2"]
     assert [t.key for t in plan.tasks] == [
@@ -488,3 +505,25 @@ def test_wizard_with_manifest_runs_batches_per_date_and_creates_visits(
     assert history.filter_buttons["assessment"].text() == "Hodnocení"
     assert not any(read_group(p) for p in settings.work_root.iterdir() if p.is_dir())
     assert {p.name for p in data.rglob("*")} == before
+
+
+def test_wizard_many_unassigned_keeps_window_small(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    """Stovky nahrávek bez data nezvětší okno (posuvník) a datum jde dát všem naráz."""
+    names = [f"m{i}.wav" for i in range(60)]
+    rows = "".join(f"{n};P{i % 12};;phonation;60;m\n" for i, n in enumerate(names))
+    data = make_folder(tmp_path / "mnoho", {"": names}, "path;subject;visit;task;age;sex\n" + rows)
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    dialog = window.make_assessment_build_dialog()
+    qtbot.addWidget(dialog)
+    dialog.set_folder("phonation", data)
+    dialog.go_next()
+    assert dialog.is_multi() and not dialog.unassigned_box.isHidden()
+    assert dialog.minimumSizeHint().height() < 900  # dřív rostlo s každým řádkem
+    assert not dialog.next_btn.isEnabled()  # bez data žádné vyšetření
+    assert dialog.apply_bulk_date("14. 10. 2026") == 60
+    qtbot.waitUntil(lambda: dialog.unassigned_box.isHidden(), timeout=2000)
+    assert dialog.people_counts()[:2] == (12, 12)
+    assert dialog.next_btn.text() == "Spustit · 12 hodnocení"
