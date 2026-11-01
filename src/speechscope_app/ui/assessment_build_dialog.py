@@ -41,15 +41,17 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QRadioButton,
-    QScrollArea,
     QStackedWidget,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
+    QTableWidgetSelectionRange,
     QVBoxLayout,
     QWidget,
 )
@@ -68,6 +70,7 @@ from ..backend.assessment_build import (
     split_by_visit,
     write_manifest_template,
 )
+from ..backend.assessments import patient_key
 from ..backend.audio import format_duration as audio_duration
 from ..backend.norm_build import FolderScan, TaskPlan, with_language
 from ..backend.norms import RECOMMENDED_CONTROLS  # noqa: F401  (stejná sada textů)
@@ -215,6 +218,16 @@ class AssessmentBuildWidget(QWidget):
         self._rate = rate_lookup
         self._people: dict[Path, PersonRow] = {}  # nahrávka → pacient, datum… z manifestu
         self._overrides: dict[Path, dict[str, str]] = {}  # ruční opravy v kroku 2
+        # údaje nahrávek se skládají jednou za změnu (dřív u každého vyšetření znovu)
+        self._people_version = 0
+        self._people_cache: tuple[int, dict[Path, PersonRow]] | None = None
+        # předvyplněné hodnoty: nahrávka → sloupec → zdroj (z katalogu, z manifestu…)
+        self._suggested: dict[Path, dict[str, str]] = {}
+        self._patients_lookup = patients_lookup
+        self._catalog: dict[str, SeriesPatient] | None = None
+        # nepřiřazené: seznam se při doplňování nepřeskládává, přiřazené zůstanou s ✓
+        self._loose_frozen: list[Path] | None = None
+        self._loose_rows: list[Path] = []
         self._multi = False
         self._visit_filter = "all"  # all | missing | incomplete
         self._frozen_visits: set[tuple[str, str]] | None = None  # seznam k doplnění
@@ -467,12 +480,15 @@ class AssessmentBuildWidget(QWidget):
         people_layout.addLayout(head)
         self.visits_table = QTableWidget()
         self.visits_table.itemChanged.connect(self._visit_edited)
+        self.visits_table.setMinimumHeight(230)  # aspoň čtyři vyšetření i vedle žlutého oddílu
         people_layout.addWidget(card(self.visits_table), 1)
         self.totals = QLabel("")
         self.totals.setObjectName("muted")
         people_layout.addWidget(self.totals)
-        # nepřiřazené nahrávky: pacient z nabídky (nebo nový) a datum, po přiřazení se
-        # nahrávka přesune do řádku vyšetření
+        # Nepřiřazené nahrávky (1. 11. 2026, mockup https://claude.ai/artifact/RXmri6zs9jpW7EhVp89Pfo,
+        # `docs/mockups/neprirazene-tabulka/` mimo git): jedna tabulka (úloha, nahrávka,
+        # pacient, datum, věk, pohlaví) s úpravou dvojklikem a výběrem více řádků pro
+        # Vyplnit…; dřív widgety na řádek a přestavba po každém poli (u stovek pomalé).
         self.unassigned_box = QFrame()
         self.unassigned_box.setObjectName("unassigned")
         self.unassigned_box.setStyleSheet(
@@ -486,32 +502,30 @@ class AssessmentBuildWidget(QWidget):
         head_row = QHBoxLayout()
         head_row.setSpacing(8)
         self.unassigned_head = QLabel("")
-        self.unassigned_head.setStyleSheet("color: #92400e; font-weight: 600;")
         head_row.addWidget(self.unassigned_head)
+        self.unassigned_hint = QLabel(tr("vyberte řádky a Vyplnit…, nebo dvojklik na buňku"))
+        self.unassigned_hint.setObjectName("muted")
+        head_row.addWidget(self.unassigned_hint)
         head_row.addStretch(1)
-        # u stovek nahrávek bez data se po jedné vyplňovat nedá: datum pro všechny naráz
-        self.bulk_date = QLineEdit()
-        self.bulk_date.setPlaceholderText(tr("datum pro všechny bez data"))
-        self.bulk_date.setMaximumWidth(220)
-        self.bulk_date.returnPressed.connect(lambda: self.apply_bulk_date())
-        head_row.addWidget(self.bulk_date)
-        self.bulk_btn = QPushButton(tr("Použít"))
-        self.bulk_btn.clicked.connect(lambda: self.apply_bulk_date())
-        head_row.addWidget(self.bulk_btn)
+        self.selection_label = QLabel("")
+        self.selection_label.setStyleSheet("color: #1d4ed8; font-weight: 600;")
+        head_row.addWidget(self.selection_label)
+        self.fill_btn = QPushButton(tr("Vyplnit…"))
+        theme.set_role(self.fill_btn, "primary")
+        self.fill_btn.clicked.connect(lambda: self.fill_selected())
+        head_row.addWidget(self.fill_btn)
+        self.clear_selection_btn = QPushButton(tr("✕ zrušit výběr"))
+        self.clear_selection_btn.setFlat(True)
+        self.clear_selection_btn.clicked.connect(lambda: self.unassigned_table.clearSelection())
+        head_row.addWidget(self.clear_selection_btn)
+        self.done_btn = QPushButton(tr("Hotovo · skrýt přiřazené"))
+        self.done_btn.clicked.connect(lambda: self.end_unassigned())
+        head_row.addWidget(self.done_btn)
         box_layout.addLayout(head_row)
-        self.unassigned_scroll = QScrollArea()
-        self.unassigned_scroll.setWidgetResizable(True)
-        self.unassigned_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.unassigned_scroll.setStyleSheet("QScrollArea { background: transparent; }")
-        inner = QWidget()
-        inner.setObjectName("unassigned_inner")
-        inner.setStyleSheet("#unassigned_inner { background: transparent; }")
-        self.unassigned_layout = QGridLayout(inner)
-        self.unassigned_layout.setContentsMargins(0, 0, 0, 0)
-        self.unassigned_layout.setHorizontalSpacing(10)
-        self.unassigned_layout.setVerticalSpacing(6)
-        self.unassigned_scroll.setWidget(inner)
-        box_layout.addWidget(self.unassigned_scroll)
+        self.unassigned_table = QTableWidget()
+        self.unassigned_table.setItemDelegate(_UnassignedDelegate(self))
+        self.unassigned_table.itemSelectionChanged.connect(self._unassigned_selection)
+        box_layout.addWidget(self.unassigned_table)
         people_layout.addWidget(self.unassigned_box)
         layout.addWidget(self.people_box, 1)
         layout.addStretch(0)
@@ -725,7 +739,12 @@ class AssessmentBuildWidget(QWidget):
     # --- víc pacientů a dat --------------------------------------------------------
 
     def _recording_tasks(self) -> dict[Path, str]:
-        """Nahrávka → úloha podle řádku, ve kterém se našla."""
+        """Nahrávka → úloha podle řádku, ve kterém se našla (drží se, dokud se nezmění
+        výsledky prohledání složek; `resolve` u stovek nahrávek stálo sekundy)."""
+        stamp = tuple(id(row.scan) for row in self.rows.values())
+        cached = getattr(self, "_rec_tasks_cache", None)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
         out: dict[Path, str] = {}
         for row in self.rows.values():
             for rec in row.scan.recordings:
@@ -734,12 +753,16 @@ class AssessmentBuildWidget(QWidget):
                 except OSError:
                     key = rec
                 out.setdefault(key, row.task)
+        self._rec_tasks_cache = (stamp, out)
         return out
 
     def _refresh_people(self) -> None:
         scans = {task: row.scan for task, row in self.rows.items() if row.scan.recordings}
         self._people = people_from_scans(scans)
         self._overrides = {k: v for k, v in self._overrides.items() if k in self._people}
+        self._loose_frozen = None  # jiné nahrávky: seznam nepřiřazených znovu
+        self._catalog = None
+        self._people_changed()
         # Typ si uživatel vybral sám (1. 11. 2026): manifest u jednoho vyšetření jen
         # předvyplní, víc pacientů je jen v režimu Víc pacientů.
         self._multi = self._mode == MULTI
@@ -747,8 +770,26 @@ class AssessmentBuildWidget(QWidget):
         if self._multi:
             self._fill_patients()
 
+    def _people_changed(self) -> None:
+        self._people_version += 1
+
+    def _catalog_patients(self) -> dict[str, SeriesPatient]:
+        if self._catalog is None:
+            try:
+                self._catalog = {patient_key(p.subject): p for p in self._patients_lookup()}
+            except Exception:  # noqa: BLE001  katalog je jen pomůcka k předvyplnění
+                self._catalog = {}
+        return self._catalog
+
     def _merged_people(self) -> dict[Path, PersonRow]:
-        """Údaje z manifestu přepsané ručními opravami z kroku 2."""
+        """Údaje z manifestu přepsané ručními opravami z kroku 2, doplněné o předvyplnění.
+
+        Předvyplní se jen to, co je bezpečné (rozhodnuto 1. 11. 2026): pohlaví z jiné
+        nahrávky téhož pacienta nebo z katalogu, věk z téhož vyšetření (pacient a datum)
+        nebo z roku narození v katalogu. Ruční hodnota vždy vyhraje. Výsledek se drží,
+        dokud se údaje nezmění (`_people_changed`)."""
+        if self._people_cache is not None and self._people_cache[0] == self._people_version:
+            return self._people_cache[1]
         out: dict[Path, PersonRow] = {}
         for path, person in self._people.items():
             row = self._overrides.get(path, {})
@@ -758,6 +799,40 @@ class AssessmentBuildWidget(QWidget):
                 age=meta.parse_age(row[meta.AGE]) if meta.AGE in row else person.age,
                 sex=meta.parse_sex(row[meta.SEX]) if meta.SEX in row else person.sex,
             )
+        self._suggested = {}
+        sexes: dict[str, str] = {}
+        ages: dict[tuple[str, str], float] = {}
+        for person in out.values():
+            key = patient_key(person.subject)
+            if key and person.sex:
+                sexes.setdefault(key, person.sex)
+            if key and person.visit and person.age is not None:
+                ages.setdefault((key, person.visit), person.age)
+        lacking = any(not p.sex or p.age is None for p in out.values())
+        catalog = self._catalog_patients() if lacking else {}
+        for path, person in out.items():
+            key = patient_key(person.subject)
+            if not key:
+                continue
+            row = self._overrides.get(path, {})
+            known = catalog.get(key)
+            if not person.sex and meta.SEX not in row:
+                if key in sexes:
+                    person.sex = sexes[key]
+                    self._suggested.setdefault(path, {})[meta.SEX] = tr("z manifestu")
+                elif known is not None and known.sex:
+                    person.sex = known.sex
+                    self._suggested.setdefault(path, {})[meta.SEX] = tr("z katalogu")
+            if person.age is None and meta.AGE not in row and person.visit:
+                if (key, person.visit) in ages:
+                    person.age = ages[(key, person.visit)]
+                    self._suggested.setdefault(path, {})[meta.AGE] = tr("z téhož vyšetření")
+                elif known is not None and known.birth_year and person.visit[:4].isdigit():
+                    person.age = float(int(person.visit[:4]) - known.birth_year)
+                    self._suggested.setdefault(path, {})[meta.AGE] = tr(
+                        "z roku narození {year} v katalogu"
+                    ).format(year=known.birth_year)
+        self._people_cache = (self._people_version, out)
         return out
 
     def people(self) -> dict[Path, PersonRow]:
@@ -784,6 +859,7 @@ class AssessmentBuildWidget(QWidget):
             if name == meta.VISIT:
                 text = meta.normalize_visit(text) or text
             row[name] = text.strip()
+        self._people_changed()
         self._after_people_edit()
 
     def _after_people_edit(self) -> None:
@@ -810,6 +886,11 @@ class AssessmentBuildWidget(QWidget):
         ages = [people[p].age for p in paths if people[p].age is not None]
         sexes = [people[p].sex for p in paths if people[p].sex]
         return (ages[0] if ages else None), (sexes[0] if sexes else "")
+
+    def _visit_suggested(self, paths: list[Path], column: str) -> str:
+        """Zdroj předvyplněné hodnoty vyšetření (když ji mají předvyplněnou všechny nahrávky)."""
+        sources = [self._suggested.get(p, {}).get(column, "") for p in paths]
+        return sources[0] if sources and all(sources) else ""
 
     def _visit_missing(self, paths: list[Path]) -> bool:
         age, sex = self._visit_info(paths)
@@ -856,6 +937,8 @@ class AssessmentBuildWidget(QWidget):
         self._filling = True
         table.blockSignals(True)
         style_table(table, headers)
+        for c in range(len(headers)):  # šířky jednou na konci (resizeColumnsToContents)
+            table.horizontalHeader().setSectionResizeMode(c, QHeaderView.ResizeMode.Interactive)
         table.setEditTriggers(
             QTableWidget.EditTrigger.DoubleClicked
             | QTableWidget.EditTrigger.EditKeyPressed
@@ -871,12 +954,18 @@ class AssessmentBuildWidget(QWidget):
             done = self._frozen_visits is not None and not self._visit_missing(paths)
             set_text(table, r, 0, subject + ("  ✓" if done else ""), bold=True)
             set_text(table, r, 1, _visit_text(visit))
-            for c, text in ((2, "" if age is None else f"{age:g}"), (3, _sex_text(sex))):
+            for c, text, column in (
+                (2, "" if age is None else f"{age:g}", meta.AGE),
+                (3, _sex_text(sex), meta.SEX),
+            ):
                 item = QTableWidgetItem(text)
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+                source = self._visit_suggested(paths, column) if text else ""
                 if not text:
                     item.setBackground(QColor(theme.WARN_SOFT))
                     item.setToolTip(tr("chybí, dopište (platí pro celé vyšetření)"))
+                elif source:
+                    _mark_suggested(item, source)
                 table.setItem(r, c, item)
             for c, task in enumerate(task_keys, start=4):
                 names = [p.name for p in paths if rec_tasks.get(p) == task]
@@ -914,103 +1003,194 @@ class AssessmentBuildWidget(QWidget):
         )
         self._fill_unassigned()
 
-    def _fill_unassigned(self) -> None:
-        """Žlutý oddíl s nahrávkami bez pacienta nebo data, seskupený podle úlohy."""
-        grid = self.unassigned_layout
-        while grid.count():
-            item = grid.takeAt(0)
-            if item.widget() is not None:
-                item.widget().hide()  # Qt maže až z fronty událostí; jinak zůstane vidět
-                item.widget().deleteLater()
-        people = self._merged_people()
+    def _loose(self, people: dict[Path, PersonRow]) -> list[Path]:
         rec_tasks = self._recording_tasks()
-        loose = sorted(
+        return sorted(
             (p for p, person in people.items() if not (person.subject and person.visit)),
             key=lambda p: (tasks.task_order(rec_tasks.get(p, "")), p.name),
         )
-        self.unassigned_box.setVisible(bool(loose))
-        if not loose:
-            return
-        self.unassigned_head.setText(
-            tr(
-                "⚠ {n} nahrávek není přiřazených k vyšetření · bez pacienta nebo data se jen "
-                "spočítají"
-            ).format(n=len(loose))
-        )
-        no_date = sum(1 for p in loose if not people[p].visit)
-        self.bulk_date.setVisible(no_date > 1)
-        self.bulk_btn.setVisible(no_date > 1)
-        subjects = sorted({p.subject for p in people.values() if p.subject})
-        row_height = 0
-        for r, path in enumerate(loose):
-            person = people[path]
-            tag = QLabel(tasks.label(rec_tasks.get(path, "")))
-            tag.setStyleSheet(
-                f"background: {theme.ACCENT_SOFT}; color: #1d4ed8; border-radius: 8px;"
-                " padding: 1px 8px; font-weight: 600;"
-            )
-            grid.addWidget(tag, r, 0)
-            name = QLabel(path.name)
-            name.setToolTip(str(path))
-            grid.addWidget(name, r, 1)
-            who = QComboBox()
-            who.setEditable(True)
-            who.setMinimumWidth(170)
-            who.addItems(subjects)
-            who.setCurrentText(person.subject)
-            who.lineEdit().setPlaceholderText(tr("pacient"))
-            who.lineEdit().editingFinished.connect(
-                lambda p=path, w=who: self._assign(p, meta.SUBJECT, w.currentText())
-            )
-            who.activated.connect(
-                lambda _i, p=path, w=who: self._assign(p, meta.SUBJECT, w.currentText())
-            )
-            grid.addWidget(who, r, 2)
-            when = QLineEdit(_visit_text(person.visit))
-            when.setPlaceholderText(tr("datum, třeba 14. 10. 2026"))
-            when.editingFinished.connect(
-                lambda p=path, w=when: self._assign(p, meta.VISIT, w.text())
-            )
-            grid.addWidget(when, r, 3)
-            row_height = max(row_height, who.sizeHint().height())
-        grid.setColumnStretch(4, 1)
-        # nejvýš asi pět řádků, zbytek posuvníkem (seznam nesmí roztahovat stránku)
-        shown = min(len(loose), 5)
-        self.unassigned_scroll.setFixedHeight(shown * (row_height + 6))
 
-    def apply_bulk_date(self, text: str | None = None) -> int:
-        """Datum pro všechny nepřiřazené nahrávky bez data; vrátí jejich počet."""
-        raw = (self.bulk_date.text() if text is None else text).strip()
-        visit = meta.normalize_visit(raw)
-        if not visit:
-            self.bulk_date.setStyleSheet(
-                f"background: {theme.WARN_SOFT}; border-color: #f59e0b;" if raw else ""
-            )
-            return 0
-        self.bulk_date.setStyleSheet("")
+    def unassigned(self) -> list[Path]:
+        """Nahrávky v žlutém oddílu (i ty už přiřazené, dokud nepadne Hotovo)."""
+        return list(self._loose_rows)
+
+    def _fill_unassigned(self) -> None:
+        """Žlutý oddíl: tabulka nahrávek bez pacienta nebo data; přiřazené zůstanou s ✓."""
         people = self._merged_people()
+        if self._loose_frozen is None:
+            self._loose_frozen = self._loose(people) or None
+        rows = [p for p in self._loose_frozen or [] if p in people]
+        self._loose_rows = rows
+        self.unassigned_box.setVisible(bool(rows))
+        if not rows:
+            return
+        table = self.unassigned_table
+        selected = set(self.selected_unassigned())
+        scroll = table.verticalScrollBar().value()
+        rec_tasks = self._recording_tasks()
+        headers = [
+            tr("úloha"),
+            tr("nahrávka"),
+            tr("pacient"),
+            tr("datum"),
+            tr("věk"),
+            tr("pohlaví"),
+        ]
+        self._filling = True
+        table.blockSignals(True)
+        table.setUpdatesEnabled(False)
+        style_table(table, headers, selectable=True)
+        # šířky se měří jednou na konci: s ResizeToContents stál každý setItem 11 ms
+        # (400 nahrávek = 30 s na jednu změnu)
+        for c in range(len(headers)):
+            table.horizontalHeader().setSectionResizeMode(c, QHeaderView.ResizeMode.Interactive)
+        table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+        table.setEditTriggers(
+            QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.EditKeyPressed
+        )
+        table.setRowCount(len(rows))
+        done = 0
+        for r, path in enumerate(rows):
+            person = people[path]
+            assigned = bool(person.subject and person.visit)
+            done += assigned
+            task = QTableWidgetItem(tasks.label(rec_tasks.get(path, "")))
+            task.setForeground(QColor("#1d4ed8"))
+            table.setItem(r, 0, task)
+            name = QTableWidgetItem(path.name + ("  ✓" if assigned else ""))
+            name.setToolTip(str(path))
+            font = name.font()
+            font.setBold(True)
+            name.setFont(font)
+            if assigned:
+                name.setForeground(QColor(theme.OK))
+            table.setItem(r, 1, name)
+            values = (
+                (2, meta.SUBJECT, person.subject, True),
+                (3, meta.VISIT, person.visit, True),
+                (4, meta.AGE, "" if person.age is None else f"{person.age:g}", False),
+                (5, meta.SEX, person.sex, False),
+            )
+            for c, column, value, required in values:
+                shown = _visit_text(value) if column == meta.VISIT else value
+                if column == meta.SEX:
+                    shown = _sex_text(value)
+                item = QTableWidgetItem(shown or (tr("doplnit") if required else "–"))
+                item.setData(VALUE_ROLE, shown)
+                source = self._suggested.get(path, {}).get(column, "")
+                if not value and required:
+                    item.setBackground(QColor(theme.WARN_SOFT))
+                    item.setForeground(QColor("#a16207"))
+                elif not value:
+                    item.setForeground(QColor(theme.MUTED))
+                elif source:
+                    _mark_suggested(item, source)
+                table.setItem(r, c, item)
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setStretchLastSection(True)
+        for r, path in enumerate(rows):
+            if path in selected:
+                table.setRangeSelected(
+                    QTableWidgetSelectionRange(r, 0, r, table.columnCount() - 1), True
+                )
+        table.setUpdatesEnabled(True)
+        table.blockSignals(False)
+        self._filling = False
+        # nejvýš šest řádků, zbytek posuvníkem (seznam nesmí roztahovat stránku)
+        shown_rows = min(len(rows), 6)
+        header = table.horizontalHeader().sizeHint().height()
+        table.setFixedHeight(header + shown_rows * table.verticalHeader().defaultSectionSize() + 4)
+        table.verticalScrollBar().setValue(scroll)
+        if done:
+            self.unassigned_head.setText(
+                tr("přiřazeno {done} z {n}").format(done=done, n=len(rows))
+            )
+        else:
+            self.unassigned_head.setText(
+                tr(
+                    "⚠ {n} nahrávek není přiřazených k vyšetření · bez pacienta nebo data se "
+                    "jen spočítají"
+                ).format(n=len(rows))
+            )
+        self.unassigned_head.setStyleSheet(
+            f"color: {theme.OK if done else '#92400e'}; font-weight: 600;"
+        )
+        self.done_btn.setVisible(done > 0)
+        self._unassigned_selection()
+
+    def selected_unassigned(self) -> list[Path]:
+        rows = sorted({i.row() for i in self.unassigned_table.selectedIndexes()})
+        return [self._loose_rows[r] for r in rows if 0 <= r < len(self._loose_rows)]
+
+    def _unassigned_selection(self) -> None:
+        n = len(self.selected_unassigned())
+        self.selection_label.setText(tr("vybráno {n}").format(n=n) if n else "")
+        for widget in (self.selection_label, self.fill_btn, self.clear_selection_btn):
+            widget.setVisible(bool(n))
+        self.unassigned_hint.setVisible(not n)
+
+    def end_unassigned(self) -> None:
+        """Hotovo: přiřazené zmizí, v oddílu zůstanou jen nepřiřazené."""
+        self._loose_frozen = None
+        self._fill_unassigned()
+
+    def fill_unassigned(
+        self,
+        paths: list[Path],
+        *,
+        subject: str | None = None,
+        visit: str | None = None,
+        age: str | None = None,
+        sex: str | None = None,
+    ) -> int:
+        """Jedna hodnota pro vybrané nahrávky (None = nechat); jedna přestavba na konci.
+        Vrátí počet změněných hodnot."""
+        values = {meta.SUBJECT: subject, meta.VISIT: visit, meta.AGE: age, meta.SEX: sex}
         changed = 0
-        for path, person in people.items():
-            if not person.visit:
-                self._overrides.setdefault(path, {})[meta.VISIT] = visit
-                changed += 1
-        self.bulk_date.clear()
+        for path in paths:
+            row = self._overrides.setdefault(path, {})
+            for column, value in values.items():
+                if value is None:
+                    continue
+                text = " ".join(value.split())
+                if column == meta.VISIT:
+                    text = meta.normalize_visit(text) or text
+                elif column in (meta.AGE, meta.SEX) and text:
+                    text = meta.normalize_value(column, text)
+                if row.get(column) != text:
+                    row[column] = text
+                    changed += 1
         if changed:
-            QTimer.singleShot(0, self._after_people_edit)
+            self._people_changed()
+            self._after_people_edit()
         return changed
 
-    def _assign(self, path: Path, column: str, value: str) -> None:
-        """Přiřazení nepřiřazené nahrávky; přestavba až v dalším kroku smyčky (signál
-        přichází z widgetu, který se při přestavbě maže)."""
-        current = self._merged_people().get(path)
-        old = getattr(current, "subject" if column == meta.SUBJECT else "visit", "")
-        new = value.strip()
-        if column == meta.VISIT:
-            new = meta.normalize_visit(new) or new
-        if new == old:
+    def fill_selected(self) -> None:
+        """Vyplnit…: malé okno, prázdné pole nic nezmění."""
+        paths = self.selected_unassigned()
+        if not paths:
             return
-        self._overrides.setdefault(path, {})[column] = new
-        QTimer.singleShot(0, self._after_people_edit)
+        dialog = FillPeopleDialog(
+            len(paths), self._subject_choices(), self._catalog_patients(), self
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.fill_unassigned(paths, **dialog.values())
+
+    def _subject_choices(self) -> list[str]:
+        people = self._merged_people()
+        return sorted(
+            {p.subject for p in people.values() if p.subject}
+            | {p.subject for p in self._catalog_patients().values()}
+        )
+
+    def _commit_cell(self, row: int, column: int, text: str) -> None:
+        """Úprava buňky v žlutém oddílu (dvojklik) pro ten jeden řádek."""
+        name = {2: "subject", 3: "visit", 4: "age", 5: "sex"}.get(column)
+        if name is None or not (0 <= row < len(self._loose_rows)):
+            return
+        path = self._loose_rows[row]
+        # přestavba až po zavření editoru (jinak se maže editor, ze kterého signál přišel)
+        QTimer.singleShot(0, lambda: self.fill_unassigned([path], **{name: text}))
 
     def _visit_edited(self, item: QTableWidgetItem) -> None:
         """Věk nebo pohlaví v řádku vyšetření platí pro všechny jeho nahrávky."""
@@ -1025,6 +1205,7 @@ class AssessmentBuildWidget(QWidget):
         value = meta.normalize_value(column, text) if text else ""
         for path in paths:
             self._overrides.setdefault(path, {})[column] = value
+        self._people_changed()
         QTimer.singleShot(0, self._after_people_edit)
 
     def set_visit_value(self, subject: str, visit: str, column: str, value: str) -> None:
@@ -1032,6 +1213,7 @@ class AssessmentBuildWidget(QWidget):
         paths = self._visits().get((subject, visit), [])
         for path in paths:
             self._overrides.setdefault(path, {})[column] = meta.normalize_value(column, value)
+        self._people_changed()
         self._after_people_edit()
 
     def _update_person_marks(self) -> None:
@@ -1330,3 +1512,151 @@ class AssessmentFromRecordingsDialog(QDialog):
 
 
 __all__ = ["NewAssessmentChoiceDialog", "AssessmentBuildWidget", "AssessmentFromRecordingsDialog"]
+
+
+VALUE_ROLE = Qt.ItemDataRole.UserRole + 41  # skutečná hodnota (zobrazený text může být „doplnit“)
+
+
+def _mark_suggested(item: QTableWidgetItem, source: str) -> None:
+    """Předvyplněná hodnota: šedě kurzívou, zdroj v tooltipu."""
+    font = item.font()
+    font.setItalic(True)
+    item.setFont(font)
+    item.setForeground(QColor(theme.MUTED))
+    item.setToolTip(tr("předvyplněno {source}; přepsat jde vždy").format(source=source))
+
+
+class _UnassignedDelegate(QStyledItemDelegate):
+    """Editor buněk žlutého oddílu: pacient s nabídkou známých, pohlaví ze seznamu."""
+
+    def __init__(self, owner: AssessmentBuildWidget) -> None:
+        super().__init__(owner)
+        self._owner = owner
+
+    def createEditor(self, parent, option, index):  # noqa: ANN001, ANN201, N802
+        column = index.column()
+        if column == 2:
+            combo = QComboBox(parent)
+            combo.setEditable(True)
+            combo.addItems(self._owner._subject_choices())
+            return combo
+        if column == 5:
+            combo = QComboBox(parent)
+            for code, label in SEX_CHOICES:
+                combo.addItem(tr(label), code)
+            return combo
+        if column in (3, 4):
+            edit = QLineEdit(parent)
+            edit.setPlaceholderText(tr("třeba 14. 10. 2026") if column == 3 else tr("roky"))
+            return edit
+        return None
+
+    def setEditorData(self, editor, index):  # noqa: ANN001, N802
+        value = str(index.data(VALUE_ROLE) or "")
+        if isinstance(editor, QComboBox) and index.column() == 5:
+            code = meta.parse_sex(value) if value else ""
+            editor.setCurrentIndex(max(0, editor.findData(code)))
+        elif isinstance(editor, QComboBox):
+            editor.setCurrentText(value)
+        elif isinstance(editor, QLineEdit):
+            editor.setText(value)
+
+    def setModelData(self, editor, model, index):  # noqa: ANN001, ARG002, N802
+        if isinstance(editor, QComboBox) and index.column() == 5:
+            text = str(editor.currentData() or "")
+            old = meta.parse_sex(str(index.data(VALUE_ROLE) or ""))
+        else:
+            text = editor.currentText() if isinstance(editor, QComboBox) else editor.text()
+            old = str(index.data(VALUE_ROLE) or "")
+        if text.strip() != old:
+            self._owner._commit_cell(index.row(), index.column(), text)
+
+
+class FillPeopleDialog(QDialog):
+    """Vyplnit…: pacient, datum, věk, pohlaví pro vybrané nahrávky; prázdné nic nemění."""
+
+    def __init__(
+        self,
+        count: int,
+        subjects: list[str],
+        catalog: dict[str, SeriesPatient],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(tr("Vyplnit {n} nahrávek").format(n=count))
+        self._catalog = catalog
+        layout = QVBoxLayout(self)
+        form = QGridLayout()
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(8)
+        self.subject = QComboBox()
+        self.subject.setEditable(True)
+        self.subject.addItems(subjects)
+        self.subject.setCurrentText("")
+        self.subject.lineEdit().setPlaceholderText(tr("nechat"))
+        self.subject.currentTextChanged.connect(lambda _t: self._suggest())
+        self.visit = QLineEdit()
+        self.visit.setPlaceholderText(tr("nechat · třeba 14. 10. 2026"))
+        self.visit.textChanged.connect(lambda _t: self._suggest())
+        self.age = QLineEdit()
+        self.age.setPlaceholderText(tr("nechat"))
+        self.sex = QComboBox()
+        self.sex.addItem(tr("nechat"), None)
+        for code, label in SEX_CHOICES:
+            if code:
+                self.sex.addItem(tr(label), code)
+        for r, (text, widget) in enumerate(
+            (
+                (tr("Pacient"), self.subject),
+                (tr("Datum"), self.visit),
+                (tr("Věk"), self.age),
+                (tr("Pohlaví"), self.sex),
+            )
+        ):
+            form.addWidget(QLabel(text), r, 0)
+            form.addWidget(widget, r, 1)
+        layout.addLayout(form)
+        self.note = QLabel(
+            tr(
+                "Prázdné pole nic nezmění. U pacienta z katalogu se pohlaví a věk z roku "
+                "narození doplní samy (šedě, přepsat jde vždy). Platí jen pro tento výpočet."
+            )
+        )
+        self.note.setObjectName("muted")
+        self.note.setWordWrap(True)
+        layout.addWidget(self.note)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        cancel = QPushButton(tr("Storno"))
+        cancel.clicked.connect(self.reject)
+        ok = QPushButton(tr("Vyplnit"))
+        theme.set_role(ok, "primary")
+        ok.setDefault(True)
+        ok.clicked.connect(self.accept)
+        buttons.addWidget(cancel)
+        buttons.addWidget(ok)
+        layout.addLayout(buttons)
+        self.resize(460, self.sizeHint().height())
+
+    def _suggest(self) -> None:
+        """Pacient z katalogu: věk z roku narození jako nápověda v poli věku."""
+        known = self._catalog.get(patient_key(self.subject.currentText()))
+        visit = meta.normalize_visit(self.visit.text())
+        hint = tr("nechat")
+        if known is not None and known.birth_year and visit[:4].isdigit():
+            hint = tr("{age} · z roku narození {year}").format(
+                age=int(visit[:4]) - known.birth_year, year=known.birth_year
+            )
+        self.age.setPlaceholderText(hint)
+
+    def values(self) -> dict[str, str | None]:
+        subject = self.subject.currentText().strip()
+        visit = self.visit.text().strip()
+        age = self.age.text().strip()
+        sex = self.sex.currentData()
+        return {
+            "subject": subject or None,
+            "visit": visit or None,
+            "age": age or None,
+            "sex": str(sex) if sex else None,
+        }

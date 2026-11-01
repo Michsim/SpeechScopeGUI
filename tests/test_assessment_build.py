@@ -23,7 +23,7 @@ from speechscope_app.backend.assessment_build import (
     split_by_task,
     split_by_visit,
 )
-from speechscope_app.backend.assessments import AssessmentStore
+from speechscope_app.backend.assessments import Assessment, AssessmentStore
 from speechscope_app.backend.catalog import Catalog
 from speechscope_app.backend.history import RunGroup, read_group, read_run
 from speechscope_app.backend.norm_build import ERROR, OK, TaskPlan, default_protocol
@@ -460,9 +460,20 @@ def test_wizard_with_manifest_runs_batches_per_date_and_creates_visits(
     assert "p2_bezdata.wav;;;phonation;;" in template.read_text(encoding="utf-8-sig")
     assert {p.name for p in data.rglob("*")} == before
     # přiřazení nepřiřazené nahrávky jen pro tento výpočet: datum → nové vyšetření
-    dialog.set_person((data / "p2_bezdata.wav").resolve(), visit="20. 10. 2026")
+    loose = (data / "p2_bezdata.wav").resolve()
+    assert dialog.unassigned() == [loose]
+    dialog.set_person(loose, visit="20. 10. 2026")
     assert dialog.people_summary.text() == "2 pacienti · 4 vyšetření"
-    assert dialog.unassigned_box.isHidden() and dialog.next_btn.text() == "Spustit · 4 hodnocení"
+    assert dialog.next_btn.text() == "Spustit · 4 hodnocení"
+    # přiřazená zůstane s ✓, dokud nepadne Hotovo (seznam se při doplňování nepřeskládá)
+    assert not dialog.unassigned_box.isHidden()
+    assert dialog.unassigned_table.item(0, 1).text().endswith("✓")
+    # věk a pohlaví z manifestu (vlastní hodnoty, ne předvyplněné)
+    assert dialog.unassigned_table.item(0, 5).text() == "žena"
+    assert not dialog.unassigned_table.item(0, 5).font().italic()
+    assert dialog.unassigned_table.item(0, 4).text() == "70"
+    dialog.end_unassigned()
+    assert dialog.unassigned_box.isHidden()
     assert dialog.summary.figures()[:2] == ["2 pacienti", "3 dávek"]  # fonace × 3 různá data
     plan = dialog.plan()
     assert plan.multi and plan.visits() == 4 and plan.subjects() == ["P1", "P2"]
@@ -526,10 +537,46 @@ def test_wizard_many_unassigned_keeps_window_small(
     assert dialog.is_multi() and not dialog.unassigned_box.isHidden()
     assert dialog.minimumSizeHint().height() < 900  # dřív rostlo s každým řádkem
     assert not dialog.next_btn.isEnabled()  # bez data žádné vyšetření
-    assert dialog.apply_bulk_date("14. 10. 2026") == 60
-    qtbot.waitUntil(lambda: dialog.unassigned_box.isHidden(), timeout=2000)
+    assert len(dialog.unassigned()) == 60
+    # Ctrl+A a Vyplnit… s datem = datum všem (jedna přestavba)
+    dialog.unassigned_table.selectAll()
+    assert not dialog.fill_btn.isHidden() and dialog.selection_label.text() == "vybráno 60"
+    paths = dialog.selected_unassigned()
+    assert dialog.fill_unassigned(paths, visit="14. 10. 2026") == 60
     assert dialog.people_counts()[:2] == (12, 12)
     assert dialog.next_btn.text() == "Spustit · 12 hodnocení"
+    assert dialog.unassigned_head.text() == "přiřazeno 60 z 60"
+    dialog.end_unassigned()
+    assert dialog.unassigned_box.isHidden()
+
+
+def test_wizard_unassigned_prefills_from_catalog(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    """Pacient z katalogu: pohlaví a věk z roku narození se předvyplní (šedě), ruční vyhraje."""
+    names = ["x1.wav", "x2.wav"]
+    rows = "".join(f"{n};;;phonation;;\n" for n in names)
+    data = make_folder(tmp_path / "kat", {"": names}, "path;subject;visit;task;age;sex\n" + rows)
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.catalog.save_assessment(Assessment("t1", "P-040", 63.0, "m", "2023-01-01"))
+    window.catalog.set_birth_year("P-040", 1960)
+    dialog = window.make_assessment_build_dialog()
+    qtbot.addWidget(dialog)
+    dialog.set_mode("multi")
+    dialog.set_folder("phonation", data)
+    dialog.go_next()
+    paths = dialog.unassigned()
+    assert len(paths) == 2
+    dialog.fill_unassigned(paths, subject="p-040", visit="2026-10-14")
+    people = dialog.people()
+    assert {(p.age, p.sex) for p in people.values()} == {(66.0, "m")}
+    table = dialog.visits_table
+    assert table.item(0, 2).text() == "66" and table.item(0, 2).font().italic()
+    assert "1960" in table.item(0, 2).toolTip()
+    # ruční hodnota předvyplněnou přebije
+    dialog.fill_unassigned(paths[:1], age="65")
+    assert dialog.people()[paths[0]].age == 65.0
 
 
 def test_series_wizard_runs_visits_of_one_patient(
