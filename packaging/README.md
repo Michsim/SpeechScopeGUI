@@ -48,6 +48,10 @@ problém nemá.
 
 ## Na co nezapomenout
 
+- Knihovna jde do instalátoru předpřeložená (`compileall --invalidation-mode
+  unchecked-hash`), jinak si ji Python při prvním spuštění u kliniky překládal
+  a první kontrola prostředí trvala dlouho. Časy kontroly jsou v `startup.log`
+  (řádek `env`), který jde do zipu Diagnostiky.
 - Přepis závislosti `onnxruntime` (`overrides.txt`) je totéž co
   `[tool.uv] override-dependencies` v pyprojectu knihovny. Bez něj
   faster-whisper stáhne základní `onnxruntime` a DirectML se rozbije.

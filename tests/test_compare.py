@@ -182,7 +182,15 @@ def test_compare_from_results_page(qtbot, tmp_path: Path, monkeypatch) -> None: 
     assert "Mann-Whitney" in page.test_label.text() and "δ" in page.effect_label.text()
     assert page.pairs_table.isHidden()  # párová porovnání jen u víc skupin
     # řazení podle feature: nadpisy feature přes celou šířku, výběr na sloupcích
+    assert page.sort.isVisibleTo(page) and page.sort_key() == "effect"
+    chosen: list[str] = []
+    page.sort_changed.connect(chosen.append)
     page.sort.set_current(page.BY_FEATURE)
+    assert chosen == ["feature"]
+    page.set_sort("effect", emit=False)
+    assert chosen == ["feature"] and page.sort_key() == "effect"
+    page.table.horizontalHeader().sectionClicked.emit(0)  # klik na záhlaví přepne i přepínač
+    assert page.sort.current() == page.BY_FEATURE and chosen[-1] == "feature"
     headers = [r for r in range(page.table.rowCount()) if page.table.columnSpan(r, 0) > 1]
     assert headers and page.table.rowCount() == len(result.results) + len(headers)
     assert page.select_feature(JITTER) and page.panel_title.text().startswith("perturbation")

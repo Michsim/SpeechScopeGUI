@@ -9,6 +9,10 @@ jsou dotazy na knihovnu. Klíče jsou anglicky (jako log knihovny), časy v seku
 - `splash`, `import`, `window`, `shown`: fáze od začátku `main()` (vždy přírůstek),
 - `lib_list`, `lib_providers`, `lib_models`: dotazy na knihovnu puštěné napřed.
 
+Zvlášť řádek `env` po každé kontrole prostředí (1. 11. 2026): `start` = první po
+spuštění, `manual` = tlačítko Zkontrolovat; `env_version` = start knihovny
+(`version`), `env_doctor` = `doctor --json`, `env_total` = obojí.
+
 Zápis nikdy neshodí aplikaci.
 """
 
@@ -87,6 +91,15 @@ class StartupTimer:
         parts += [f"{name}={seconds:.2f}" for name, seconds in self.phases]
         parts += [f"{name}={seconds:.2f}" for name, seconds in (extra or {}).items()]
         return " ".join(parts)
+
+
+def env_line(trigger: str, values: dict[str, float]) -> str:
+    """Řádek časů kontroly prostředí: datum, `env`, start|manual, časy v sekundách."""
+    parts = [f"{datetime.now():%Y-%m-%d %H:%M:%S}", "env", trigger]
+    order = ("env_version", "env_doctor", "env_total")  # signál Qt klíče přeskládá
+    names = [n for n in order if n in values] + [n for n in values if n not in order]
+    parts += [f"{name}={values[name]:.2f}" for name in names]
+    return " ".join(parts)
 
 
 def append(path: Path, line: str, *, max_lines: int = MAX_LINES) -> None:

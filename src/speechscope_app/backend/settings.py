@@ -216,6 +216,16 @@ class AppSettings:
         self._q.setValue("ui/trend_scale", value)
 
     @property
+    def compare_sort(self) -> str:
+        """Řazení tabulky Porovnání: effect (podle rozdílu, výchozí) nebo feature."""
+        raw = str(self._q.value("ui/compare_sort", "effect") or "effect")
+        return raw if raw in ("effect", "feature") else "effect"
+
+    @compare_sort.setter
+    def compare_sort(self, value: str) -> None:
+        self._q.setValue("ui/compare_sort", value)
+
+    @property
     def trend_form(self) -> str:
         """Podoba Vývoje v čase: charts (výchozí, přehled + grafy) nebo spider (překryv)."""
         raw = str(self._q.value("ui/trend_form", "charts") or "charts")

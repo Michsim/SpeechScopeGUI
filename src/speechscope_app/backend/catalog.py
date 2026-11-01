@@ -242,6 +242,16 @@ class Catalog:
                 ],
             )
 
+    def clear_patients(self) -> tuple[int, int]:
+        """Smaže všechny pacienty a hodnocení (index běhů zůstává); vrátí jejich počty."""
+        patients = self._db.execute("SELECT COUNT(*) FROM patients").fetchone()[0]
+        assessments = self._db.execute("SELECT COUNT(*) FROM assessments").fetchone()[0]
+        with self._db:
+            self._db.execute("DELETE FROM assessment_recordings")
+            self._db.execute("DELETE FROM assessments")
+            self._db.execute("DELETE FROM patients")
+        return int(patients), int(assessments)
+
     def delete_assessment(self, assessment_id: str) -> None:
         """Smaže hodnocení; pacient bez vyšetření zmizí také (zatím nenese nic navíc)."""
         with self._db:

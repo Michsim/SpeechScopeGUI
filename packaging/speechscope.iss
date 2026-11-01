@@ -44,6 +44,27 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
 
+[CustomMessages]
+czech.DeleteData=Smazat i data aplikace?%n%nPacienti a hodnocení, vlastní normy a protokoly, rozpracovaná hodnocení a nastavení ve složce:%n%1%n%nVýsledky v Dokumentech a nahrávky se nemažou. Při přeinstalaci odpovězte Ne.
+english.DeleteData=Also delete the application data?%n%nPatients and assessments, custom norms and protocols, unfinished assessments and settings in the folder:%n%1%n%nResults in Documents and recordings are not deleted. Answer No when reinstalling.
+
+[Code]
+// Data aplikace (katalog pacientů, normy, protokoly) leží mimo {app} a odinstalace je
+// nechává; na dotaz (výchozí Ne) je smaže (1. 11. 2026).
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  DataDir: String;
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    DataDir := ExpandConstant('{localappdata}\SAMI\SpeechScopeApp');
+    if DirExists(DataDir) and not UninstallSilent then
+      if MsgBox(FmtMessage(CustomMessage('DeleteData'), [DataDir]), mbConfirmation,
+                MB_YESNO or MB_DEFBUTTON2) = IDYES then
+        DelTree(DataDir, True, True, True);
+  end;
+end;
+
 [UninstallDelete]
 ; __pycache__ vzniklé za běhu knihovny
 Type: filesandordirs; Name: "{app}\speechscope-lib\Lib\site-packages\speechscope\__pycache__"

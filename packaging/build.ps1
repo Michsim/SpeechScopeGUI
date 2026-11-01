@@ -93,6 +93,13 @@ try {
         # uklidit, co u kliniky nikdo nepotÅ™ebuje
         Get-ChildItem $Lib -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
         Get-ChildItem $Lib -Recurse -Directory -Filter "tests" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        # Předpřeložený Python (1. 11. 2026): bez .pyc si knihovna při prvním spuštění
+        # u kliniky překládala tisíce souborů a první kontrola prostředí trvala dlouho.
+        # unchecked-hash: .pyc platí bez ohledu na čas souborů po instalaci.
+        & $python -m compileall -q -j 0 --invalidation-mode unchecked-hash (Join-Path $Lib "Lib")
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "compileall: některé soubory balíčků nejdou přeložit (nevadí, přeloží se za běhu)"
+        }
         & $python -m speechscope.cli version; Check "speechscope version"
     }
 

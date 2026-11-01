@@ -75,3 +75,43 @@ def test_index_uses_catalog_across_restarts(
     assert [r.file for r in recs] == ["P1_a.wav"] and recs[0].values == {JIT: 9.0}
     assert catalog.indexed_runs(tmp_path) == ["2026-10-14_10-12-00_fonace"]
     assert catalog.load_run(tmp_path, "2026-10-14_10-12-00_fonace")[0].data[JIT] == 9.0
+
+
+def test_clear_patients_keeps_run_index(tmp_path: Path) -> None:
+    """Smazat pacienty a hodnocení: katalog pacientů prázdný, index běhů zůstává."""
+    from speechscope_app.backend.assessments import Assessment, RecordingRef
+
+    make_run(tmp_path, "2026-10-14_10-12-00_fonace", [{"file": "P1_a.wav", "task": "phonation"}])
+    catalog = Catalog(tmp_path / "appdata" / "catalog.sqlite")
+    VisitIndex(tmp_path, catalog=catalog).refresh()
+    catalog.save_assessment(
+        Assessment("a1", "P1", 60, "m", "2026-10-14", [RecordingRef("r", 0, "a.wav", "phonation")])
+    )
+    catalog.set_birth_year("P1", 1966)
+    assert catalog.assessments() and catalog.patients()
+    assert catalog.clear_patients() == (1, 1)
+    assert catalog.assessments() == [] and catalog.patients() == []
+    assert catalog.indexed_runs(tmp_path)
+
+
+def test_window_clears_patients_and_shows_data_dir(qtbot, tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    from speechscope_app.backend.assessments import Assessment
+    from speechscope_app.backend.settings import AppSettings
+    from speechscope_app.ui.main_window import MainWindow
+
+    data = tmp_path / "appdata"
+    monkeypatch.setattr("speechscope_app.backend.settings.app_data_dir", lambda: data)
+    settings = AppSettings(tmp_path / "settings.ini")
+    settings.use_fake_library = True
+    settings.models_dir = tmp_path / "models"
+    settings.work_root = tmp_path / "work"
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    assert window.env_page.data_path.text() == str(data)
+    window.catalog.save_assessment(Assessment("a1", "P1", 60, "m", "2026-10-14"))
+    plan = settings.assessments_dir() / "x.plan.json"
+    plan.parent.mkdir(parents=True, exist_ok=True)
+    plan.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("speechscope_app.ui.main_window.send_to_trash", lambda p: p.unlink())
+    assert window.clear_patients(confirm=False) == 1
+    assert window.catalog.assessments() == [] and not plan.exists()

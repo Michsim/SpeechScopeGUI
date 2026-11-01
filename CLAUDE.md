@@ -907,7 +907,9 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `settings_panel` v QMenu přes QWidgetAction, vlastní pozadí; nápověda metody `METHOD_HINTS`); nad
   tabulkou jen „Liší se (k) · Všechny (n)“ (`only`, výchozí Liší se, když se něco liší, `_only_auto`)
   a hledání; řazení klikem na záhlaví feature / rozdíl (`_header_clicked`, `sort` skrytý, šipka přes
-  sort indicator); tabulka bez sloupce normalita, rozdíl s pruhem a slovem, q se zelenou tečkou.
+  sort indicator; od 1. 11. 2026 znovu viditelný přepínač „Řadit: podle rozdílu · podle feature“ v liště,
+  klik na záhlaví ho přepne, volba v `ui/compare_sort` přes `sort_changed`/`set_sort`, jinak nešlo
+  poznat, jak řazení vrátit); tabulka bez sloupce normalita, rozdíl s pruhem a slovem, q se zelenou tečkou.
 - **Skupiny podle sloupce viditelně** (1. 11. 2026): v hlavičce Porovnání řádek „Skupiny: běhu ·
   sloupce [group ▾] a zaškrtávátka hodnot“ (`groups_row`, jen když běhy mají sloupec skupin
   `group_columns`; Nastavení ▾ má jen metodu, po osobě, log, nepoužitelné); v Hodnotách tlačítko
@@ -1025,6 +1027,24 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `import`, `window`, `shown` (přírůstky od `main()`) a `lib_list`, `lib_providers`,
   `lib_models` z `library.prefetch_seconds`. Ve vývoji 31. 10.: total ~4,2, splash ~1,05
   (první okno na Windows), dotazy souběžně ~2,1.
+- **Časy kontroly prostředí** (1. 11. 2026): po každé kontrole řádek `env start|manual env_version=…
+  env_doctor=… env_total=…` v `startup.log` (`EnvironmentPage.check_timed` → `MainWindow._log_env_timing`,
+  `startup_log.env_line`). Instalátor nese předpřeložené `.pyc` knihovny (`compileall
+  --invalidation-mode unchecked-hash` v `build.ps1`; dřív se `__pycache__` mazal a první spuštění
+  u kliniky překládalo tisíce souborů).
+- **Data aplikace** (1. 11. 2026): katalog pacientů a hodnocení, normy, protokoly, plány a nastavení
+  leží v `%LOCALAPPDATA%\SAMI\SpeechScopeApp` (`settings.app_data_dir`), mimo složku instalace,
+  takže je odinstalace nechávala a pacienti po přeinstalaci zůstali. Prostředí › Složky má řádek
+  Data aplikace (cesta, Otevřít složku, Smazat pacienty…), nabídka Aplikace „Smazat pacienty
+  a hodnocení…“ (`MainWindow.clear_patients`, `Catalog.clear_patients`: pacienti, hodnocení
+  a plány `*.plan.json` do Koše; běhy, normy a protokoly zůstávají; během výpočtu hodnocení nic).
+  Odinstalátor se na konci zeptá „Smazat i data aplikace?“ (výchozí Ne, `[Code]` v `speechscope.iss`,
+  tichá odinstalace data nechá).
+- **Stanza < 1.15** (1. 11. 2026): instalátor bral nejnovější Stanzu (knihovna má jen `>=1.9`,
+  `uv pip install` lock knihovny nečte) a 1.15 odmítá lemmatizér ve formátu pickle v2, v němž jsou
+  modely balíku v3: lingvistika hlásila „pickle-based dict format (v2) … no longer supported“.
+  `packaging/overrides.txt` má `stanza>=1.9,<1.15` (lock knihovny 1.14.0); zrušit až s přebalenými
+  modely Stanzy.
 - `segments.model=auto` bere jen hotovou cache. Protokol, který potřebuje
   segmentaci, musí mít v `config` `segments.model` nastavený; samostatná
   segmentace (Jen segmentace) `auto` nenabízí.

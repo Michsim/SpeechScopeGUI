@@ -7,11 +7,12 @@ knihovna; nic o modelech se tu nehádá.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from ... import contract
 from ...backend import command
+from ...backend import settings as app_settings
 from ...backend.cache import breakdown, format_size, scan
 from ...backend.library import Library, LibraryError
 from ...backend.query import AsyncQuery, parse_json
@@ -115,9 +117,11 @@ class EnvironmentPage(QWidget):
     download_requested = Signal()
     install_requested = Signal()  # modely ze souboru (balík z `models pack`)
     report_changed = Signal(object)  # výsledek doctor --json nebo None
+    check_timed = Signal(dict)  # časy kontroly v sekundách (env_version, env_doctor, env_total)
     diagnostics_requested = Signal()
     models_dir_requested = Signal()  # změnit složku modelů
     work_root_requested = Signal()  # změnit složku výsledků
+    clear_patients_requested = Signal()  # smazat pacienty a hodnocení z katalogu
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -224,6 +228,31 @@ class EnvironmentPage(QWidget):
         folders.addWidget(_label(tr("Výsledky"), "card_title"), 1, 0)
         folders.addWidget(self.work_path, 1, 1)
         folders.addWidget(self.work_btn, 1, 2)
+        # data aplikace (1. 11. 2026): pacienti, hodnocení, normy, protokoly; odinstalace je
+        # nechává, proto je vidět, kde leží, a pacienty jde smazat
+        self.data_path = _label("", "muted")
+        self.data_path.setWordWrap(True)
+        self.data_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.data_path.setToolTip(
+            tr(
+                "Katalog pacientů a hodnocení (catalog.sqlite), vlastní normy a protokoly, "
+                "rozpracovaná hodnocení a nastavení. Odinstalace je nemaže."
+            )
+        )
+        data_buttons = QHBoxLayout()
+        data_buttons.setSpacing(6)
+        self.data_open_btn = QPushButton(tr("Otevřít složku"))
+        self.data_open_btn.clicked.connect(lambda: self._open_data_dir())
+        data_buttons.addWidget(self.data_open_btn)
+        self.clear_patients_btn = QPushButton(tr("Smazat pacienty…"))
+        self.clear_patients_btn.setToolTip(
+            tr("Smaže všechny pacienty a hodnocení; běhy, normy a protokoly zůstanou.")
+        )
+        self.clear_patients_btn.clicked.connect(lambda: self.clear_patients_requested.emit())
+        data_buttons.addWidget(self.clear_patients_btn)
+        folders.addWidget(_label(tr("Data aplikace"), "card_title"), 2, 0)
+        folders.addWidget(self.data_path, 2, 1)
+        folders.addLayout(data_buttons, 2, 2)
         self.folders_card.body.addLayout(folders)
         layout.addWidget(self.folders_card)
 
@@ -333,6 +362,12 @@ class EnvironmentPage(QWidget):
     def set_folders(self, models_dir: Path, work_root: Path) -> None:
         self.models_path.setText(str(models_dir))
         self.work_path.setText(str(work_root))
+        self.data_path.setText(str(app_settings.app_data_dir()))
+
+    def _open_data_dir(self) -> None:
+        folder = app_settings.app_data_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def refresh_cache(self) -> None:
         """Velikost mezivýsledků; laciné (jen průchod složkou), volá se při zobrazení."""
@@ -384,6 +419,8 @@ class EnvironmentPage(QWidget):
             return
         self.check_btn.setEnabled(False)
         self.check_btn.setText(tr("Kontroluji…"))
+        # časy kontroly do startup.log (1. 11. 2026): kolik stojí knihovna a doctor
+        self._timing = {"started": time.perf_counter()}
         self._start_query(command.version_args(), self._version_done)
 
     def _start_query(self, args: list[str], handler) -> None:  # noqa: ANN001
@@ -410,6 +447,9 @@ class EnvironmentPage(QWidget):
             self._check_failed(LibraryError("`version` selhal", returncode=code, stderr=err))
             return
         self._version = out.strip()
+        timing = getattr(self, "_timing", {})
+        if "started" in timing:
+            timing["version"] = time.perf_counter() - timing["started"]
         self._start_query(
             command.doctor_args(models_dir=self._library.models_dir, lang=self._library.lang)
             if self._library is not None
@@ -427,6 +467,13 @@ class EnvironmentPage(QWidget):
         self.report = report
         self._show(self._version, report)
         self.report_changed.emit(report)
+        timing = getattr(self, "_timing", {})
+        if "started" in timing:
+            total = time.perf_counter() - timing["started"]
+            version = timing.get("version", 0.0)
+            self.check_timed.emit(
+                {"env_version": version, "env_doctor": total - version, "env_total": total}
+            )
 
     def _check_failed(self, exc: LibraryError) -> None:
         self._check_finished()

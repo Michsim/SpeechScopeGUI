@@ -276,6 +276,7 @@ class ComparePage(QWidget):
     """Porovnání skupin z vybraných běhů."""
 
     back_requested = Signal()
+    sort_changed = Signal(str)  # effect | feature, hlavní okno si volbu pamatuje
     notice = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -429,18 +430,24 @@ class ComparePage(QWidget):
         action.setDefaultWidget(self.settings_panel)
         self._settings_menu.addAction(action)
 
-        # nad tabulkou jen filtr a hledání; řadí se klikem na záhlaví (feature / rozdíl)
+        # nad tabulkou filtr, řazení a hledání; řazení mění i klik na záhlaví (feature /
+        # rozdíl), přepínač je vidět, aby šlo poznat, jak je seřazeno, a vrátit to (1. 11. 2026)
         controls = QHBoxLayout()
         controls.setSpacing(10)
-        self.BY_EFFECT, self.BY_FEATURE = tr("podle efektu"), tr("podle feature")
+        self.BY_EFFECT, self.BY_FEATURE = tr("podle rozdílu"), tr("podle feature")
         self.sort = Segmented([self.BY_EFFECT, self.BY_FEATURE])
-        self.sort.currentChanged.connect(lambda _v: self._fill_table())
-        self.sort.hide()  # stav řazení; mění se klikem na záhlaví tabulky
+        self.sort.currentChanged.connect(lambda _v: self._sort_chosen())
         self.SIGNIFICANT, self.ALL = tr("liší se"), tr("všechny")
         self.only = Segmented([self.SIGNIFICANT, self.ALL])
         self.only.currentChanged.connect(lambda _v: self._only_chosen())
         self._only_auto = True  # bez volby uživatele: Liší se, když se něco liší
         controls.addWidget(self.only)
+        controls.addSpacing(8)
+        sort_label = QLabel(tr("Řadit:"))
+        sort_label.setObjectName("muted")
+        controls.addWidget(sort_label)
+        controls.addWidget(self.sort)
+        controls.addSpacing(8)
         self.search = QLineEdit()
         self.search.setPlaceholderText(tr("hledat feature"))
         self.search.setClearButtonEnabled(True)
@@ -630,6 +637,21 @@ class ComparePage(QWidget):
             self.sort.set_current(self.BY_FEATURE)
         elif section == 1 + len(result.groups):
             self.sort.set_current(self.BY_EFFECT)
+
+    def sort_key(self) -> str:
+        return "feature" if self.sort.current() == self.BY_FEATURE else "effect"
+
+    def set_sort(self, key: str, *, emit: bool = True) -> None:
+        """Řazení tabulky: effect (podle rozdílu) nebo feature."""
+        self.blockSignals(not emit)
+        try:
+            self.sort.set_current(self.BY_FEATURE if key == "feature" else self.BY_EFFECT)
+        finally:
+            self.blockSignals(False)
+
+    def _sort_chosen(self) -> None:
+        self._fill_table()
+        self.sort_changed.emit(self.sort_key())
 
     def _only_chosen(self) -> None:
         self._only_auto = False

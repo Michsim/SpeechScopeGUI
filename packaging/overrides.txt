@@ -2,3 +2,8 @@
 # faster-whisper si žádá základní onnxruntime, na Windows ho nahrazuje
 # onnxruntime-directml (stejný modul). Bez přepisu by DirectML nefungoval.
 onnxruntime>=1.18; sys_platform != 'win32'
+# Stanza 1.15 odmítá lemmatizér ve formátu pickle v2 („no longer supported for security
+# reasons“), a v tom jsou modely v balíku pro kliniky (v3) i ve vývojovém prostředí.
+# Instalátor bral nejnovější verzi (knihovna má jen stanza>=1.9), lock knihovny má 1.14.0.
+# Zrušit až po přebalení modelů Stanzy pro 1.15 (convert_lemma_dict.py nebo nové stažení).
+stanza>=1.9,<1.15

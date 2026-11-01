@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__, contract
 from ..backend import history as history_mod
-from ..backend import quality, tasks
+from ..backend import quality, startup_log, tasks
 from ..backend.assessment_build import (
     PLAN_SUFFIX,
     AssessmentPlan,
@@ -230,6 +230,7 @@ class MainWindow(QMainWindow):
         menu.addAction(tr("Prahy kontroly kvality…"), lambda: self.edit_quality_thresholds())
         menu.addSeparator()
         menu.addAction(tr("Smazat všechny běhy…"), self.delete_all_runs)
+        menu.addAction(tr("Smazat pacienty a hodnocení…"), lambda: self.clear_patients())
         menu.addSeparator()
         menu.addAction(tr("Konec"), self.close)
 
@@ -241,6 +242,8 @@ class MainWindow(QMainWindow):
         self.batch_page.set_check_requester(self.env_page.refresh)
         self.env_page.report_changed.connect(self.home_page.set_report)
         self.env_page.report_changed.connect(self._sidebar_report)
+        self.env_page.check_timed.connect(self._log_env_timing)
+        self.env_page.clear_patients_requested.connect(lambda: self.clear_patients())
         self.env_page.models_dir_requested.connect(self.change_models_dir)
         self.env_page.work_root_requested.connect(self.change_work_root)
         self.home_page.models_dir_requested.connect(self.change_models_dir)
@@ -276,6 +279,10 @@ class MainWindow(QMainWindow):
         self.assessment_page.set_orientation(self.settings.spider_orientation)
         self.assessment_page.orientation_changed.connect(self._spider_orientation_changed)
         self.assessment_page.set_scale(self.settings.trend_scale, emit=False)
+        self.runs_page.compare_page.set_sort(self.settings.compare_sort, emit=False)
+        self.runs_page.compare_page.sort_changed.connect(
+            lambda key: setattr(self.settings, "compare_sort", key)
+        )
         self.assessment_page.set_form(self.settings.trend_form, emit=False)
         self.assessment_page.set_trend_selection(
             self.settings.trend_dims, self.settings.trend_items
@@ -1210,6 +1217,52 @@ class MainWindow(QMainWindow):
         return True
 
     # --- hodnocení z nahrávek -----------------------------------------------------
+
+    def clear_patients(self, *, confirm: bool = True) -> int:
+        """Všichni pacienti a hodnocení pryč z katalogu, rozpracované plány do Koše.
+
+        Běhy ve Výsledcích, normy a protokoly zůstanou. Vrátí počet smazaných hodnocení;
+        když se hodnocení právě počítá, nic nesmaže."""
+        busy = any(j.plan_kind == "assessment" for j in self._queue) or (
+            self.run_page.runner.running
+            and (getattr(self, "_running_plan", None) or ("",))[0] == "assessment"
+        )
+        if busy:
+            self.statusBar().showMessage(
+                tr("Hodnocení se právě počítá, pacienty teď smazat nejde."), 8000
+            )
+            return 0
+        n_assessments = len(self.catalog.assessments())
+        n_patients = len(self.catalog.patients())
+        if confirm:
+            answer = QMessageBox.question(
+                self,
+                tr("Smazat pacienty a hodnocení"),
+                tr(
+                    "Smaže se {p} pacientů a {a} hodnocení z katalogu aplikace a rozpracovaná "
+                    "hodnocení. Běhy ve Výsledcích, normy a protokoly zůstanou. Smazat?"
+                ).format(p=n_patients, a=n_assessments),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return 0
+        _patients, deleted = self.catalog.clear_patients()
+        for plan in self.settings.assessments_dir().glob(f"*{PLAN_SUFFIX}"):
+            try:
+                send_to_trash(plan)
+            except OSError:
+                continue
+        self.assessment_page.refresh()
+        self.results_page.refresh()
+        self.statusBar().showMessage(tr("Smazáno {n} hodnocení.").format(n=deleted), 6000)
+        return deleted
+
+    def _log_env_timing(self, values: dict) -> None:
+        """Časy kontroly prostředí do startup.log (první po spuštění = „start“)."""
+        trigger = "manual" if getattr(self, "_env_logged", False) else "start"
+        self._env_logged = True
+        startup_log.append(self.settings.startup_log(), startup_log.env_line(trigger, values))
 
     def _assessment_build_kwargs(self) -> dict[str, Any]:
         combo = self.batch_page.language
