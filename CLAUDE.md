@@ -592,6 +592,25 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   `series.protocol_for`. Jazyk průvodce se ve Vývoji přesune nad mřížku (`_place_language`,
   `head_extra`), ukáže se jen u úloh s přepisem (`needs_language`) a předvyplní se
   z minulého běhu (`previous_loaded`). **Jiný protokol ve Vývoji na Pacientech** (1. 11. 2026): `longitudinal.mark_protocols` porovná protokol úlohy (`RunInfo.protocol_name` běhů nahrávek, `_visit_protocols`) s posledním vyšetřením, které úlohu má; `VisitPoint.protocol_changes`, `flagged` = jiná verze feature nebo protokol: ⚠ u data, dutý bod (v Hodnotách jen u položek té úlohy), protokoly v tooltipu data (`_protocol_tips`) a poznámka pod tabulkou (`_protocol_notes`). Nezavedeno: otevření Vývoje po Spustit.
+- **Hodnocení podle normy** (1. 11. 2026, varianta A, mockup
+  https://claude.ai/artifact/PA7sSRD3cTtK13oDKcM4id, `docs/mockups/hodnoceni-podle-normy/` mimo git):
+  průvodce má nahoře pruh „Srovnávat s normou“ (`norm_bar`, `norm_combo`, `select_norm`, `norm_key`,
+  `selected_norm`; předvolba = norma pacienta přes `norm_key_for` ← `AssessmentPage.norm_key_for`,
+  dokud ji uživatel nezmění, `_norm_touched`); protokol úlohy = protokol kontrol normy
+  (`norm_build.norm_protocols(norm, installed)`: celý protokol z `NormInfo.protocol_data`, jinak
+  z `plan.json` normy, jinak nainstalovaný téhož jména, jinak „chybí“), u klinika zamčený, v rozšířeném
+  režimu jde přepsat s varováním (`norm_changed_tasks`, `norm_warning` s „vrátit podle normy“, Spustit
+  se zeptá); úloha mimo normu výchozím protokolem s poznámkou; jazyk z `NormInfo.language` (zamčený);
+  Vývoj v čase `SeriesEditor.set_norm`: ruční volba > norma > jako minule > výchozí, šedé buňky ⚠
+  podle `old_differs`. Norma nově nese celé protokoly (`protocol_data` v norm.yaml i .ssnorm, plní
+  `finish_plan`). Po Spustit se volba uloží jako norma pacienta (`set_patient_norm` v
+  `MainWindow._remember_birth_year`), plán a hodnocení si pamatují jméno normy (`AssessmentPlan.norm`,
+  `Assessment.norm`, sloupec `assessments.norm` v katalogu). **Pacienti:** nabídka norem
+  `_fill_norm_combo` = normy se stejnými protokoly nahoře (✓), pod čarou ostatní „· jiné: úlohy“;
+  hlavička „podle normy X“, nebo „jiný protokol než norma: …“ s tlačítkem Přepočítat podle této normy…
+  (ve Vývoji „všechna vyšetření“; `norm_recompute_ids`, `recompute_norm_requested` →
+  `MainWindow.recompute_by_norm` → `recompute_assessment(protocols=…, norm_language=…, norm=…)` →
+  `plan_from_assessment` s protokoly normy pro její úlohy).
 - **Průvodci zjednodušení** (31. 10. 2026, mockup https://claude.ai/artifact/GX5BLKd1EcRkrvUTvvvGrg,
   `docs/mockups/pruvodci-zjednoduseni/` mimo git): Hodnocení z nahrávek ve **dvou krocích**
   (31. 10. 2026 večer, mockup https://claude.ai/artifact/LqdUbs3QgkT4YPuHdsKN6z,

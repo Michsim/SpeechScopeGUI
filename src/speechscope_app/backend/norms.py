@@ -88,6 +88,9 @@ class NormInfo:
     library_version: str = ""
     created: str = ""  # ISO datum
     protocols: dict[str, str] = field(default_factory=dict)  # úloha -> jméno protokolu kontrol
+    # úloha -> celý protokol kontrol (`Protocol.to_dict()`, 1. 11. 2026): hodnocení podle
+    # normy ho použije i bez souboru protokolu (importovaná norma od kolegy)
+    protocol_data: dict[str, dict[str, Any]] = field(default_factory=dict)
     # úloha -> feature -> verze z katalogu knihovny, kterou se kontroly počítaly
     # (z run.json dávek); Hodnocení a stránka Normy podle nich hlásí změnu feature
     feature_versions: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -122,6 +125,8 @@ class NormInfo:
         )
         if self.protocols:
             data["protocols"] = dict(self.protocols)
+        if self.protocol_data:
+            data["protocol_data"] = {t: dict(p) for t, p in self.protocol_data.items()}
         if self.feature_versions:
             data["feature_versions"] = {t: dict(v) for t, v in self.feature_versions.items()}
         if self.custom_tasks:
@@ -151,6 +156,11 @@ class NormInfo:
             library_version=str(data.get("library_version", "")),
             created=str(data.get("created", "")),
             protocols={str(k): str(v) for k, v in (data.get("protocols") or {}).items()},
+            protocol_data={
+                str(k): dict(v)
+                for k, v in (data.get("protocol_data") or {}).items()
+                if isinstance(v, dict)
+            },
             feature_versions={
                 str(t): {str(f): str(v) for f, v in versions.items() if v}
                 for t, versions in (data.get("feature_versions") or {}).items()

@@ -379,3 +379,26 @@ def test_run_without_subject_column_uses_file_names(tmp_path: Path) -> None:
         "HC01_ddk",
         "HC02_ddk",
     ]
+
+
+def test_norm_protocols_from_norm_installed_or_missing(tmp_path: Path) -> None:
+    """Protokol kontrol: celý z normy, jinak nainstalovaný stejného jména, jinak chybí."""
+    from speechscope_app.backend.norm_build import norm_protocols
+    from speechscope_app.backend.norms import Norm, NormInfo
+    from speechscope_app.backend.protocol import Protocol, builtin_protocols
+
+    stored = Protocol(name="Fonace, kontroly", task="phonation", features=["acoustic.*"])
+    ddk = next(p for p in builtin_protocols() if p.task == "ddk")
+    info = NormInfo(
+        name="N",
+        protocols={"phonation": stored.name, "ddk": ddk.name, "reading": "Čtení, cizí"},
+        protocol_data={"phonation": stored.to_dict()},
+    )
+    norm = Norm(info, pd.DataFrame({"subject": [], "task": []}))
+    found, missing = norm_protocols(norm, builtin_protocols())
+    assert found["phonation"].name == stored.name and found["phonation"].features == ["acoustic.*"]
+    assert found["ddk"].name == ddk.name
+    assert missing == {"reading": "Čtení, cizí"}
+    # protocol_data jde do norm.yaml i zpět
+    again = NormInfo.from_dict(info.to_dict())
+    assert again.protocol_data["phonation"]["name"] == stored.name

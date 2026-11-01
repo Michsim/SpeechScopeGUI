@@ -118,6 +118,9 @@ class SeriesEditor(QWidget):
         self._previous_for: str | None = None  # pro kterého pacienta je `_previous`
         self.previous_language = ""
         self.protocol_combos: dict[str, QComboBox] = {}
+        # hodnocení podle normy (1. 11. 2026): protokoly kontrol mají přednost před „jako minule“
+        self._norm_protocols: dict[str, Protocol] = {}
+        self._norm_name = ""
         self._patients_source = patients
         self._patients: dict[str, SeriesPatient] = {}
         self._recursive = recursive
@@ -400,17 +403,30 @@ class SeriesEditor(QWidget):
         self._choice.clear()  # jiný pacient: zase jako minule
         self.previous_loaded.emit(self.previous_language)
 
+    def set_norm(self, protocols: dict[str, Protocol], name: str) -> None:
+        """Norma průvodce: její protokoly kontrol platí pro nová vyšetření (přednost před
+        „jako minule“); ruční volby se zahodí."""
+        self._norm_protocols = dict(protocols)
+        self._norm_name = name
+        self._choice.clear()
+        self._refill()
+
     def _find(self, name: str) -> Protocol | None:
-        return next((p for p in self._protocols if p.name == name), None)
+        found = next((p for p in self._protocols if p.name == name), None)
+        if found is None:  # protokol normy nemusí být nainstalovaný (je uložený v normě)
+            found = next((p for p in self._norm_protocols.values() if p.name == name), None)
+        return found
 
     def protocol_choices(self, task: str) -> list[Protocol]:
         """Protokoly úlohy (základní úlohy u vlastní); přibalené, v rozšířeném režimu všechny.
-        Protokol z minula je v nabídce vždy, i vlastní u klinika."""
+        Protokol normy a protokol z minula jsou v nabídce vždy, i u klinika."""
         base = tasks.base_task(task)
         out = [p for p in self._protocols if p.task == base and (p.builtin or self._advanced)]
-        previous = self._find(self._previous.get(task, ""))
-        if previous is not None and previous not in out:
-            out.append(previous)
+        for extra in (self._norm_protocols.get(task), self._find(self._previous.get(task, ""))):
+            if extra is not None and all(p.name != extra.name for p in out):
+                out.append(extra)
+        if task in self._norm_protocols and not self._advanced:
+            out = [self._norm_protocols[task]]  # klinik: podle normy, nic jiného
         return out
 
     def _default(self, task: str) -> Protocol | None:
@@ -420,12 +436,32 @@ class SeriesEditor(QWidget):
         return default_protocol(tasks.base_task(task), self._protocols)
 
     def protocol_for(self, task: str) -> Protocol | None:
-        """Ručně zvolený, jinak jako minule (když existuje), jinak výchozí."""
-        for name in (self._choice.get(task, ""), self._previous.get(task, "")):
-            found = self._find(name) if name else None
-            if found is not None:
-                return found
-        return self._default(task)
+        """Ručně zvolený, jinak podle normy, jinak jako minule (když existuje), jinak výchozí."""
+        chosen = self._find(self._choice.get(task, "")) if self._choice.get(task) else None
+        if chosen is not None:
+            return chosen
+        if task in self._norm_protocols:
+            return self._norm_protocols[task]
+        previous = self._find(self._previous.get(task, "")) if self._previous.get(task) else None
+        return previous if previous is not None else self._default(task)
+
+    def _reference(self, task: str) -> str:
+        """S čím se protokol úlohy porovnává: protokol normy, jinak minulého vyšetření."""
+        if task in self._norm_protocols:
+            return self._norm_protocols[task].name
+        return self._previous.get(task, "")
+
+    def old_differs(self) -> dict[str, list[str]]:
+        """Úloha → data dřívějších vyšetření spočítaných jiným protokolem, než se zvolil teď."""
+        known = self._patients.get(patient_key(self.subject_text()))
+        out: dict[str, list[str]] = {}
+        for assessment in sorted(known.visits if known else [], key=lambda a: a.date):
+            for task in assessment.tasks:
+                name = self._old_protocols.get((assessment.id, task))
+                current = self.protocol_for(task)
+                if name and current is not None and name != current.name:
+                    out.setdefault(task, []).append(assessment.date)
+        return out
 
     def set_protocol(self, task: str, name: str) -> None:
         current = self.protocol_for(task)
@@ -438,12 +474,12 @@ class SeriesEditor(QWidget):
         return self._previous.get(task, "")
 
     def changed_tasks(self) -> list[str]:
-        """Úlohy s jiným protokolem než u posledního vyšetření pacienta."""
+        """Úlohy s jiným protokolem než norma (nebo bez normy než minulé vyšetření)."""
         out = []
         for task in self._tasks:
-            previous = self._previous.get(task)
+            reference = self._reference(task)
             current = self.protocol_for(task)
-            if previous and current is not None and current.name != previous:
+            if reference and current is not None and current.name != reference:
                 out.append(task)
         return out
 
@@ -454,13 +490,36 @@ class SeriesEditor(QWidget):
         self._refill()
 
     def protocol_warning_text(self) -> str:
+        parts: list[str] = []
         changed = self.changed_tasks()
-        if not changed:
-            return ""
-        names = ", ".join(tasks.label(t) for t in changed)
-        return tr(
-            "{tasks}: jiný protokol než u předchozích vyšetření, hodnoty nemusí být srovnatelné."
-        ).format(tasks=names)
+        by_norm = [t for t in changed if t in self._norm_protocols]
+        by_previous = [t for t in changed if t not in self._norm_protocols]
+        if by_norm:
+            parts.append(
+                tr("{tasks}: jiný protokol než norma, srovnání s kontrolami nebude přesné.").format(
+                    tasks=", ".join(tasks.label(t) for t in by_norm)
+                )
+            )
+        if by_previous:
+            parts.append(
+                tr(
+                    "{tasks}: jiný protokol než u předchozích vyšetření, hodnoty nemusí být "
+                    "srovnatelné."
+                ).format(tasks=", ".join(tasks.label(t) for t in by_previous))
+            )
+        old = {t: d for t, d in self.old_differs().items() if t in self._norm_protocols}
+        if old and not by_norm:
+            dates = sorted({d for ds in old.values() for d in ds})
+            parts.append(
+                tr(
+                    "Dřívější vyšetření ({dates}) se počítala jiným protokolem než norma "
+                    "({tasks}); přepočítat je jde na stránce Pacienti (Přepočítat podle normy…)."
+                ).format(
+                    dates=", ".join(_date_text(d) for d in dates),
+                    tasks=", ".join(tasks.label(t) for t in old),
+                )
+            )
+        return " ".join(parts)
 
     def needs_language(self) -> bool:
         """Jazyk jen u úloh s přepisem (spontánní řeč, čtení); bez nahrávek vždy."""
@@ -494,27 +553,40 @@ class SeriesEditor(QWidget):
             # jediná možnost (klinik, přibalený): jen název, neaktivní pole se špatně čte
             label = QLabel(current.display_name if current is not None else "–")
             label.setStyleSheet("font-weight: 600;")
-            label.setToolTip(tr("Jiný protokol jde vybrat jen v rozšířeném režimu."))
+            label.setToolTip(
+                tr("Protokol kontrol normy {norm}.").format(norm=self._norm_name)
+                if task in self._norm_protocols
+                else tr("Jiný protokol jde vybrat jen v rozšířeném režimu.")
+            )
             main = label
         previous = self._previous.get(task, "")
+        in_norm = task in self._norm_protocols
+        lacks = tr(" · norma úlohu nemá") if self._norm_name and not in_norm else ""
         if changed:
-            shown = self._find(previous)
-            sub_text = tr("minule: {name}").format(
-                name=shown.display_name if shown is not None else previous
+            reference = self._reference(task)
+            shown = self._find(reference)
+            name = shown.display_name if shown is not None else reference
+            sub_text = (
+                tr("norma: {name}").format(name=name)
+                if in_norm
+                else tr("minule: {name}").format(name=name)
             )
             main.setStyleSheet(
                 "QComboBox { border-color: #f59e0b; color: #c2410c; background: #fff4e5; }"
                 if isinstance(main, QComboBox)
                 else "font-weight: 600; color: #c2410c;"
             )
+        elif in_norm:
+            sub_text = tr("podle normy")
         elif previous:
-            sub_text = tr("jako minule")
+            sub_text = tr("jako minule") + lacks
         elif self._old_protocols:
-            sub_text = tr("výchozí · minule nebylo")
+            sub_text = tr("výchozí · minule nebylo") + lacks
         else:
-            sub_text = tr("výchozí")
+            sub_text = tr("výchozí") + lacks
         sub = QLabel(sub_text)
-        sub.setStyleSheet(f"color: {'#c2410c' if changed else theme.MUTED}; font-size: 11px;")
+        color = "#c2410c" if changed else "#1d4ed8" if in_norm else theme.MUTED
+        sub.setStyleSheet(f"color: {color}; font-size: 11px;")
         column.addWidget(main)
         column.addWidget(sub)
         return box
@@ -612,6 +684,7 @@ class SeriesEditor(QWidget):
         table.setRowCount(PROTOCOL_ROW + len(old) + len(self._visits))
         last = len(headers) - 1
         changed = set(self.changed_tasks())
+        differs = {(d, t) for t, dates in self.old_differs().items() for d in dates}
         self.protocol_combos = {}
         for c in range(len(headers)):
             set_text(table, 0, c, tr("protokol") if c == 0 else "", muted=True)
@@ -629,7 +702,7 @@ class SeriesEditor(QWidget):
             for c, task in enumerate(self._tasks, start=2):
                 text = "–"
                 if task in have:
-                    text = tr("spočítáno") + (" ⚠" if task in changed else "")
+                    text = tr("spočítáno") + (" ⚠" if (assessment.date, task) in differs else "")
                 set_text(table, r, c, text, muted=True)
             set_text(table, r, last, "", muted=True)
             for c in range(len(headers)):
@@ -644,7 +717,7 @@ class SeriesEditor(QWidget):
                     tip = tr("Spočítáno protokolem {name}.").format(
                         name=shown.display_name if shown is not None else name
                     )
-                    if task in changed:
+                    if (assessment.date, task) in differs:
                         tip += " " + tr("Teď je zvolený jiný protokol.")
                     table.item(r, c).setToolTip(tip)
         for i, visit in enumerate(self._visits):

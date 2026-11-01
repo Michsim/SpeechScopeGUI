@@ -62,6 +62,7 @@ class Assessment:
     date: str = ""  # datum vyšetření, ISO
     recordings: list[RecordingRef] = field(default_factory=list)
     created: str = ""
+    norm: str = ""  # jméno normy, podle jejíchž protokolů se počítalo (1. 11. 2026)
 
     @property
     def tasks(self) -> list[str]:
@@ -76,6 +77,7 @@ class Assessment:
             "sex": self.sex,
             "date": self.date,
             "created": self.created,
+            "norm": self.norm,
             "recordings": [
                 {"run": r.run, "row": r.row, "file": r.file, "task": r.task}
                 for r in self.recordings
@@ -93,6 +95,7 @@ class Assessment:
             sex=meta.parse_sex(data.get("sex")) if data.get("sex") else "",
             date=str(data.get("date") or ""),
             created=str(data.get("created") or ""),
+            norm=str(data.get("norm") or ""),
             recordings=[
                 RecordingRef(str(r["run"]), int(r["row"]), str(r.get("file", "")), str(r["task"]))
                 for r in data.get("recordings", [])

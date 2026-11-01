@@ -18,7 +18,7 @@ from speechscope_app.backend.dimensions import Dimension, Item
 from speechscope_app.backend.history import write_run_file
 from speechscope_app.backend.norm_build import TaskPlan, default_protocol
 from speechscope_app.backend.norms import BOTH, LOWER, Norm, NormInfo
-from speechscope_app.backend.protocol import builtin_protocols
+from speechscope_app.backend.protocol import Protocol, builtin_protocols
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import PAGE_ASSESSMENT, PAGE_RESULTS, MainWindow
 from speechscope_app.ui.pages.assessment import PendingCard, format_number, worst_band
@@ -944,3 +944,51 @@ def test_quality_flags_recording_table_and_tree(qtbot: QtBot, settings: AppSetti
             else:
                 assert not child.text(0).endswith(chr(0x26A0))
     assert flagged
+
+
+def test_patient_norm_menu_header_and_recompute_by_norm(
+    qtbot: QtBot, settings: AppSettings
+) -> None:
+    """Nabídka norem: jiné protokoly pod čarou; s takovou normou tlačítko Přepočítat podle
+    této normy… a plán přepočtu s protokolem normy (1. 11. 2026)."""
+    settings.work_root.mkdir(parents=True)
+    make_runs(settings.work_root)
+    for name in ("P-017_fonace.wav", "P-017_cteni.wav"):
+        (settings.work_root / name).write_bytes(b"")
+    save_norm(settings.norms_dir())  # norma bez záznamu protokolů
+    fon = Protocol(name="Fonace, kontroly", task="phonation")
+    info = NormInfo(
+        name="Norma s protokoly",
+        protocols={"phonation": fon.name},
+        protocol_data={"phonation": fon.to_dict()},
+    )
+    Norm(info, controls_frame()).save(settings.norms_dir() / "s-protokoly")
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.nav.setCurrentRow(PAGE_ASSESSMENT)
+    page = window.assessment_page
+    dialog = page.make_dialog()
+    qtbot.addWidget(dialog)
+    dialog.add_recording(recording(page, "P-017_fonace.wav"))
+    dialog.add_recording(recording(page, "P-017_cteni.wav"))
+    page.save_from(dialog)
+    texts = [page.norm_combo.itemText(i) for i in range(page.norm_combo.count())]
+    plain = next(i for i, t in enumerate(texts) if "Testovací" in t)
+    other = next(i for i, t in enumerate(texts) if "Norma s protokoly" in t)
+    assert "jiné: Fonace" in texts[other] and plain < other  # jiné protokoly pod čarou
+    page.norm_combo.setCurrentIndex(plain)
+    assert page.norm_recompute_btn.isHidden()
+    page.norm_combo.setCurrentIndex(other)
+    assert not page.norm_recompute_btn.isHidden()
+    ids = page.norm_recompute_ids()
+    assert ids == [page.current_assessment().id]
+    reading = default_protocol("reading", builtin_protocols())
+    plan, problems = page.recompute_plan(
+        ids[0], protocols={"phonation": fon, "reading": reading}, norm="Norma s protokoly"
+    )
+    assert plan is not None, problems
+    assert {t.task: t.proto().name for t in plan.tasks} == {
+        "phonation": "Fonace, kontroly",
+        "reading": reading.name,
+    }
+    assert plan.norm == "Norma s protokoly"

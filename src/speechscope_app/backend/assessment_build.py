@@ -28,7 +28,7 @@ from ..i18n import tr
 from . import meta, tasks
 from .assessments import Assessment, AssessmentStore, RecordingRef, new_id
 from .manifest import Manifest
-from .norm_build import PENDING, FolderScan, PlanState, TaskPlan, scan_folder
+from .norm_build import PENDING, FolderScan, PlanState, TaskPlan, scan_folder, with_language
 from .protocol import Protocol
 from .visits import Recording, Visit
 
@@ -77,6 +77,7 @@ class AssessmentPlan(PlanState):
     # víc pacientů nebo dat z manifestu: nahrávka → pacient, datum, věk, pohlaví;
     # prázdné = jeden pacient a jedno datum (`patient`)
     people: dict[Path, PersonRow] = field(default_factory=dict)
+    norm: str = ""  # jméno normy, podle které se volily protokoly (prázdné = bez normy)
 
     @property
     def key(self) -> Path:
@@ -152,6 +153,7 @@ class AssessmentPlan(PlanState):
             "patient": {"subject": p.subject, "age": p.age, "sex": p.sex, "date": p.date},
             "language": self.language,
             "created": self.created,
+            "norm": self.norm,
             "tasks": [
                 {
                     "task": t.task,
@@ -225,6 +227,7 @@ class AssessmentPlan(PlanState):
             tasks=tasks,
             created=str(data.get("created") or ""),
             people=people,
+            norm=str(data.get("norm") or ""),
         )
 
     def discard(self) -> None:
@@ -323,7 +326,14 @@ def pending_plans(folder: Path) -> list[AssessmentPlan]:
 
 
 def plan_from_assessment(
-    assessment: Assessment, visit: Visit, missing: list[RecordingRef], folder: Path
+    assessment: Assessment,
+    visit: Visit,
+    missing: list[RecordingRef],
+    folder: Path,
+    *,
+    protocols: dict[str, Protocol] | None = None,
+    norm_language: str | None = None,
+    norm: str | None = None,
 ) -> tuple[AssessmentPlan | None, list[str]]:
     """Plán přepočtu hotového hodnocení: tytéž nahrávky a protokoly, současná knihovna.
 
@@ -331,6 +341,9 @@ def plan_from_assessment(
     běhu (přesně to, čím se počítalo, včetně jazyka). Plán má id hodnocení, takže
     `finish_plan` hodnocení přepíše na místě. Když něco chybí (nahrávka na disku,
     běh, protokol), vrátí None a důvody.
+
+    `protocols` (úloha → protokol) a `norm_language` = přepočet podle normy (1. 11. 2026):
+    úlohy z normy se spočítají jejím protokolem a jazykem, ostatní protokolem běhu.
     """
     problems: list[str] = []
     if missing:
@@ -351,7 +364,11 @@ def plan_from_assessment(
             else:
                 inputs.append(rec.path)
         proto = None
-        for rec in recs:
+        if protocols is not None and task in protocols:
+            proto = protocols[task]
+            if norm_language:
+                proto = with_language(proto, norm_language)
+        for rec in recs if proto is None else []:
             try:
                 proto = Protocol.load(rec.run.dir / "protocol.yaml")
                 break
@@ -370,7 +387,9 @@ def plan_from_assessment(
         return None, problems
     patient = Patient(assessment.subject, assessment.age, assessment.sex, assessment.date)
     path = folder / f"{assessment.id}{PLAN_SUFFIX}"
-    return AssessmentPlan(path, assessment.id, patient, language, plan_tasks), []
+    plan = AssessmentPlan(path, assessment.id, patient, language, plan_tasks)
+    plan.norm = assessment.norm if norm is None else norm
+    return plan, []
 
 
 def finish_plan(plan: AssessmentPlan, store: AssessmentStore) -> list[Assessment]:
@@ -422,6 +441,7 @@ def finish_plan(plan: AssessmentPlan, store: AssessmentStore) -> list[Assessment
         else:
             p = plan.patient
             assessment = Assessment(plan.id, p.subject, p.age, p.sex, p.date, refs)
+        assessment.norm = plan.norm
         store.save(assessment)
         out.append(assessment)
     plan.discard()

@@ -27,6 +27,7 @@ from speechscope_app.backend.assessments import Assessment, AssessmentStore
 from speechscope_app.backend.catalog import Catalog
 from speechscope_app.backend.history import RunGroup, read_group, read_run
 from speechscope_app.backend.norm_build import ERROR, OK, TaskPlan, default_protocol
+from speechscope_app.backend.norms import Norm, NormInfo
 from speechscope_app.backend.protocol import Protocol, builtin_protocols
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import (
@@ -656,3 +657,48 @@ def test_series_wizard_runs_visits_of_one_patient(
     assert again.widget._task_plans()[0].proto().name == "Fonace, vlastní"
     s2.revert_protocols()
     assert s2.changed_tasks() == [] and s2.protocol_for("phonation").name == used
+
+
+def test_wizard_protocols_and_language_follow_norm(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    """Hodnocení podle normy: protokol úlohy a jazyk z normy, klinik je nemění; bez normy
+    zase výchozí. Norma nese celý protokol, takže stačí i bez souboru protokolu."""
+    from test_norms import controls_frame
+
+    fon = Protocol(name="Fonace, kontroly", task="phonation", features=["acoustic.*"])
+    info = NormInfo(
+        name="Kontroly",
+        language="en",
+        protocols={"phonation": fon.name},
+        protocol_data={"phonation": fon.to_dict()},
+    )
+    Norm(info, controls_frame()).save(settings.norms_dir() / "kontroly")
+    data = make_folder(tmp_path / "fon", {"": ["a1.wav"]})
+    reading = make_folder(tmp_path / "cteni", {"": ["c1.wav"]})
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    dialog = window.make_assessment_build_dialog()
+    qtbot.addWidget(dialog)
+    dialog.set_mode("single")
+    assert not dialog.norm_bar.isHidden() and dialog.selected_norm().info.name == "Kontroly"
+    dialog.subject.setText("P-1")
+    dialog.set_folder("phonation", data)
+    dialog.set_folder("reading", reading)
+    row = dialog.rows["phonation"]
+    assert row.current_protocol().name == "Fonace, kontroly"
+    assert not row.protocol.isEnabled()  # klinik protokol normy nemění
+    if dialog.language.findData("en") >= 0:
+        assert dialog.language.currentData() == "en" and not dialog.language.isEnabled()
+    # čtení norma nemá: spočítá se výchozím protokolem, ale s normou se nesrovná
+    assert "norma tuto úlohu nemá" in dialog.norm_warning.text()
+    plan = dialog.plan()
+    assert plan.norm == "Kontroly"
+    assert {t.task: t.proto().name for t in plan.tasks}["phonation"] == "Fonace, kontroly"
+    window._remember_birth_year(dialog.widget)
+    assert window.assessment_page.norm_key_for("P-1") == str(settings.norms_dir() / "kontroly")
+    # bez normy: výchozí přibalený protokol a volný jazyk
+    assert dialog.select_norm("none")
+    default = default_protocol("phonation", builtin_protocols())
+    assert row.current_protocol().name == default.name and dialog.language.isEnabled()
+    assert dialog.plan().norm == ""

@@ -435,6 +435,7 @@ def finish_plan(plan: NormPlan, library_version: str = "") -> Norm:
     """Norma z tabulek hotových dávek plánu; uloží se do složky plánu."""
     frames = []
     protocols: dict[str, str] = {}
+    protocol_data: dict[str, dict] = {}
     versions: dict[str, dict[str, str]] = {}
     merged_added = [t for t in plan.tasks if t.added and t.table is not None]
     replaced = {_key(p) for t in merged_added for p in t.replaces}
@@ -449,6 +450,7 @@ def finish_plan(plan: NormPlan, library_version: str = "") -> Norm:
             frame["task"] = task.task  # knihovna zapsala základní úlohu, norma zná vlastní
         frames.append(frame)
         protocols[task.task] = task.proto().name
+        protocol_data[task.task] = dict(task.protocol)  # celý protokol jde s normou i do exportu
         run = read_run(task.run_dir) if task.run_dir is not None else None
         if run is not None and run.feature_versions:
             versions[task.task] = dict(run.feature_versions)  # čím přesně se kontroly počítaly
@@ -460,6 +462,7 @@ def finish_plan(plan: NormPlan, library_version: str = "") -> Norm:
     merged = merged.drop_duplicates(["_key", "task"], keep="last").drop(columns="_key")
     frames = [merged]
     plan.info.protocols = protocols
+    plan.info.protocol_data = protocol_data
     plan.info.feature_versions = versions
     plan.info.created = dt.date.today().isoformat()  # kdy se kontroly (na)počítaly
     if library_version:
@@ -864,3 +867,35 @@ def read_controls_csv(path: Path) -> dict[str, Control]:
 
 def task_label(task: str) -> str:
     return tasks.label(task)
+
+
+def norm_protocols(
+    norm: Norm, installed: list[Protocol]
+) -> tuple[dict[str, Protocol], dict[str, str]]:
+    """Protokoly kontrol normy po úlohách (hodnocení podle normy, 1. 11. 2026).
+
+    Pořadí zdrojů: celý protokol uložený v normě, plán normy (`plan.json`, norma
+    postavená tady), nainstalovaný protokol téhož jména. Vrátí (úloha → protokol,
+    úloha → jméno protokolu, který se nenašel)."""
+    found: dict[str, Protocol] = {}
+    missing: dict[str, str] = {}
+    plan = load_plan(norm.path) if norm.path is not None else None
+    from_plan = {t.task: t.protocol for t in plan.tasks} if plan is not None else {}
+    names = dict(norm.info.protocols)
+    for task in norm.info.protocol_data:
+        names.setdefault(task, str(norm.info.protocol_data[task].get("name", "")))
+    for task, name in names.items():
+        data = norm.info.protocol_data.get(task) or from_plan.get(task)
+        proto: Protocol | None = None
+        if data:
+            try:
+                proto = Protocol.from_dict(dict(data))
+            except (KeyError, ValueError, TypeError):
+                proto = None
+        if proto is None:
+            proto = next((x for x in installed if x.name == name), None)
+        if proto is None:
+            missing[task] = name
+        else:
+            found[task] = proto
+    return found, missing

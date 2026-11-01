@@ -157,6 +157,10 @@ class Catalog:
         for column, kind in (("window", "INTEGER"), ("same_sex", "INTEGER"), ("norm", "TEXT")):
             if column not in columns:
                 self._db.execute(f"ALTER TABLE patients ADD COLUMN {column} {kind}")
+        # norma, podle které se hodnocení počítalo (1. 11. 2026)
+        columns = {r["name"] for r in self._db.execute("PRAGMA table_info(assessments)")}
+        if "norm" not in columns:
+            self._db.execute("ALTER TABLE assessments ADD COLUMN norm TEXT NOT NULL DEFAULT ''")
         self._db.commit()
 
     def close(self) -> None:
@@ -167,7 +171,7 @@ class Catalog:
     def assessments(self) -> list[Assessment]:
         """Od nejnovějšího vyšetření (datum, založení, pacient), jako dřív ze souborů."""
         rows = self._db.execute(
-            "SELECT id, subject, age, sex, date, created FROM assessments "
+            "SELECT id, subject, age, sex, date, created, norm FROM assessments "
             "ORDER BY date DESC, created DESC, subject DESC"
         ).fetchall()
         refs: dict[str, list[RecordingRef]] = {}
@@ -186,6 +190,7 @@ class Catalog:
                 sex=r["sex"],
                 date=r["date"],
                 created=r["created"],
+                norm=r["norm"] or "",
                 recordings=refs.get(r["id"], []),
             )
             for r in rows
@@ -204,11 +209,12 @@ class Catalog:
                 (key, display, assessment.sex, assessment.created),
             )
             self._db.execute(
-                "INSERT INTO assessments (id, patient_key, subject, age, sex, date, created) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+                "INSERT INTO assessments "
+                "(id, patient_key, subject, age, sex, date, created, norm) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
                 "patient_key = excluded.patient_key, subject = excluded.subject, "
                 "age = excluded.age, sex = excluded.sex, date = excluded.date, "
-                "created = excluded.created",
+                "created = excluded.created, norm = excluded.norm",
                 (
                     assessment.id,
                     key,
@@ -217,6 +223,7 @@ class Catalog:
                     assessment.sex,
                     assessment.date,
                     assessment.created,
+                    assessment.norm,
                 ),
             )
             self._db.execute(

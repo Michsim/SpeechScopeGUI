@@ -345,6 +345,8 @@ class AssessmentPage(QWidget):
     resume_requested = Signal(object)  # plán: dopočítat zbývající dávky
     discard_requested = Signal(object)  # plán: zahodit rozpracované hodnocení
     recompute_requested = Signal(str)  # id hodnocení: nahrávky znovu současnou knihovnou
+    # id hodnocení a klíč normy: přepočet s protokoly normy (hodnocení podle normy, 1. 11. 2026)
+    recompute_norm_requested = Signal(list, str)
     # Nové vyšetření… z nahrávek: hlavní okno otevře průvodce s předvyplněným pacientem
     new_visit_from_recordings_requested = Signal(object)
     open_run_requested = Signal(object)  # složka běhu: Otevřít běh ve Výsledcích
@@ -501,6 +503,12 @@ class AssessmentPage(QWidget):
         self.header = StatusHeader(subtitle_below=True)  # podtitul pod tlačítky
         self.header.title.setText(tr("Pacient"))
         self.header.subtitle.setText(tr("Vyberte pacienta vlevo, nebo založte nové hodnocení."))
+        # počítáno jinými protokoly než vybraná norma: přepočet s protokoly normy
+        self.norm_recompute_btn = QPushButton(tr("Přepočítat podle této normy…"))
+        theme.set_role(self.norm_recompute_btn, "primary")
+        self.norm_recompute_btn.hide()
+        self.norm_recompute_btn.clicked.connect(lambda: self._recompute_by_norm())
+        self.header.add_button(self.norm_recompute_btn)
         self.edit_btn = QPushButton(tr("Upravit…"))
         self.edit_btn.setEnabled(False)
         self.edit_btn.clicked.connect(self.edit_current)
@@ -1123,17 +1131,8 @@ class AssessmentPage(QWidget):
     def reload_norms(self) -> None:
         """Znovu načte normy (po importu, uložení nebo smazání) a zachová výběr."""
         self._norms = all_norms(self._norms_dir) if self._norms_dir is not None else []
+        self._fill_norm_combo(self._current)
         self.norm_combo.blockSignals(True)
-        self.norm_combo.clear()
-        for norm in self._norms:
-            self.norm_combo.addItem(norm.info.display_name, norm)
-            tip = norm.info.display_description
-            tip += tr(" ({n} osob)").format(n=norm.subjects) if norm.subjects else ""
-            self.norm_combo.setItemData(
-                self.norm_combo.count() - 1, tip, Qt.ItemDataRole.ToolTipRole
-            )
-        # výslovná volba „žádná“: surové hodnoty i tam, kde norma existuje (31. 10. 2026)
-        self.norm_combo.addItem(tr("žádná norma (jen hodnoty)"), NO_NORM)
         self.norm_combo.setCurrentIndex(self._norm_index(self._norm_choice))
         self.norm_combo.blockSignals(False)
         has = bool(self._norms)
@@ -1142,14 +1141,56 @@ class AssessmentPage(QWidget):
         self._sync_norm_choice()
         self._recompute()
 
+    def _fill_norm_combo(self, visit: Visit | None) -> None:
+        """Nabídka norem: u pacienta nahoře normy se stejnými protokoly jako jeho hodnocení
+        (✓), pod čarou ostatní s tím, čím se liší (1. 11. 2026); na konci „žádná norma“."""
+        combo = self.norm_combo
+        combo.blockSignals(True)
+        combo.clear()
+        same: list[Norm] = []
+        other: list[tuple[Norm, str]] = []
+        for norm in self._norms:
+            mismatch = protocol_mismatch(visit, norm) if visit is not None else None
+            if mismatch:
+                other.append((norm, mismatch[0].split(": ", 1)[-1]))
+            else:
+                same.append(norm)
+
+        def add(norm: Norm, text: str) -> None:
+            combo.addItem(text, norm)
+            tip = norm.info.display_description
+            tip += tr(" ({n} osob)").format(n=norm.subjects) if norm.subjects else ""
+            combo.setItemData(combo.count() - 1, tip, Qt.ItemDataRole.ToolTipRole)
+
+        marked = visit is not None and bool(other)
+        for norm in same:
+            known = marked and bool(norm.info.protocols)
+            add(norm, ("✓ " if known else "") + norm.info.display_name)
+        if other:
+            if same:
+                combo.insertSeparator(combo.count())
+            for norm, differs in other:
+                add(
+                    norm,
+                    tr("{name} · jiné: {tasks}").format(name=norm.info.display_name, tasks=differs),
+                )
+        # výslovná volba „žádná“: surové hodnoty i tam, kde norma existuje (31. 10. 2026)
+        combo.addItem(tr("žádná norma (jen hodnoty)"), NO_NORM)
+        combo.blockSignals(False)
+
     def _norm_index(self, choice: str) -> int:
         """Index v nabídce pro volbu z nastavení: cesta normy, NO_NORM, jinak první norma."""
-        if choice == NO_NORM:
-            return self.norm_combo.count() - 1
-        for i, norm in enumerate(self._norms):
-            if str(norm.path) == choice:
+        first = -1
+        for i in range(self.norm_combo.count()):
+            data = self.norm_combo.itemData(i)
+            if choice == NO_NORM and data == NO_NORM:
                 return i
-        return 0
+            if isinstance(data, Norm):
+                if str(data.path) == choice:
+                    return i
+                if first < 0:
+                    first = i
+        return max(first, 0)
 
     def _sync_norm_choice(self) -> None:
         """Zapamatovaná volba = co je opravdu vybrané (zmizelá norma spadne na první)."""
@@ -1200,7 +1241,27 @@ class AssessmentPage(QWidget):
     def _store_norm_override(self) -> None:
         data = self.norm_combo.currentData()
         chosen = NO_NORM if data == NO_NORM else str(data.path) if isinstance(data, Norm) else ""
-        key = patient_key(self._current.subject)
+        self._set_patient_norm(self._current.subject, chosen)
+
+    # --- norma pacienta pro průvodce (hodnocení podle normy, 1. 11. 2026) -------------------
+
+    def norms(self) -> list[Norm]:
+        self._ensure_loaded()
+        return list(self._norms)
+
+    def norm_key_for(self, subject: str) -> str:
+        """Norma pacienta (cesta, NO_NORM); bez pacienta výchozí. Průvodce ji předvybere."""
+        self._ensure_loaded()
+        return self._norm_key_for(subject)
+
+    def set_patient_norm(self, subject: str, key: str) -> None:
+        """Norma zvolená v průvodci = norma pacienta i na této stránce."""
+        self._ensure_loaded()
+        if subject.strip() and key:
+            self._set_patient_norm(subject, key)
+
+    def _set_patient_norm(self, subject: str, chosen: str) -> None:
+        key = patient_key(subject)
         existing = self._prefs.get(key, PatientPrefs())
         prefs = PatientPrefs(
             existing.window,
@@ -1623,12 +1684,28 @@ class AssessmentPage(QWidget):
             return None
         return self.save_from(dialog)
 
-    def recompute_plan(self, assessment_id: str) -> tuple[AssessmentPlan | None, list[str]]:
+    def recompute_plan(
+        self,
+        assessment_id: str,
+        *,
+        protocols: dict | None = None,
+        norm_language: str | None = None,
+        norm: str | None = None,
+    ) -> tuple[AssessmentPlan | None, list[str]]:
+        """Plán přepočtu hodnocení (nebo důvody, proč nejde), pro hlavní okno; s `protocols`
+        přepočet podle normy (úlohy normy jejími protokoly)."""
         self._ensure_loaded()
-        """Plán přepočtu hodnocení (nebo důvody, proč nejde), pro hlavní okno."""
         for assessment, visit, missing in self._entries:
             if assessment.id == assessment_id and self._store is not None:
-                return plan_from_assessment(assessment, visit, missing, self._store.folder)
+                return plan_from_assessment(
+                    assessment,
+                    visit,
+                    missing,
+                    self._store.folder,
+                    protocols=protocols,
+                    norm_language=norm_language,
+                    norm=norm,
+                )
         return None, [tr("hodnocení už neexistuje")]
 
     def _update_recompute(self) -> None:
@@ -1647,6 +1724,41 @@ class AssessmentPage(QWidget):
             if plan is not None
             else tr("Přepočítat nejde: {why}").format(why="; ".join(problems))
         )
+
+    def norm_recompute_ids(self) -> list[str]:
+        """Hodnocení vybraného pacienta spočítaná jinými protokoly, než má jeho norma:
+        na záložce Vyšetření vybrané vyšetření, ve Vývoji v čase všechna."""
+        if self._current is None:
+            return []
+        norm = self._norm_for(self._current.subject)
+        if norm is None:
+            return []
+        if self._view == "trend":
+            entries = self.patient_entries()
+        else:
+            current = self.current_assessment()
+            entries = [e for e in self._entries if current is not None and e[0].id == current.id]
+        return [a.id for a, visit, _m in entries if protocol_mismatch(visit, norm)]
+
+    def _update_norm_recompute(self) -> None:
+        ids = self.norm_recompute_ids()
+        self.norm_recompute_btn.setVisible(bool(ids))
+        self.norm_recompute_btn.setText(
+            tr("Přepočítat všechna vyšetření podle normy…")
+            if len(ids) > 1
+            else tr("Přepočítat podle této normy…")
+        )
+        self.norm_recompute_btn.setToolTip(
+            tr(
+                "Úlohy, které se počítaly jiným protokolem než kontroly normy, se spočítají "
+                "znovu protokolem normy; hodnocení se po skončení přepíše na místě."
+            )
+        )
+
+    def _recompute_by_norm(self) -> None:
+        ids = self.norm_recompute_ids()
+        if ids and self._current is not None:
+            self.recompute_norm_requested.emit(ids, self._norm_key_for(self._current.subject))
 
     def _recompute_current(self) -> None:
         current = self.current_assessment()
@@ -1798,6 +1910,7 @@ class AssessmentPage(QWidget):
                 self.window_combo.setCurrentIndex(i)
                 break
         self.same_sex.setChecked(same_sex)
+        self._fill_norm_combo(visit)
         self.norm_combo.blockSignals(True)
         self.norm_combo.setCurrentIndex(self._norm_index(self._norm_key_for(visit.subject)))
         self.norm_combo.blockSignals(False)
@@ -1929,7 +2042,20 @@ class AssessmentPage(QWidget):
         # štítky dimenzí v hlavičce odstraněny (31. 10. 2026): totéž říká pavouk a strom;
         # zůstává jen varování, že úloha pacienta je spočítaná jiným protokolem než norma
         mismatch = protocol_mismatch(visit, norm)
-        self.header.set_pills([(mismatch[0], "warn", mismatch[1], None)] if mismatch else [])
+        pills: list[tuple[str, str, str, None]] = []
+        if mismatch:
+            pills.append((mismatch[0], "warn", mismatch[1], None))
+        elif norm is not None and norm.info.protocols:
+            tip = tr("Úlohy pacienta se počítaly stejnými protokoly jako kontroly normy.")
+            if current is not None and current.norm and current.norm != norm.info.name:
+                tip += "\n" + tr("Hodnocení se zakládalo podle normy {name}.").format(
+                    name=current.norm
+                )
+            pills.append(
+                (tr("podle normy {name}").format(name=norm.info.display_name), "ok", tip, None)
+            )
+        self.header.set_pills(pills)
+        self._update_norm_recompute()
         self._fill_chart(self._evaluation)
         self._fill_tree(self._evaluation)
         self.selection_label.setText(self._selection_text(visit, self._evaluation))

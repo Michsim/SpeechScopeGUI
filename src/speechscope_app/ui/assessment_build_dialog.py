@@ -72,8 +72,11 @@ from ..backend.assessment_build import (
 )
 from ..backend.assessments import patient_key
 from ..backend.audio import format_duration as audio_duration
-from ..backend.norm_build import FolderScan, TaskPlan, with_language
-from ..backend.norms import RECOMMENDED_CONTROLS  # noqa: F401  (stejná sada textů)
+from ..backend.norm_build import FolderScan, TaskPlan, norm_protocols, with_language
+from ..backend.norms import (
+    RECOMMENDED_CONTROLS,  # noqa: F401  (stejná sada textů)
+    Norm,
+)
 from ..backend.protocol import Protocol
 from ..i18n import N_, tr
 from . import theme
@@ -171,6 +174,7 @@ class NewAssessmentChoiceDialog(QDialog):
 
 
 CHOOSE, SINGLE, SERIES, MULTI = "choose", "single", "series", "multi"
+NO_NORM = "none"  # volba „žádná norma“ (stejný klíč jako na stránce Pacienti)
 MODE_LABELS = {SINGLE: N_("Jedno vyšetření"), SERIES: N_("Vývoj v čase"), MULTI: N_("Víc pacientů")}
 
 
@@ -209,11 +213,24 @@ class AssessmentBuildWidget(QWidget):
         rate_lookup: Callable[[str], float | None] = lambda _slug: None,
         patients_lookup: Callable[[], list[SeriesPatient]] = list,
         run_protocol: Callable[[str], Protocol | None] = lambda _key: None,
+        norms_lookup: Callable[[], list[Norm]] = list,
+        norm_key_for: Callable[[str], str] = lambda _subject: "",
         mode: str = CHOOSE,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._dir = assessments_dir
+        # hodnocení podle normy (1. 11. 2026, mockup https://claude.ai/artifact/PA7sSRD3cTtK13oDKcM4id,
+        # `docs/mockups/hodnoceni-podle-normy/` mimo git): protokoly úloh a jazyk z normy
+        self._protocols = list(protocols)
+        self._advanced = advanced
+        self._norms_lookup = norms_lookup
+        self._norm_key_for = norm_key_for
+        self._norms: list[Norm] | None = None
+        self._norm_touched = False  # uživatel normu vybral sám: předvolba pacienta ji nemění
+        self._norm_found: dict[str, Protocol] = {}
+        self._norm_missing: dict[str, str] = {}
+        self._norm_cache: dict[str, tuple[dict[str, Protocol], dict[str, str]]] = {}
         self._mode = CHOOSE
         self._rate = rate_lookup
         self._people: dict[Path, PersonRow] = {}  # nahrávka → pacient, datum… z manifestu
@@ -257,6 +274,7 @@ class AssessmentBuildWidget(QWidget):
         )
         steps.addWidget(self.mode_switch)
         outer.addLayout(steps)
+        outer.addWidget(self._build_norm_bar())
         self.stack = QStackedWidget()
         outer.addWidget(self.stack, 1)
         # Kroky v posuvné ploše (31. 10. 2026): obsah kroku nesmí zvětšovat minimální výšku
@@ -268,6 +286,16 @@ class AssessmentBuildWidget(QWidget):
         # jeden pacient: formulář nad úlohami a kontrola úloh pod nimi (jedna obrazovka)
         self._sources_layout.insertWidget(0, self.person_box)
         self._sources_layout.insertWidget(self._sources_layout.count() - 1, self.task_checks)
+        self.norm_warning = QLabel("")
+        self.norm_warning.setWordWrap(True)
+        self.norm_warning.setTextFormat(Qt.TextFormat.RichText)
+        self.norm_warning.setStyleSheet(
+            "QLabel { background: #fff4e5; border: 1px solid #fbd38d; color: #c2410c;"
+            " border-radius: 8px; padding: 6px 10px; }"
+        )
+        self.norm_warning.linkActivated.connect(lambda _l: self._apply_norm())
+        self.norm_warning.hide()
+        self._sources_layout.insertWidget(self._sources_layout.count() - 1, self.norm_warning)
         self.series = SeriesEditor(
             list(self.rows),
             patients_lookup,
@@ -278,6 +306,17 @@ class AssessmentBuildWidget(QWidget):
         )
         self.series.changed.connect(self._update_buttons)
         self.series.previous_loaded.connect(self._previous_language)
+        self.series.subject.currentTextChanged.connect(lambda _t: self._preselect_norm())
+        # výchozí protokoly řádků (bez normy) a jejich nabídka; norma je přepíše a vrátí
+        self._row_defaults: dict[str, tuple[list[Protocol], str]] = {}
+        for task, row in self.rows.items():
+            choices = [row.protocol.itemData(i) for i in range(row.protocol.count())]
+            current = row.current_protocol()
+            self._row_defaults[task] = (
+                [c for c in choices if isinstance(c, Protocol)],
+                current.name if current is not None else "",
+            )
+            row.protocol.currentIndexChanged.connect(lambda _i: self._update_norm_warning())
         # Spustit s jiným protokolem než minule se zeptá (testy podstrčí odpověď)
         self.confirm: Callable[[str], bool] = self._ask
         series_page = QWidget()
@@ -406,6 +445,7 @@ class AssessmentBuildWidget(QWidget):
         self.subject = QLineEdit()
         self.subject.setPlaceholderText(tr("ID pacienta"))
         self.subject.textChanged.connect(self._update_buttons)
+        self.subject.textChanged.connect(lambda _t: self._preselect_norm())
         self.age = QLineEdit()
         self.age.setPlaceholderText(tr("roky"))
         self.age.setMaximumWidth(80)
@@ -603,6 +643,9 @@ class AssessmentBuildWidget(QWidget):
         else:
             self.stack.setCurrentIndex(0)
         self._place_language(mode == SERIES)
+        self.norm_bar.setVisible(not choosing and self._has_norms())
+        if not choosing:
+            self._preselect_norm()
         self.back_btn.setText(tr("Storno"))
         if mode == SINGLE:
             self._fill_task_checks()
@@ -623,7 +666,10 @@ class AssessmentBuildWidget(QWidget):
             self.language.show()
 
     def _previous_language(self, code: str) -> None:
-        """Jazyk z minulého vyšetření pacienta (Vývoj v čase)."""
+        """Jazyk z minulého vyšetření pacienta (Vývoj v čase); norma má přednost."""
+        norm = self.selected_norm()
+        if norm is not None and norm.info.language:
+            return
         index = self.language.findData(code) if code else -1
         if index >= 0:
             self.language.setCurrentIndex(index)
@@ -1360,6 +1406,7 @@ class AssessmentBuildWidget(QWidget):
     def _update_buttons(self) -> None:
         if not hasattr(self, "next_btn"):  # při stavbě stránky ještě patička není
             return
+        self._update_norm_warning()  # úlohy s nahrávkami se mění se složkami
         hint, ok = "", True
         rows = self.active_rows()
         if self._mode == CHOOSE:
@@ -1427,9 +1474,11 @@ class AssessmentBuildWidget(QWidget):
         if self._mode == MULTI and self.step() == 0:
             self._show_step(1)
             return
-        if self._mode == SERIES:
-            warning = self.series.protocol_warning_text()
-            if warning and not self.confirm(warning):
+        if self._mode == SERIES and self.series.changed_tasks():
+            if not self.confirm(self.series.protocol_warning_text()):
+                return
+        elif self._mode != SERIES and self.norm_changed_tasks():
+            if not self.confirm(self._norm_changed_text()):
                 return
         self.accepted.emit()
 
@@ -1465,7 +1514,209 @@ class AssessmentBuildWidget(QWidget):
 
     def plan(self) -> AssessmentPlan:
         language = str(self.language.currentData() or "")
-        return new_plan(self._dir, self.patient(), language, self._task_plans(), self.people())
+        plan = new_plan(self._dir, self.patient(), language, self._task_plans(), self.people())
+        norm = self.selected_norm()
+        plan.norm = norm.info.name if norm is not None else ""
+        return plan
+
+    # --- norma -------------------------------------------------------------------------
+
+    def _build_norm_bar(self) -> QWidget:
+        """Pruh „Srovnávat s normou“: protokoly úloh a jazyk se vezmou z vybrané normy."""
+        bar = QFrame()
+        bar.setObjectName("normbar")
+        bar.setStyleSheet(
+            f"QFrame#normbar {{ background: {theme.CARD}; border: 1px solid {theme.BORDER};"
+            f" border-left: 4px solid {theme.ACCENT}; border-radius: 10px; }}"
+            "QFrame#normbar QLabel { background: transparent; border: none; }"
+        )
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(14, 8, 14, 8)
+        row.setSpacing(10)
+        title = QLabel(tr("Srovnávat s normou"))
+        title.setStyleSheet("font-weight: 600;")
+        row.addWidget(title)
+        self.norm_combo = QComboBox()
+        self.norm_combo.setMinimumWidth(240)
+        self.norm_combo.currentIndexChanged.connect(lambda _i: self._norm_chosen())
+        row.addWidget(self.norm_combo)
+        self.norm_info = QLabel("")
+        self.norm_info.setObjectName("muted")
+        row.addWidget(self.norm_info, 1)
+        self.norm_pill = Pill(tr("protokoly a jazyk podle normy"), "accent")
+        row.addWidget(self.norm_pill)
+        self.norm_bar = bar
+        bar.hide()
+        return bar
+
+    def _has_norms(self) -> bool:
+        return bool(self._load_norms())
+
+    def _load_norms(self) -> list[Norm]:
+        if self._norms is None:
+            try:
+                self._norms = list(self._norms_lookup())
+            except Exception:  # noqa: BLE001  normy jsou jen pomůcka k volbě protokolů
+                self._norms = []
+            self.norm_combo.blockSignals(True)
+            self.norm_combo.clear()
+            for norm in self._norms:
+                self.norm_combo.addItem(norm.info.display_name, str(norm.path))
+            self.norm_combo.addItem(tr("žádná norma (jen hodnoty)"), NO_NORM)
+            self.norm_combo.blockSignals(False)
+        return self._norms
+
+    def _norm_subject(self) -> str:
+        if self._mode == SINGLE:
+            return self.subject.text().strip()
+        if self._mode == SERIES:
+            return self.series.subject_text()
+        return ""
+
+    def _preselect_norm(self) -> None:
+        """Norma pacienta (nebo výchozí), dokud ji uživatel nezměnil sám."""
+        if not self._load_norms():
+            self._apply_norm()
+            return
+        if not self._norm_touched:
+            key = self._norm_key_for(self._norm_subject())
+            index = self.norm_combo.findData(key) if key else 0
+            self.norm_combo.blockSignals(True)
+            self.norm_combo.setCurrentIndex(max(index, 0))
+            self.norm_combo.blockSignals(False)
+        self._apply_norm()
+
+    def _norm_chosen(self) -> None:
+        self._norm_touched = True
+        self._apply_norm()
+
+    def select_norm(self, key: str) -> bool:
+        """Norma podle cesty (nebo NO_NORM); pro testy a předvolbu."""
+        self._load_norms()
+        index = self.norm_combo.findData(key)
+        if index < 0:
+            return False
+        self.norm_combo.setCurrentIndex(index)
+        self._norm_touched = True
+        self._apply_norm()
+        return True
+
+    def norm_key(self) -> str:
+        """Vybraná norma jako klíč (cesta nebo NO_NORM); bez norem prázdné."""
+        if not self._load_norms():
+            return ""
+        return str(self.norm_combo.currentData() or "")
+
+    def selected_norm(self) -> Norm | None:
+        key = self.norm_key()
+        return next((n for n in self._norms or [] if str(n.path) == key), None)
+
+    def _apply_norm(self) -> None:
+        """Protokoly řádků a jazyk podle vybrané normy; bez normy výchozí jako dřív."""
+        norm = self.selected_norm()
+        if norm is None:
+            found, missing = {}, {}
+        else:
+            key = str(norm.path)
+            if key not in self._norm_cache:
+                self._norm_cache[key] = norm_protocols(norm, self._protocols)
+            found, missing = self._norm_cache[key]
+        self._norm_found, self._norm_missing = found, missing
+        for task, row in self.rows.items():
+            choices, default = self._row_defaults.get(task, ([], ""))
+            subs = {c.name: tr("přibalený") if c.builtin else tr("vlastní") for c in choices}
+            if task in found:
+                proto = found[task]
+                options = list(choices)
+                if all(c.name != proto.name for c in options):
+                    options.append(proto)
+                subs[proto.name] = tr("podle normy")
+                row.protocol.set_protocols(options, current=proto.name, subs=subs)
+                row.protocol.setEnabled(self._advanced and len(options) > 1)
+            else:
+                if task in missing:
+                    subs[default] = tr("protokol normy „{name}“ tu není").format(name=missing[task])
+                elif norm is not None:
+                    subs[default] = tr("výchozí · norma tuto úlohu nemá")
+                row.protocol.set_protocols(choices, current=default, subs=subs)
+                row.protocol.setEnabled(self._advanced and len(choices) > 1)
+        language = norm.info.language if norm is not None else ""
+        index = self.language.findData(language) if language else -1
+        if index >= 0:
+            self.language.setCurrentIndex(index)
+        self.language.setEnabled(index < 0)
+        self.language.setToolTip(tr("Jazyk nahrávek kontrol normy.") if index >= 0 else "")
+        if norm is not None:
+            parts = [tr("{n} osob").format(n=norm.subjects)] if norm.subjects else []
+            if norm.info.language:
+                parts.append(contract.language_label(norm.info.language))
+            names = [tasks.label(t) for t in sorted(found, key=tasks.task_order)]
+            if names:
+                parts.append(tr("úlohy {tasks}").format(tasks=", ".join(names)))
+            self.norm_info.setText(" · ".join(parts))
+        else:
+            self.norm_info.setText(
+                tr("výsledky v jednotkách feature, pavouk a z-skóre až s normou")
+                if self._norms
+                else ""
+            )
+        self.norm_pill.setVisible(norm is not None)
+        self.norm_bar.setStyleSheet(
+            self.norm_bar.styleSheet().replace(
+                theme.ACCENT if norm is None else "#9ca3af",
+                "#9ca3af" if norm is None else theme.ACCENT,
+            )
+        )
+        self.series.set_norm(found, norm.info.display_name if norm is not None else "")
+        self._update_norm_warning()
+        self._update_buttons()
+
+    def norm_changed_tasks(self) -> list[str]:
+        """Úlohy s nahrávkami, kde je (v rozšířeném režimu) jiný protokol než norma."""
+        out = []
+        for task, row in self.rows.items():
+            proto = row.current_protocol()
+            if task in self._norm_found and row.scan.recordings and proto is not None:
+                if proto.name != self._norm_found[task].name:
+                    out.append(task)
+        return out
+
+    def _norm_changed_text(self) -> str:
+        return tr("{tasks}: jiný protokol než norma, srovnání s kontrolami nebude přesné.").format(
+            tasks=", ".join(tasks.label(t) for t in self.norm_changed_tasks())
+        )
+
+    def _update_norm_warning(self) -> None:
+        """Pod úlohami: jiný protokol než norma, chybějící protokol normy, úloha mimo normu."""
+        if not hasattr(self, "norm_warning"):
+            return
+        norm = self.selected_norm()
+        parts: list[str] = []
+        if norm is not None and self._mode in (SINGLE, MULTI):
+            changed = self.norm_changed_tasks()
+            if changed:
+                parts.append(
+                    self._norm_changed_text()
+                    + f" <a href='norm' style='color:#c2410c'>{tr('vrátit podle normy')}</a>"
+                )
+            used = [t for t, r in self.rows.items() if r.scan.recordings]
+            missing = [t for t in used if t in self._norm_missing]
+            if missing:
+                parts.append(
+                    tr(
+                        "Protokol kontrol pro {tasks} tu není nainstalovaný, počítá se výchozím "
+                        "(srovnání nebude přesné); importovat jde na stránce Protokoly."
+                    ).format(tasks=", ".join(tasks.label(t) for t in missing))
+                )
+            outside = [t for t in used if t not in self._norm_found and t not in missing]
+            if outside:
+                parts.append(
+                    tr(
+                        "{tasks}: norma tuto úlohu nemá, spočítá se, ale s normou se nesrovná."
+                    ).format(tasks=", ".join(tasks.label(t) for t in outside))
+                )
+        self.norm_warning.setText("<br>".join(parts))
+        self.norm_warning.setVisible(bool(parts))
 
 
 class AssessmentFromRecordingsDialog(QDialog):
@@ -1482,6 +1733,8 @@ class AssessmentFromRecordingsDialog(QDialog):
         rate_lookup: Callable[[str], float | None] = lambda _slug: None,
         patients_lookup: Callable[[], list[SeriesPatient]] = list,
         run_protocol: Callable[[str], Protocol | None] = lambda _key: None,
+        norms_lookup: Callable[[], list[Norm]] = list,
+        norm_key_for: Callable[[str], str] = lambda _subject: "",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -1496,6 +1749,8 @@ class AssessmentFromRecordingsDialog(QDialog):
             rate_lookup=rate_lookup,
             patients_lookup=patients_lookup,
             run_protocol=run_protocol,
+            norms_lookup=norms_lookup,
+            norm_key_for=norm_key_for,
             parent=self,
         )
         layout = QVBoxLayout(self)

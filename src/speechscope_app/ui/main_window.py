@@ -67,6 +67,7 @@ from ..backend.norm_build import (
     extend_plan,
     finish_plan,
     load_plan,
+    norm_protocols,
     task_of_key,
 )
 from ..backend.norms import all_norms, outdated_features, register_custom_tasks
@@ -313,6 +314,9 @@ class MainWindow(QMainWindow):
         )
         self.assessment_page.discard_requested.connect(self.discard_assessment_plan)
         self.assessment_page.recompute_requested.connect(self.recompute_assessment)
+        self.assessment_page.recompute_norm_requested.connect(
+            lambda ids, key: self.recompute_by_norm(list(ids), key)
+        )
         self.run_page.progress_changed.connect(self._show_progress)
         self.run_page.file_done.connect(self._file_done)
         self.run_page.queue_remove.connect(self.remove_queued)
@@ -1165,6 +1169,8 @@ class MainWindow(QMainWindow):
             "rate_lookup": self.settings.seconds_per_audio_minute,
             "patients_lookup": self._series_patients,
             "run_protocol": self._run_protocol,
+            "norms_lookup": self.assessment_page.norms,
+            "norm_key_for": self.assessment_page.norm_key_for,
         }
 
     def _run_protocol(self, key: str) -> Protocol | None:
@@ -1186,7 +1192,18 @@ class MainWindow(QMainWindow):
         ]
 
     def _remember_birth_year(self, builder: AssessmentBuildWidget) -> None:
-        """Rok narození z Vývoje v čase k pacientovi do katalogu (příště se doplní sám)."""
+        """Rok narození z Vývoje v čase k pacientovi do katalogu (příště se doplní sám)
+        a norma z průvodce jako norma pacienta (hodnocení podle normy, 1. 11. 2026)."""
+        key = builder.norm_key()
+        if key:
+            if builder.mode() == "multi":
+                subjects = sorted({p.subject for p in builder.people().values() if p.subject})
+            elif builder.mode() == "series":
+                subjects = [builder.series.subject_text()]
+            else:
+                subjects = [builder.subject.text().strip()]
+            for subject in subjects:
+                self.assessment_page.set_patient_norm(subject, key)
         year = builder.birth_year()
         catalog = getattr(self, "catalog", None)
         if year is not None and catalog is not None:
@@ -1217,7 +1234,52 @@ class MainWindow(QMainWindow):
             self._remember_birth_year(dialog.widget)
             self.start_plan("assessment", dialog.plan())
 
-    def recompute_assessment(self, assessment_id: str, *, confirm: bool = True) -> int:
+    def recompute_by_norm(self, ids: list[str], norm_key: str, *, confirm: bool = True) -> int:
+        """Přepočet hodnocení s protokoly normy (Přepočítat podle této normy…, 1. 11. 2026);
+        vrátí počet zařazených dávek."""
+        norm = next((n for n in self.assessment_page.norms() if str(n.path) == norm_key), None)
+        if norm is None or not ids:
+            return 0
+        found, missing = norm_protocols(norm, all_protocols(self.settings.protocols_dir()))
+        if confirm:
+            text = tr(
+                "Úlohy, které se počítaly jiným protokolem než kontroly normy {norm}, se "
+                "spočítají znovu protokolem normy ({n} vyšetření). Hodnocení se po skončení "
+                "přepíší, dosavadní běhy zůstanou ve Výsledcích mezi analýzami."
+            ).format(norm=norm.info.display_name, n=len(ids))
+            if missing:
+                text += "\n\n" + tr("Protokol normy tu chybí pro: {tasks}.").format(
+                    tasks=", ".join(tasks.label(t) for t in missing)
+                )
+            answer = QMessageBox.question(
+                self,
+                tr("Přepočítat podle normy"),
+                text,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return 0
+        total = 0
+        for assessment_id in ids:
+            total += self.recompute_assessment(
+                assessment_id,
+                confirm=False,
+                protocols=found,
+                norm_language=norm.info.language or None,
+                norm=norm.info.name,
+            )
+        return total
+
+    def recompute_assessment(
+        self,
+        assessment_id: str,
+        *,
+        confirm: bool = True,
+        protocols: dict | None = None,
+        norm_language: str | None = None,
+        norm: str | None = None,
+    ) -> int:
         """Hotové hodnocení spočítat znovu současnou knihovnou; vrátí počet dávek.
 
         Plán má id hodnocení, po poslední dávce `finish_plan` hodnocení přepíše
@@ -1227,7 +1289,9 @@ class MainWindow(QMainWindow):
         if plan_path.exists() or self._plan_busy("assessment", plan_path):
             self.statusBar().showMessage(tr("Hodnocení se už počítá."), 6000)
             return 0
-        plan, problems = self.assessment_page.recompute_plan(assessment_id)
+        plan, problems = self.assessment_page.recompute_plan(
+            assessment_id, protocols=protocols, norm_language=norm_language, norm=norm
+        )
         if plan is None:
             self.statusBar().showMessage(
                 tr("Hodnocení nejde přepočítat: {why}").format(why="; ".join(problems)), 10000
