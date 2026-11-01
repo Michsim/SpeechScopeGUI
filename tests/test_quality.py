@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from speechscope_app.backend import quality
-from speechscope_app.backend.protocol import Protocol
+from speechscope_app.backend.protocol import Protocol, builtin_protocols
 from speechscope_app.backend.tasks import CustomTask, registry
 
 
@@ -131,6 +131,29 @@ def test_protokol_s_domenou_prida_feature_kvality_pres_vzor(tmp_path: Path) -> N
         [tmp_path / "a.wav"], out=tmp_path / "f.csv", work_dir=tmp_path, config_path=None
     )
     assert plain.features == ["acoustic.pitch.f0"]
+
+
+def test_protokol_vse_bez_vyberu_zustane_vse(tmp_path: Path) -> None:
+    """Bez výběru i domény = všechno pro úlohu; kvalita se nepřidá, jinak by z „všeho“
+    byla jen kvalita (chyba 31. 10. 2026: Spontánní řeč, akustika i lingvistika)."""
+    proto = Protocol(name="vše", task="spontaneous")
+    req = proto.to_request(
+        [tmp_path / "a.wav"],
+        out=tmp_path / "f.csv",
+        work_dir=tmp_path,
+        config_path=None,
+        extra_features=["acoustic.recording.snr", "acoustic.recording.duration"],
+    )
+    assert req.features == [] and req.domain is None
+    bundled = next(p for p in builtin_protocols() if not p.features and not p.domain)
+    req = bundled.to_request(
+        [tmp_path / "a.wav"],
+        out=tmp_path / "f.csv",
+        work_dir=tmp_path,
+        config_path=None,
+        extra_features=["acoustic.recording.snr"],
+    )
+    assert req.features == []
 
 
 def test_upravy_prahu_se_ukladaji_jako_odchylky(tmp_path: Path) -> None:

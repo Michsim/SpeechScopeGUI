@@ -157,6 +157,11 @@ class Protocol:
         features = list(self.features)
         domain = self.domain
         extra = [f for f in extra_features if f not in features]
+        if not features and not domain:
+            # bez výběru i bez domény = všechno pro úlohu, kvalita v tom je; doplnit ji do
+            # prázdného seznamu by z „všeho“ udělalo jen kvalitu (chyba 31. 10. – 1. 11. 2026,
+            # „Spontánní řeč, akustika i lingvistika“ počítala jen acoustic.recording.*)
+            extra = []
         if extra:
             if domain and not features:
                 features = [f"{domain}.*"]
