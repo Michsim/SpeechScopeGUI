@@ -45,6 +45,17 @@ QMainWindow, QDialog, QStackedWidget > QWidget, QScrollArea, QScrollArea > QWidg
 QMenuBar {{ background: {BG}; border-bottom: 1px solid {BORDER}; }}
 QMenuBar::item:selected {{ background: {ACCENT_SOFT}; border-radius: 4px; }}
 
+/* nabídky (2. 11. 2026): bílá karta, řádky ~32 px; widgets/menu.py `Menu` kreslí sám
+   (ikony, stín, nebezpečné a nedostupné položky), tady jen rozměry řádků */
+QMenu {{ background: {CARD}; border: 1px solid {BORDER}; padding: 6px; }}
+QMenu::item {{ padding: 7px 28px 7px 12px; border-radius: 6px; color: {TEXT}; }}
+QMenu::item:selected {{ background: #eff5ff; color: {ACCENT}; }}
+QMenu::item:disabled {{ color: #9ca3af; background: transparent; }}
+QMenu::separator {{ height: 1px; background: {BORDER}; margin: 5px 6px; }}
+QMenu#ssMenu {{ background: transparent; border: none; padding: 0px; }}
+QMenu#ssMenu::item {{ padding: 7px 28px 7px 38px; }}
+QMenu#ssMenu::separator {{ height: 11px; background: transparent; margin: 0px; }}
+
 /* boční lišta (widgets/sidebar_nav.py kreslí položky sama) */
 QWidget#sidebar {{ background: {SIDEBAR}; border-right: 1px solid {SIDEBAR_EDGE}; }}
 QLabel#brand {{

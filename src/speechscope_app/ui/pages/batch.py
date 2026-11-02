@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
-    QMenu,
     QMessageBox,
     QProgressDialog,
     QPushButton,
@@ -49,7 +48,8 @@ from ..file_actions import file_menu, open_file
 from ..pages.run import format_seconds
 from ..protocol_detail import ProtocolDetailDialog
 from ..widgets.elided_label import ElidedLabel
-from ..widgets.meta_table import GROUP_FOLDER, MetaRow, MetaTable
+from ..widgets.menu import Menu
+from ..widgets.meta_table import COLUMN_PROP, GROUP_FOLDER, MetaRow, MetaTable
 from ..widgets.task_rows import SHARE_COLORS, SummaryBar, TaskRowWidget
 
 TASK = "task"  # sloupec úlohy v tabulce nahrávek (z manifestu nebo doplněný)
@@ -259,18 +259,20 @@ class BatchPage(QWidget):
                 "manifest.csv ve složce se načte sám) a úpravy v tabulce."
             )
         )
-        self.meta_menu = QMenu(self.meta_btn)
-        self.column_menu = self.meta_menu.addMenu(tr("+ Sloupec"))
+        self.meta_menu = Menu(self.meta_btn)
+        self.column_menu = self.meta_menu.add_menu(tr("Přidat sloupec"), icon="add")
         task_action = self.column_menu.addAction(tr("úloha (task)"))
         task_action.setToolTip(tr("Úloha každé nahrávky; víc úloh = víc samostatných běhů."))
         task_action.triggered.connect(lambda: self.add_meta_column(TASK))
+        task_action.setProperty(COLUMN_PROP, TASK)
         for column in meta.META_COLUMNS:
             action = self.column_menu.addAction(f"{meta.label(column)} ({column})")
             action.triggered.connect(lambda _c=False, col=column: self.add_meta_column(col))
+            action.setProperty(COLUMN_PROP, column)
         self.column_menu.addSeparator()
         custom = self.column_menu.addAction(tr("Vlastní název…"))
         custom.triggered.connect(lambda: self._ask_meta_column())
-        self.save_action = self.meta_menu.addAction(tr("Uložit manifest…"))
+        self.save_action = self.meta_menu.add(tr("Uložit manifest…"), icon="save")
         self.save_action.setToolTip(
             tr(
                 "Zapíše metadata z tabulky (soubor i úpravy) jako CSV, kam ukážete; "
@@ -279,19 +281,19 @@ class BatchPage(QWidget):
         )
         self.save_action.setEnabled(False)
         self.save_action.triggered.connect(lambda: self.save_manifest())
-        self.manifest_action = self.meta_menu.addAction(tr("Načíst jiný manifest…"))
+        self.manifest_action = self.meta_menu.add(tr("Načíst jiný manifest…"), icon="folder")
         self.manifest_action.triggered.connect(lambda: self._browse_manifest())
-        self.manifest_clear_action = self.meta_menu.addAction(tr("Nepoužít manifest"))
+        self.manifest_clear_action = self.meta_menu.add(tr("Nepoužít manifest"), icon="close")
         self.manifest_clear_action.triggered.connect(lambda: self.clear_manifest())
         self.manifest_clear_action.setVisible(False)
         self.meta_menu.addSeparator()
         # odebrat jeden sloupec (i pravým tlačítkem na záhlaví), 1. 11. 2026
-        self.remove_menu = self.meta_menu.addMenu(tr("Odebrat sloupec"))
+        self.remove_menu = self.meta_menu.add_menu(tr("Odebrat sloupec"), icon="remove")
         self.remove_menu.aboutToShow.connect(self._fill_remove_menu)
-        self.restore_columns_action = self.meta_menu.addAction("")
+        self.restore_columns_action = self.meta_menu.add("", icon="undo")
         self.restore_columns_action.triggered.connect(lambda: self.files.restore_columns())
         self.restore_columns_action.setVisible(False)
-        self.edits_action = self.meta_menu.addAction("")
+        self.edits_action = self.meta_menu.add("", icon="undo", danger=True)
         self.edits_action.setToolTip(
             tr("Zahodí úpravy metadat i přidané sloupce; manifest zůstane.")
         )
@@ -343,6 +345,9 @@ class BatchPage(QWidget):
         self.files = MetaTable([tr("nahrávka"), tr("délka")], labels=True, right_columns=(1,))
         self.files.set_required({meta.SUBJECT, meta.AGE, meta.SEX})
         self.files.confirm_remove = self._confirm_remove_column
+        # „+“ v záhlaví a Seskupit z nabídky sloupce (2. 11. 2026)
+        self.files.set_add_menu(self.column_menu)
+        self.files.group_column = self.set_group_by
         # Úloha je sloupec s nabídkou (31. 10. 2026): dvojklik = rozbalovací seznam úloh,
         # prázdná buňka šedě „jako …“ podle „počítat jako“ z kroku 2; nic neblokuje.
         self.files.set_choices(
@@ -798,13 +803,16 @@ class BatchPage(QWidget):
         path = self.file_for_cell(index, item.column()) if index is not None else None
         if path is None:
             return
-        menu = file_menu(self, path, self.notice.emit)
-        menu.addSeparator()
         n = len(self.selected_rows()) or 1
-        fill = menu.addAction(tr("Vyplnit… ({n})").format(n=n))
-        fill.triggered.connect(lambda: self._ask_fill())
-        remove = menu.addAction(tr("Odebrat ze seznamu ({n})").format(n=n))
-        remove.triggered.connect(self.remove_selected)
+        menu = file_menu(self, path, self.notice.emit, single=n == 1)
+        menu.addSeparator()
+        menu.add(tr("Vyplnit… ({n})").format(n=n), lambda: self._ask_fill(), icon="fill")
+        menu.add(
+            tr("Odebrat ze seznamu ({n})").format(n=n),
+            lambda: self.remove_selected(),
+            icon="remove",
+            key="Delete",
+        )
         menu.exec(self.files.viewport().mapToGlobal(pos))
 
     def _update_step1_hint(self) -> None:

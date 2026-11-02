@@ -28,24 +28,35 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QCursor,
+    QFont,
+    QFontMetrics,
+    QPainter,
+    QPainterPath,
+    QPen,
+)
 from PySide6.QtWidgets import (
     QAbstractItemDelegate,
     QComboBox,
     QFrame,
     QHeaderView,
-    QMenu,
+    QInputDialog,
     QStyle,
     QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
 )
 
 from ...backend import meta
 from ...backend.audio import format_duration
 from ...i18n import tr
 from .. import theme
+from .menu import ICON_PROP, Menu
 
 
 @dataclass(slots=True)
@@ -71,6 +82,19 @@ DONE_ROLE = Qt.ItemDataRole.UserRole + 14  # zelená fajfka: řádek seznamu k d
 WARN_TEXT = "#92400e"  # tmavě oranžový text na žlutém podkladu (kontrast nad 4.5:1)
 PAD = 10  # odsazení textu v buňce (padding-left ze stylu + okraj)
 SELECTED_BG = "#eff6ff"  # výběr světlejší než upravená buňka (ACCENT_SOFT)
+COLUMN_PROP = "meta_column"  # klíč sloupce u položky seznamu Přidat sloupec
+HEADER_BUTTON = 22  # „+“ a ▾ v záhlaví
+ADD_STYLE = (
+    "QToolButton { color: #9ca3af; background: transparent; border: 1px dashed #d1d5db;"
+    " border-radius: 6px; font-size: 13pt; padding: 0px; }"
+    f"QToolButton:hover {{ color: {theme.ACCENT}; border: 1px solid {theme.ACCENT};"
+    " background: #eff5ff; }"
+)
+CARET_STYLE = (
+    f"QToolButton {{ color: {theme.ACCENT}; background: {theme.CARD};"
+    f" border: 1px solid {theme.ACCENT_SOFT}; border-radius: 5px; padding: 0px; }}"
+    f"QToolButton:hover {{ border: 1px solid {theme.ACCENT}; background: #eff5ff; }}"
+)
 
 
 class _CellDelegate(QStyledItemDelegate):
@@ -287,6 +311,32 @@ class MetaTable(QTableWidget):
         header = self.horizontalHeader()
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self._header_menu)
+        # „+“ za posledním sloupcem a ▾ při najetí na záhlaví (2. 11. 2026)
+        self.add_menu: Menu | None = None
+        self.group_column: Callable[[str], object] | None = None  # Seskupit podle sloupce
+        self._last_natural = 0  # šířka posledního sloupce podle obsahu (před roztažením)
+        self._caret_column = -1
+        self.add_btn = QToolButton(header)
+        self.add_btn.setText("+")
+        self.add_btn.setToolTip(tr("Přidat sloupec"))
+        self.add_btn.setFixedSize(HEADER_BUTTON, HEADER_BUTTON)
+        self.add_btn.setStyleSheet(ADD_STYLE)
+        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_btn.clicked.connect(lambda: self._add_clicked())
+        self.add_btn.hide()
+        self.caret_btn = QToolButton(header)
+        self.caret_btn.setText("▾")
+        self.caret_btn.setToolTip(tr("Nabídka sloupce"))
+        self.caret_btn.setFixedSize(HEADER_BUTTON, HEADER_BUTTON)
+        self.caret_btn.setStyleSheet(CARET_STYLE)
+        self.caret_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.caret_btn.clicked.connect(lambda: self._caret_clicked())
+        self.caret_btn.hide()
+        self.caret_btn.installEventFilter(self)
+        header.setMouseTracking(True)
+        header.installEventFilter(self)
+        header.sectionResized.connect(lambda *_a: self._place_header_buttons())
+        self.horizontalScrollBar().valueChanged.connect(lambda _v: self._place_header_buttons())
 
     # --- stav -----------------------------------------------------------------------------
 
@@ -568,19 +618,192 @@ class MetaTable(QTableWidget):
             return False
         return self.remove_column(column)
 
-    def _header_menu(self, pos) -> None:  # noqa: ANN001
-        logical = self.horizontalHeader().logicalIndexAt(pos)
-        columns = self.columns
-        index = logical - self.meta_from
-        if not 0 <= index < len(columns):
-            return
-        column = columns[index]
-        menu = QMenu(self)
-        action = menu.addAction(
-            tr("Odebrat sloupec „{name}“").format(name=self._header_text(column).lower())
+    # --- sloupce přímo v záhlaví (2. 11. 2026) ----------------------------------------------
+    # Mockup https://claude.ai/artifact/3CyBAsnqad5YxoysRdG95K (`docs/mockups/sloupce-v-tabulce/`
+    # mimo git): „+“ za posledním sloupcem otevře `add_menu` (seznam přidání sloupce, který
+    # skládá stránka), pravé tlačítko nebo ▾ při najetí na záhlaví otevře `header_menu`:
+    # u metadat Vyplnit, Seskupit (jen když stránka dá `group_column`) a Odebrat, u pevných
+    # sloupců Přidat sloupec › a Odebrat šedě s důvodem.
+
+    def set_add_menu(self, menu: Menu | None) -> None:
+        """Seznam pro přidání sloupce (položky s `COLUMN_PROP` = klíč sloupce zešednou,
+        když sloupec v tabulce už je); bez něj není „+“ ani Přidat sloupec ›."""
+        self.add_menu = menu
+        if menu is not None:
+            menu.aboutToShow.connect(lambda: self._mark_used(menu))
+        self._place_header_buttons()
+
+    def _mark_used(self, menu: Menu) -> None:
+        present = set(self.columns)
+        for action in menu.actions():
+            column = action.property(COLUMN_PROP)
+            if column:
+                used = column in present
+                action.setEnabled(not used)
+                action.setToolTip(tr("Sloupec už v tabulce je.") if used else "")
+
+    def fill_targets(self, column: str) -> tuple[list[int], bool]:
+        """Komu Vyplnit sloupec: vybraným řádkům (aspoň dvěma), jinak viditelným prázdným;
+        vrátí (indexy řádků dat, podle výběru)."""
+        selected = self.selected_indices()
+        if len(selected) >= 2:
+            return selected, True
+        empty = [
+            i
+            for i in self.visible_indices()
+            if not self._row_merged(self._rows[i], [column]).get(column, "")
+        ]
+        return empty, False
+
+    def fill_column(self, column: str, value: str) -> int:
+        """Vyplní sloupec podle `fill_targets`; vrátí počet řádků."""
+        indices, selected = self.fill_targets(column)
+        if not indices:
+            return 0
+        for i in indices:
+            self._store(self._rows[i].key, column, value)
+        keys = [self._rows[i].key for i in indices]
+        self.refill()
+        if selected:
+            self._reselect(keys)
+        self.edited.emit()
+        return len(indices)
+
+    def ask_fill_column(self, column: str) -> int:
+        """Vyplnit sloupec…: hodnota z nabídky (úloha) nebo napsaná."""
+        indices, selected = self.fill_targets(column)
+        if not indices:
+            return 0
+        name = self._header_text(column)
+        prompt = (
+            tr("Hodnota pro {n} vybraných řádků, sloupec {column}:")
+            if selected
+            else tr("Hodnota pro {n} prázdných buněk, sloupec {column}:")
+        ).format(n=len(indices), column=name)
+        choices = self._choices.get(column)
+        if choices:
+            labels = [label for _value, label in choices]
+            label, ok = QInputDialog.getItem(self, tr("Vyplnit sloupec"), prompt, labels, 0, False)
+            value = choices[labels.index(label)][0] if ok else ""
+        else:
+            value, ok = QInputDialog.getText(self, tr("Vyplnit sloupec"), prompt)
+        return self.fill_column(column, value) if ok else 0
+
+    def header_menu(self, logical: int) -> Menu | None:
+        """Nabídka sloupce záhlaví `logical` (pravé tlačítko, ▾)."""
+        if not 0 <= logical < self.columnCount():
+            return None
+        menu = Menu(self)
+        if logical < self.meta_from:
+            name = self._leading[logical] if logical < len(self._leading) else ""
+            menu.section(tr("sloupec {name}").format(name=name))
+            if self.add_menu is not None:
+                self.add_menu.menuAction().setProperty(ICON_PROP, "add")
+                menu.addMenu(self.add_menu)
+                menu.addSeparator()
+            menu.add(
+                tr("Odebrat sloupec…"),
+                icon="remove",
+                danger=True,
+                reason=tr("pevné sloupce nahrávky nejdou odebrat"),
+            )
+            return menu
+        column = self.columns[logical - self.meta_from]
+        menu.section(tr("sloupec {name}").format(name=self._header_text(column).lower()))
+        indices, selected = self.fill_targets(column)
+        menu.add(
+            (
+                tr("Vyplnit vybrané řádky ({n})…")
+                if selected
+                else tr("Vyplnit prázdné buňky ({n})…")
+            ).format(n=len(indices)),
+            lambda: self.ask_fill_column(column),
+            icon="fill",
+            reason="" if indices else tr("sloupec nemá prázdnou buňku, pro přepsání vyberte řádky"),
         )
-        action.triggered.connect(lambda: self.request_remove(column))
-        menu.exec(self.horizontalHeader().mapToGlobal(pos))
+        if self.group_column is not None:
+            grouped = self._group_by == column
+            group = self.group_column
+            menu.add(
+                tr("Zrušit seskupení") if grouped else tr("Seskupit podle sloupce"),
+                lambda: group("" if grouped else column),
+                icon="group",
+            )
+        menu.addSeparator()
+        menu.add(
+            tr("Odebrat sloupec…"),
+            lambda: self.request_remove(column),
+            icon="remove",
+            danger=True,
+        )
+        return menu
+
+    def _header_menu(self, pos) -> None:  # noqa: ANN001
+        menu = self.header_menu(self.horizontalHeader().logicalIndexAt(pos))
+        if menu is not None:
+            menu.exec(self.horizontalHeader().mapToGlobal(pos))
+
+    def _column_end(self, logical: int) -> int:
+        """Pravý okraj sloupce v záhlaví; poslední (roztažený) podle obsahu."""
+        header = self.horizontalHeader()
+        width = header.sectionSize(logical)
+        if logical == self.columnCount() - 1 and self._last_natural:
+            width = min(width, self._last_natural)
+        return header.sectionViewportPosition(logical) + width
+
+    def _place_header_buttons(self) -> None:
+        header = self.horizontalHeader()
+        n = self.columnCount()
+        top = max(0, (header.height() - HEADER_BUTTON) // 2)
+        if self.add_menu is not None and n:
+            self.add_btn.move(self._column_end(n - 1) + 4, top)
+            self.add_btn.show()
+            self.add_btn.raise_()
+        else:
+            self.add_btn.hide()
+        if self._caret_column >= 0 and self._caret_column < n:
+            self.caret_btn.move(self._column_end(self._caret_column) - HEADER_BUTTON - 6, top)
+
+    def _show_caret(self, logical: int) -> None:
+        if logical < 0 or logical >= self.columnCount():
+            self._hide_caret()
+            return
+        self._caret_column = logical
+        self._place_header_buttons()
+        self.caret_btn.show()
+        self.caret_btn.raise_()
+
+    def _hide_caret(self) -> None:
+        self._caret_column = -1
+        self.caret_btn.hide()
+
+    def _caret_clicked(self) -> None:
+        menu = self.header_menu(self._caret_column)
+        if menu is not None:
+            menu.exec(self.caret_btn.mapToGlobal(QPoint(0, self.caret_btn.height() + 4)))
+
+    def _add_clicked(self) -> None:
+        if self.add_menu is not None:
+            self.add_menu.exec(self.add_btn.mapToGlobal(QPoint(0, self.add_btn.height() + 4)))
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: ANN001, N802
+        if not hasattr(self, "caret_btn"):  # filtr tabulky běží už během konstruktoru
+            return super().eventFilter(obj, event)
+        header = self.horizontalHeader()
+        kind = event.type()
+        if obj is header:
+            if kind == QEvent.Type.MouseMove:
+                self._show_caret(header.logicalIndexAt(event.position().toPoint().x()))
+            elif kind == QEvent.Type.Leave:
+                inside = self.caret_btn.geometry().contains(header.mapFromGlobal(QCursor.pos()))
+                if not inside:
+                    self._hide_caret()
+            elif kind == QEvent.Type.Resize:
+                self._place_header_buttons()
+        elif obj is self.caret_btn and kind == QEvent.Type.Leave:
+            if not header.rect().contains(header.mapFromGlobal(QCursor.pos())):
+                self._hide_caret()
+        return super().eventFilter(obj, event)
 
     def set_value(self, key: Path, column: str, value: str) -> str:
         """Hodnota jednoho řádku (jako dvojklik); vrátí normalizovanou podobu."""
@@ -857,12 +1080,19 @@ class MetaTable(QTableWidget):
         # odsouval délku a metadata daleko doprava; dlouhý název se zkrátí výpustkou.
         # Šířku názvu měří tučné písmo, nadpisy skupin (přes celou šířku) se nepočítají.
         header = self.horizontalHeader()
+        # vedle textu záhlaví místo pro ▾ (při najetí), aby šipka text nepřekryla
+        room = HEADER_BUTTON + 10
         for c in range(1, len(headers)):
             self.resizeColumnToContents(c)  # jedno měření sloupce (hlavička i buňky)
+            needed = bold_metrics.horizontalAdvance(headers[c]) + 18 + room
+            if self.columnWidth(c) < needed:
+                self.setColumnWidth(c, needed)
         if headers:
-            head_width = bold_metrics.horizontalAdvance(headers[0]) + 24
+            head_width = bold_metrics.horizontalAdvance(headers[0]) + 24 + room
             self.setColumnWidth(0, min(NAME_MAX, max(head_width, name_width + 28)))
+            self._last_natural = self.columnWidth(len(headers) - 1)
         header.setStretchLastSection(True)
+        self._place_header_buttons()
         self.refresh_done()
         self._apply_filter()
 

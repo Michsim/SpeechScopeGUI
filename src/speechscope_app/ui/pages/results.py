@@ -899,10 +899,9 @@ class ResultsPage(QWidget):
         if path is None:
             return
         menu = file_menu(self, path, self.notice.emit)
-        detail = menu.addAction(tr("Detail nahrávky…"))
-        detail.triggered.connect(lambda: self.show_detail(index.row()))
-        assess = menu.addAction(tr("Otevřít v Hodnocení"))
-        assess.triggered.connect(lambda: self.assess_row(index.row()))
+        menu.addSeparator()
+        menu.add(tr("Detail nahrávky…"), lambda: self.show_detail(index.row()), icon="detail")
+        menu.add(tr("Otevřít v Hodnocení"), lambda: self.assess_row(index.row()), icon="users")
         menu.exec(view.viewport().mapToGlobal(pos))
 
     def assess_row(self, row: int) -> None:

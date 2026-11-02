@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
-    QMenu,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -36,7 +35,8 @@ from ..backend.run_meta import (
 )
 from ..i18n import tr
 from . import theme
-from .widgets.meta_table import MetaRow, MetaTable
+from .widgets.menu import Menu
+from .widgets.meta_table import COLUMN_PROP, MetaRow, MetaTable
 
 CSV_FILTER = "CSV (*.csv)"
 
@@ -81,15 +81,11 @@ class RunMetaDialog(QDialog):
         self.load_btn.clicked.connect(lambda: self._load_manifest())
         bar.addWidget(self.load_btn)
         self.column_btn = QPushButton(tr("+ Sloupec"))
-        column_menu = QMenu(self.column_btn)
-        for column in meta.META_COLUMNS:
-            action = column_menu.addAction(f"{meta.label(column)} ({column})")
-            action.triggered.connect(lambda _c=False, col=column: self.add_column(col))
-        column_menu.addSeparator()
-        column_menu.addAction(tr("Vlastní název…")).triggered.connect(lambda: self._ask_column())
+        column_menu = Menu(self.column_btn)
+        self._add_column_items(column_menu)
         column_menu.addSeparator()
         # odebrat jeden sloupec (i pravým tlačítkem na záhlaví tabulky)
-        self.remove_menu = column_menu.addMenu(tr("Odebrat sloupec"))
+        self.remove_menu = column_menu.add_menu(tr("Odebrat sloupec"), icon="remove")
         self.remove_menu.aboutToShow.connect(self._fill_remove_menu)
         self.column_btn.setMenu(column_menu)
         bar.addWidget(self.column_btn)
@@ -123,6 +119,9 @@ class RunMetaDialog(QDialog):
         )
         self.meta.itemChanged.connect(lambda _i: self._update_status())
         self.meta.edited.connect(self._update_status)  # i odebrání sloupce ze záhlaví
+        add_menu = Menu(self, tr("Přidat sloupec"))  # „+“ v záhlaví tabulky (2. 11. 2026)
+        self._add_column_items(add_menu)
+        self.meta.set_add_menu(add_menu)
         layout.addWidget(self.meta, 1)
 
         foot = QHBoxLayout()
@@ -148,6 +147,14 @@ class RunMetaDialog(QDialog):
         return [self._table.column(c)[row] for c in columns]
 
     # --- úpravy ---------------------------------------------------------------------------
+
+    def _add_column_items(self, menu: Menu) -> None:
+        for column in meta.META_COLUMNS:
+            action = menu.addAction(f"{meta.label(column)} ({column})")
+            action.triggered.connect(lambda _c=False, col=column: self.add_column(col))
+            action.setProperty(COLUMN_PROP, column)
+        menu.addSeparator()
+        menu.addAction(tr("Vlastní název…")).triggered.connect(lambda: self._ask_column())
 
     def add_column(self, name: str) -> str:
         column = meta.canonical_column(name.strip())

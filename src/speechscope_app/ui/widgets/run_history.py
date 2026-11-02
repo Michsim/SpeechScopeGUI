@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QMenu,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -49,6 +48,7 @@ from ...backend.history import (
 from ...i18n import tr
 from .. import theme
 from .elided_label import ElidedLabel
+from .menu import Menu
 
 Entry = RunInfo | RunGroup
 
@@ -457,15 +457,16 @@ class RunHistory(QWidget):
         entry = self.current()
         if entry is None:
             return
-        menu = QMenu(self)
-        open_action = menu.addAction(tr("Otevřít složku"))
-        open_action.triggered.connect(self.open_current_folder)
+        menu = Menu(self)
+        menu.add(tr("Otevřít složku"), lambda: self.open_current_folder(), icon="folder")
         if self.can_rename(entry):
-            rename_action = menu.addAction(tr("Přejmenovat…"))
-            rename_action.triggered.connect(lambda: self.rename_requested.emit(entry))
-        delete_action = menu.addAction(
-            tr("Smazat vyšetření…") if isinstance(entry, RunGroup) else tr("Smazat běh…")
+            menu.add(tr("Přejmenovat…"), lambda: self.rename_requested.emit(entry), icon="rename")
+        menu.addSeparator()
+        menu.add(
+            tr("Smazat vyšetření…") if isinstance(entry, RunGroup) else tr("Smazat běh…"),
+            lambda: self.delete_requested.emit(entry),
+            icon="delete",
+            danger=True,
+            reason="" if self.can_delete(entry) else tr("běh právě běží"),
         )
-        delete_action.setEnabled(self.can_delete(entry))
-        delete_action.triggered.connect(lambda: self.delete_requested.emit(entry))
         menu.exec(self.runs.viewport().mapToGlobal(pos))

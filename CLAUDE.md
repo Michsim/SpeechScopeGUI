@@ -119,7 +119,7 @@ pro obě (`ResultsPage.task_shown` → `RunsPage._task_shown` přehraje Průběh
 výchozí běžící úloha `prefer_running`; `open_run` otevře danou úlohu). Běžící běh má Hodnoty neaktivní (features.csv se během běhu neotvírá),
 Průběh jiného běhu během výpočtu neaktivní. Spustit a pruh na Domů otevřou detail na
 Průběhu (`MainWindow.show_running`, `RunsPage.show_running`), po dávce
-`_go_after_batch` na Hodnoty (`show_values`). Popis Výpočtu a Výsledků níže platí pro
+`_go_after_batch` na Hodnoty (`show_values`). Od 2. 11. 2026 přepíná jen ruční Spustit (`_launch(show=True)`); dávka z fronty (další úloha hodnocení či normy) stránku nemění, jen kdo se dívá na Průběh, vidí novou dávku, jinak hláška „Začala další dávka“; konec přepne jen z Výsledků, Domů nebo cílové stránky, jinde nabídne vpravo dole „… je hotové · Otevřít ✕“ (`_offer_after_batch`, `done_offer`). Popis Výpočtu a Výsledků níže platí pro
 obsah záložek.
 **Domů** (`pages/home.py`, `HomePage`, po startu vždy, `show_home`): rozcestník
 podle výstupu, dvě velké karty `ActionCard` Hodnocení pacienta a Analýza nahrávek
@@ -254,7 +254,7 @@ dávky podle minut zvuku, statistika `stats/<slug>/seconds_per_audio_minute`) ·
 export, smazání) · Výpočet (tabulka nahrávek × providerů bez `ResizeToContents`, šířky přepočítá
 `_fit_columns` po naplnění a po každé nahrávce, při přehrání z historie jednou na
 konci s vypnutým překreslováním, jinak 500 nahrávek trvalo 46 s; odhad času, Zrušit
-s potvrzením, fronta dalších dávek: Spustit během běhu zařadí, po konci
+s potvrzením, fronta dalších dávek: Spustit během běhu zařadí (z Analýzy pak přejde na Domů s pruhem „právě běží“ a frontou, `home_when_queued`, 2. 11. 2026), po konci
 se pustí další, `Job` v `main_window.py`; stavová karta `widgets/status_header.py` nahoře (štítky v zalamovaném
 `widgets/flow_layout.py`, řada štítků jinak tlačila minimální šířku okna přes
 obrazovku), tabulka nahrávek v kartě (od 31. 10. 2026 uhlazená přes `clean_table.style_table`: záhlaví
@@ -867,6 +867,15 @@ providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
   Esc a klik do prázdna zruší výběr, psaní do buňky začne úpravu (AnyKeyPressed), Enter po úpravě
   posune kurzor na buňku pod ní (`_editor_closed` na signálu delegáta, slot `closeEditor` přepsaný
   v Pythonu Qt nevolá; `move_down` přeskočí nadpisy skupin a skryté řádky).
+- **Sloupce v záhlaví** (2. 11. 2026, mockup https://claude.ai/artifact/3CyBAsnqad5YxoysRdG95K,
+  `docs/mockups/sloupce-v-tabulce/` mimo git): `MetaTable.set_add_menu(menu)` = „+“ za posledním
+  sloupcem záhlaví (`add_btn`) otevře seznam Přidat sloupec (položky s `COLUMN_PROP`, sloupec už
+  v tabulce šedě `_mark_used`); pravé tlačítko nebo ▾ při najetí (`caret_btn`, místo pro ni v šířce
+  sloupce) = `header_menu`: u metadat Vyplnit prázdné buňky (n)… / vybrané řádky (od dvou,
+  `fill_targets`, `fill_column`, `ask_fill_column`), Seskupit podle sloupce (jen s `group_column`,
+  Analýza → `BatchPage.set_group_by`) a Odebrat sloupec…; u pevných sloupců Přidat sloupec › a
+  Odebrat šedě s důvodem (rozhodnutí uživatele: Přidat jen u pevných, Vyplnit u metadat ano).
+  Analýza i Údaje nahrávek; tabulka pacientů průvodce ne.
 - **Odebrat jeden sloupec** (1. 11. 2026, varianta 1 + 2): `MetaTable` má pravé tlačítko na záhlaví
   sloupce metadat (`_header_menu` → `request_remove`, dotaz `confirm_remove`) a `remove_column`:
   přidaný sloupec zmizí i s hodnotami, sloupec ze základu (manifest) jen v `_removed` (soubor se
@@ -1194,5 +1203,13 @@ uv run --with pillow python packaging\make_icon.py   # ikona a wordmark z icon\
   štítkem. Dávky rozpracované normy i hodnocení sdílejí `norms.make_plan_table` /
   `fill_plan_table`. Vlastní styl ve stejné podobě mají jen Hodnoty, `MetaTable`, strom
   dimenzí a `TrendMap`. Testy porovnávají záhlaví přes `.lower()`.
+- **Nabídky** (2. 11. 2026, mockup https://claude.ai/artifact/7i9ZQ6rtGDjTmM1QaivQpH,
+  `docs/mockups/nabidky/` mimo git): každá nabídka jde přes `widgets/menu.py` `Menu` (bílá karta se
+  stínem, průhledné okno, kreslí `paintEvent`, chování zůstává z QMenu): `add(text, slot, icon=,
+  key=, danger=, reason=)` (slot bez argumentu, `key` jen k zobrazení za `\t`, `danger` červeně,
+  `reason` = položka nedostupná a důvod oranžově pod ní, `set_reason` i později, srovná se
+  v `aboutToShow`), `add_menu`, `section` (šedý nadpis), ikony `ICONS` + ikony levé lišty.
+  Výšku řádků dává stylesheet `QMenu#ssMenu::item` v `theme.py`; ostatní QMenu (textová pole,
+  Nastavení ▾ v Porovnání) mají z něj bílou kartu bez stínu.
 - Změny GUI nejdřív navrhnout (text, mockup), pak psát; snímek před
   commitem. Návrhy jsou v `docs/navrh-gui-2.md`.

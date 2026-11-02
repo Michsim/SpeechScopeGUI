@@ -42,7 +42,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
-    QMenu,
     QProgressBar,
     QPushButton,
     QSizePolicy,
@@ -66,6 +65,7 @@ from ...backend.history import (
 from ...i18n import tr
 from .. import theme
 from ..widgets.clean_table import card, cell, pill, style_table
+from ..widgets.menu import Menu
 from ..widgets.run_history import STATUS_ROLES, Entry, _format_seconds, entry_contains
 from .compare import ComparePage
 from .results import ResultsPage
@@ -567,11 +567,15 @@ class RunsPage(QWidget):
         return self._rows[row] if 0 <= row < len(self._rows) else None
 
     def _delete_selected(self) -> None:
+        if len(self.selected_entries()) > 1:
+            return  # mazání jen po jednom běhu (jako v nabídce)
         entry = self._selected_entry()
         if entry is not None and self.history.can_delete(entry):
             self.history.delete_requested.emit(entry)
 
     def _rename_selected(self) -> None:
+        if len(self.selected_entries()) > 1:
+            return
         entry = self._selected_entry()
         if self.history.can_rename(entry):
             self.history.rename_requested.emit(entry)
@@ -589,29 +593,59 @@ class RunsPage(QWidget):
         if self._rows[row] not in selected or len(selected) < 2:
             self.table.selectRow(row)  # klik mimo víc vybraných běhů vybere jen tento
             selected = [self._rows[row]]
+        self.context_menu(row, selected).exec(self.table.viewport().mapToGlobal(pos))
+
+    def context_menu(self, row: int, selected: list[Entry]) -> Menu:
+        """Nabídka řádku přehledu; nedostupné Porovnat ukáže důvod pod sebou."""
         entry = self._rows[row]
-        menu = QMenu(self)
-        menu.addAction(tr("Otevřít")).triggered.connect(lambda: self.open_row(row))
-        problem = self.compare_problem(selected)
-        compare = menu.addAction(tr("Porovnat skupiny…") if len(selected) == 1 else tr("Porovnat…"))
-        compare.setEnabled(not problem)
-        compare.setToolTip(problem)
-        menu.setToolTipsVisible(True)
-        compare.triggered.connect(
-            lambda: self.open_compare([e for e in selected if isinstance(e, RunInfo)])
+        menu = Menu(self)
+        single = len(selected) == 1
+        tip = "" if single else tr("Jen pro jeden běh.")  # víc běhů: jen Porovnat…
+        if not single:
+            menu.section(tr("vybráno běhů: {n}").format(n=len(selected)))
+        menu.add(
+            tr("Otevřít"),
+            lambda: self.open_row(row),
+            icon="open",
+            key="Enter",
+            enabled=single,
+            tip=tip,
         )
-        folder = menu.addAction(tr("Otevřít složku"))
-        folder.triggered.connect(lambda: self._open_folder(entry))
+        menu.add(
+            tr("Porovnat skupiny…") if len(selected) == 1 else tr("Porovnat…"),
+            lambda: self.open_compare([e for e in selected if isinstance(e, RunInfo)]),
+            icon="compare",
+            reason=self.compare_problem(selected),
+        )
+        menu.addSeparator()
+        menu.add(
+            tr("Otevřít složku"),
+            lambda: self._open_folder(entry),
+            icon="folder",
+            enabled=single,
+            tip=tip,
+        )
         if self.history.can_rename(entry):
-            menu.addAction(tr("Přejmenovat…")).triggered.connect(
-                lambda: self.history.rename_requested.emit(entry)
+            menu.add(
+                tr("Přejmenovat…"),
+                lambda: self.history.rename_requested.emit(entry),
+                icon="rename",
+                key="F2",
+                enabled=single,
+                tip=tip,
             )
-        delete = menu.addAction(
-            tr("Smazat vyšetření…") if isinstance(entry, RunGroup) else tr("Smazat běh…")
+        menu.addSeparator()
+        menu.add(
+            tr("Smazat vyšetření…") if isinstance(entry, RunGroup) else tr("Smazat běh…"),
+            lambda: self.history.delete_requested.emit(entry),
+            icon="delete",
+            key="Delete",
+            danger=True,
+            enabled=single,
+            tip=tip,
+            reason="" if self.history.can_delete(entry) or not single else tr("běh právě běží"),
         )
-        delete.setEnabled(self.history.can_delete(entry))
-        delete.triggered.connect(lambda: self.history.delete_requested.emit(entry))
-        menu.exec(self.table.viewport().mapToGlobal(pos))
+        return menu
 
     @staticmethod
     def _open_folder(entry: Entry) -> None:

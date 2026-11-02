@@ -845,6 +845,7 @@ def test_runs_queue_up_and_continue(
     page.run_btn.click()  # běží jiná dávka: dotaz, odpověď Ne
     assert not window.queued_jobs() and "Fonace, základní" in asked[0]
     page.run_btn.click()  # Ano
+    assert window.nav.currentRow() == PAGE_HOME  # zařazeno: Domů s pruhem a frontou
     assert page.select_protocol("Spontánní řeč, akustika")
     page.run_btn.click()
     assert [j.proto.name for j in window.queued_jobs()] == [
@@ -1475,7 +1476,7 @@ def test_analysis_manifest_with_other_tasks(
         lambda *a, **k: QMessageBox.StandardButton.Yes,
     )
     launched: list = []
-    monkeypatch.setattr(window, "_submit_all", lambda jobs: launched.extend(jobs))
+    monkeypatch.setattr(window, "_submit_all", lambda jobs, **_k: launched.extend(jobs))
     page.run_label_edit.setText("kontrola")
     page.run_btn.click()
     assert [(j.proto.task, j.label, len(j.inputs)) for j in launched] == [
@@ -1626,3 +1627,20 @@ def test_meta_table_edit_does_not_rebuild(qtbot: QtBot) -> None:
     table.item(3, 1).setText("Čtení")
     assert not rebuilt and table.item(3, 1).text() == "Čtení"
     assert table.merged(Path("C:/d/3.wav"))["task"] == "reading"
+
+
+def test_finished_batch_does_not_pull_away(qtbot: QtBot, settings: AppSettings) -> None:
+    """Po dávce: z jiné stránky se nepřepíná, dole se nabídne Otevřít (2. 11. 2026)."""
+    from speechscope_app.ui.main_window import PAGE_PROTOCOLS
+
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.nav.setCurrentRow(PAGE_PROTOCOLS)
+    window._go_after_batch()
+    assert window.nav.currentRow() == PAGE_PROTOCOLS
+    assert not window.done_offer.isHidden() and window.done_label.text() == "Výpočet je hotový."
+    window.done_open_btn.click()
+    assert window.nav.currentRow() == PAGE_RESULTS and window.done_offer.isHidden()
+    window.nav.setCurrentRow(PAGE_HOME)  # z Domů se přejde rovnou
+    window._go_after_batch()
+    assert window.nav.currentRow() == PAGE_RESULTS

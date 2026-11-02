@@ -3064,12 +3064,14 @@ class AssessmentPage(QWidget):
         if rec is None or rec.path is None:
             return
         menu = file_menu(self, rec.path, self.notice.emit)
-        detail = menu.addAction(tr("Detail nahrávky…"))
-        detail.triggered.connect(lambda: self._open_detail(rec))
-        run_action = menu.addAction(tr("Otevřít běh ve Výsledcích"))
-        run_action.triggered.connect(lambda: self.open_run_requested.emit(rec.run.dir))
-        folder = menu.addAction(tr("Otevřít složku běhu"))
-        folder.triggered.connect(lambda: _open_folder(rec.run.dir))
+        menu.addSeparator()
+        menu.add(tr("Detail nahrávky…"), lambda: self._open_detail(rec), icon="detail")
+        menu.add(
+            tr("Otevřít běh ve Výsledcích"),
+            lambda: self.open_run_requested.emit(rec.run.dir),
+            icon="table",
+        )
+        menu.add(tr("Otevřít složku běhu"), lambda: _open_folder(rec.run.dir), icon="folder")
         menu.exec(self.recordings.viewport().mapToGlobal(pos))
 
     def _open_detail(self, rec: Recording) -> None:

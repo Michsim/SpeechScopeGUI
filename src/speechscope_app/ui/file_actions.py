@@ -15,9 +15,10 @@ from pathlib import Path
 
 from PySide6.QtCore import QPoint, QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QApplication, QMenu, QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 from ..i18n import tr
+from .widgets.menu import Menu
 
 Notify = Callable[[str], None]
 
@@ -47,16 +48,20 @@ def copy_path(path: Path) -> None:
     QApplication.clipboard().setText(str(path))
 
 
-def file_menu(parent: QWidget, path: Path, notify: Notify | None = None) -> QMenu:
-    """Nabídka pro jeden soubor: přehrát, ukázat ve složce, kopírovat cestu."""
-    menu = QMenu(parent)
-    play = menu.addAction(tr("Přehrát nahrávku"))
-    play.triggered.connect(lambda: open_file(path, notify))
-    reveal = menu.addAction(tr("Zobrazit ve složce"))
-    reveal.triggered.connect(lambda: reveal_file(path, notify))
-    menu.addSeparator()
-    copy = menu.addAction(tr("Kopírovat cestu"))
-    copy.triggered.connect(lambda: copy_path(path))
+def file_menu(
+    parent: QWidget, path: Path, notify: Notify | None = None, *, single: bool = True
+) -> Menu:
+    """Nabídka pro jeden soubor: přehrát, ukázat ve složce, kopírovat cestu.
+
+    `single=False` (vybráno víc nahrávek): položky jsou vypnuté, patří jen k jedné."""
+    menu = Menu(parent)
+    tip = "" if single else tr("Jen pro jednu nahrávku.")
+    for text, action, icon in (
+        (tr("Přehrát nahrávku"), lambda: open_file(path, notify), "play"),
+        (tr("Zobrazit ve složce"), lambda: reveal_file(path, notify), "folder"),
+        (tr("Kopírovat cestu"), lambda: copy_path(path), "copy"),
+    ):
+        menu.add(text, action, icon=icon, enabled=single, tip=tip)
     return menu
 
 

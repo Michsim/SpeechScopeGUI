@@ -16,8 +16,10 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
+    QLabel,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QStackedWidget,
     QWidget,
 )
@@ -93,9 +95,10 @@ from .pages.norms import NormsPage
 from .pages.protocols import ProtocolsPage
 from .pages.results import ResultsPage
 from .pages.run import RunPage
-from .pages.runs import RunsPage
+from .pages.runs import PROGRESS, RunsPage
 from .quality_dialog import QualityThresholdsDialog
 from .settings_dialog import SettingsDialog
+from .widgets.menu import Menu
 from .widgets.sidebar_nav import SidebarNav, parse_progress
 
 # Pořadí v nabídce: od každodenního (analýza) k jednorázovému (prostředí).
@@ -228,17 +231,29 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.pages, 1)
         self.setCentralWidget(central)
 
-        menu = self.menuBar().addMenu(tr("Aplikace"))
-        menu.addAction(tr("Nastavení…"), self._open_settings)
-        menu.addAction(tr("Stáhnout modely…"), self.download_models)
-        menu.addAction(tr("Nainstalovat modely ze souboru…"), self.install_models)
+        menu = Menu(self.menuBar(), tr("Aplikace"))
+        self.menuBar().addMenu(menu)
+        menu.add(tr("Nastavení…"), lambda: self._open_settings(), icon="settings")
+        menu.add(tr("Stáhnout modely…"), lambda: self.download_models(), icon="download")
+        menu.add(
+            tr("Nainstalovat modely ze souboru…"), lambda: self.install_models(), icon="package"
+        )
         menu.addSeparator()
-        menu.addAction(tr("Prahy kontroly kvality…"), lambda: self.edit_quality_thresholds())
+        menu.add(
+            tr("Prahy kontroly kvality…"), lambda: self.edit_quality_thresholds(), icon="quality"
+        )
         menu.addSeparator()
-        menu.addAction(tr("Smazat všechny běhy…"), self.delete_all_runs)
-        menu.addAction(tr("Smazat pacienty a hodnocení…"), lambda: self.clear_patients())
+        menu.add(
+            tr("Smazat všechny běhy…"), lambda: self.delete_all_runs(), icon="delete", danger=True
+        )
+        menu.add(
+            tr("Smazat pacienty a hodnocení…"),
+            lambda: self.clear_patients(),
+            icon="delete",
+            danger=True,
+        )
         menu.addSeparator()
-        menu.addAction(tr("Konec"), self.close)
+        menu.add(tr("Konec"), lambda: self.close(), icon="exit")
 
         self.env_page.settings_requested.connect(self._open_settings)
         self.env_page.download_requested.connect(self.download_models)
@@ -529,11 +544,54 @@ class MainWindow(QMainWindow):
         self.runs_page.show_running(live)
 
     def _go_after_batch(self) -> None:
-        """Po poslední dávce: Výsledky s detailem na Hodnotách, po hodnocení Pacienti."""
+        """Po poslední dávce: Výsledky s detailem na Hodnotách, po hodnocení Pacienti.
+
+        Jen když se uživatel dívá na Výsledky, Domů nebo cílovou stránku; jinde (třeba
+        vyplňuje metadata na Analýze) ho to nepřetáhne, dole se jen nabídne Otevřít
+        (2. 11. 2026, rozhodnutí uživatele)."""
         page = self._page_after_batch()
+        if self.nav.currentRow() in (PAGE_RESULTS, PAGE_HOME, page):
+            self._open_after_batch(page)
+        else:
+            self._offer_after_batch(page)
+
+    def _open_after_batch(self, page: int) -> None:
+        self._hide_done_offer()
         self.nav.setCurrentRow(page)
         if page == PAGE_RESULTS:
             self.runs_page.show_values()
+
+    def _offer_after_batch(self, page: int) -> None:
+        """Hláška vpravo ve stavovém řádku „… je hotové · Otevřít ✕“."""
+        if getattr(self, "done_offer", None) is None:
+            box = QWidget()
+            row = QHBoxLayout(box)
+            row.setContentsMargins(0, 0, 6, 0)
+            row.setSpacing(8)
+            self.done_label = QLabel()
+            self.done_open_btn = QPushButton(tr("Otevřít"))
+            self.done_open_btn.setProperty("role", "primary")
+            self.done_open_btn.clicked.connect(
+                lambda: self._open_after_batch(getattr(self, "_done_page", PAGE_RESULTS))
+            )
+            close = QPushButton("✕")
+            close.setFlat(True)
+            close.setToolTip(tr("Zavřít"))
+            close.clicked.connect(lambda: self._hide_done_offer())
+            row.addWidget(self.done_label)
+            row.addWidget(self.done_open_btn)
+            row.addWidget(close)
+            self.statusBar().addPermanentWidget(box)
+            self.done_offer = box
+        self._done_page = page
+        self.done_label.setText(
+            tr("Hodnocení je hotové.") if page == PAGE_ASSESSMENT else tr("Výpočet je hotový.")
+        )
+        self.done_offer.show()
+
+    def _hide_done_offer(self) -> None:
+        if getattr(self, "done_offer", None) is not None:
+            self.done_offer.hide()
 
     def start_page(self) -> int:
         """Kam uvítání doporučí: Analýza; bez knihovny nebo bez modelů Prostředí."""
@@ -852,7 +910,8 @@ class MainWindow(QMainWindow):
                 language=self.batch_page.language_code(),
                 durations=self.batch_page.durations_for(list(inputs)),
                 label=self.batch_page.run_label(),
-            )
+            ),
+            home_when_queued=True,
         )
 
     def _start_prepare(self, kind: str, proto: Protocol, inputs: list[Path], options: dict) -> None:
@@ -869,7 +928,8 @@ class MainWindow(QMainWindow):
                 options=dict(options),
                 language=self.batch_page.language_code(),
                 label=self.batch_page.run_label(),
-            )
+            ),
+            home_when_queued=True,
         )
 
     def _start_runs(self, kind: str, runs: list, options: dict) -> None:
@@ -910,7 +970,7 @@ class MainWindow(QMainWindow):
             self.settings.last_input_dir = jobs[0].inputs[0].parent
         queued = len(self._queue)
         running = self.run_page.runner.running
-        self._submit_all(jobs)
+        self._submit_all(jobs, home_when_queued=True)
         if not running or len(self._queue) > queued:  # spuštěno nebo zařazeno, ne Ne
             page.clear_run_label()
 
@@ -1106,8 +1166,11 @@ class MainWindow(QMainWindow):
         subjects = plan.subjects()
         return subjects[0] if len(subjects) == 1 else ""
 
-    def _submit_all(self, jobs: list[Job]) -> None:
-        """Víc dávek naráz (nová norma): jedna otázka na frontu, ne za každou dávku."""
+    def _submit_all(self, jobs: list[Job], *, home_when_queued: bool = False) -> None:
+        """Víc dávek naráz (nová norma): jedna otázka na frontu, ne za každou dávku.
+
+        `home_when_queued` (Analýza): po zařazení do fronty přejde na Domů, kde pruh
+        „právě běží“ ukáže i frontu; dřív se po Spustit nic viditelného nestalo."""
         if not jobs:
             return
         if self.run_page.runner.running:
@@ -1124,6 +1187,16 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
             self._queue.extend(jobs)
+            self._show_queue()
+            self.statusBar().showMessage(
+                tr("Zařazeno do fronty: {n} dávek, ve frontě celkem {total}.").format(
+                    n=len(jobs), total=len(self._queue)
+                ),
+                8000,
+            )
+            if home_when_queued:
+                self.nav.setCurrentRow(PAGE_HOME)
+            return
         else:
             self._queue.extend(jobs[1:])
             self._launch(jobs[0])
@@ -1836,8 +1909,8 @@ class MainWindow(QMainWindow):
             self.run_page.clear_view()
         self.run_page.refresh_history()
 
-    def _submit(self, job: Job) -> None:
-        """Spustí hned, nebo se zeptá a zařadí za běžící dávku."""
+    def _submit(self, job: Job, *, home_when_queued: bool = False) -> None:
+        """Spustí hned, nebo se zeptá a zařadí za běžící dávku (z Analýzy pak Domů)."""
         if self.run_page.runner.running:
             answer = QMessageBox.question(
                 self,
@@ -1859,8 +1932,10 @@ class MainWindow(QMainWindow):
                 tr("Zařazeno do fronty jako {n}.: {name}").format(
                     n=len(self._queue), name=job.title()
                 ),
-                6000,
+                8000,
             )
+            if home_when_queued:
+                self.nav.setCurrentRow(PAGE_HOME)
             return
         self._launch(job)
         self.batch_page.clear_run_label()
@@ -1884,11 +1959,20 @@ class MainWindow(QMainWindow):
 
     def _launch_next(self) -> None:
         if self._queue and not self.run_page.runner.running:
-            self._launch(self._queue.pop(0))
+            self._launch(self._queue.pop(0), show=False)  # sama z fronty: nikam nepřepínat
             self._show_queue()
 
-    def _launch(self, job: Job) -> None:
+    def _launch(self, job: Job, *, show: bool = True) -> None:
+        """Spustí dávku. `show` = přepnout na Výsledky › Průběh (ruční Spustit); dávka
+        z fronty (další úloha hodnocení, normy) stránku nemění, jen kdo se dívá na
+        Průběh, uvidí novou dávku (2. 11. 2026: dřív skákala každá úloha na Výsledky)."""
         assert self.library is not None
+        watching = (
+            self.nav.currentRow() == PAGE_RESULTS
+            and self.runs_page.in_detail()
+            and self.runs_page.tab() == PROGRESS
+        )
+        self._hide_done_offer()
         proto, inputs = job.proto, job.inputs
         stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         slug = proto.slug()  # klíč statistik; složka se jmenuje podle názvu běhu, je-li
@@ -1994,9 +2078,16 @@ class MainWindow(QMainWindow):
         # karta běhu hned, ať vyšetření neukazuje „hotovo“, dokud běží další úloha
         self.run_page.refresh_history(select=run_dir)
         self.results_page.refresh()
-        self.nav.setCurrentRow(PAGE_RESULTS)
         self.runs_page.set_running(self._running_label or title, "", run_dir)
-        self.runs_page.show_running(run_dir)
+        if show:
+            self.nav.setCurrentRow(PAGE_RESULTS)
+            self.runs_page.show_running(run_dir)
+        elif watching:
+            self.runs_page.show_running(run_dir)
+        else:
+            self.statusBar().showMessage(
+                tr("Začala další dávka: {name}").format(name=job.title()), 8000
+            )
         self.run_page.start(
             argv,
             title=self._running_label or title,
