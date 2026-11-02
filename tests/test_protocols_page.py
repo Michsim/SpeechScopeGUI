@@ -37,8 +37,13 @@ def test_copy_edit_export_import_delete(
     # přibalený: jen souhrn, bez editoru a bez mazání
     assert page.select("Spontánní řeč, akustika")
     assert page.current().builtin and page.edit_btn.isHidden()
-    assert not page.delete_btn.isEnabled()
-    assert "Segmentace" in page.summary.text() and "conformer" in page.summary.text()
+    assert not page.delete_action.isEnabled()
+    assert "Segmentace" in page.summary_text() and "conformer" in page.summary_text()
+    assert page.groups_table.rowCount() > 0 and page.fact_values[0].text() != "–"
+    page.search.setText("ddk")  # hledání schová ostatní karty
+    assert page.current().task == "ddk"
+    page.search.clear()
+    assert page.select("Spontánní řeč, akustika")
 
     # kopie -> vlastní, editor viditelný
     page.copy_current()
@@ -46,15 +51,14 @@ def test_copy_edit_export_import_delete(
     assert proto is not None and not proto.builtin
     assert proto.name == "Spontánní řeč, akustika (kopie)"
     assert proto.path is not None and proto.path.parent == settings.protocols_dir()
-    assert not page.edit_btn.isHidden() and page.delete_btn.isEnabled()
+    assert not page.edit_btn.isHidden() and page.delete_action.isEnabled()
     assert "Spontánní řeč, akustika (kopie)" in window.batch_page.protocol_names()
 
-    # úprava: přejmenovat, odškrtnout feature, uložit
-    page.name_edit.setText("Moje pohádka")
+    # úprava: odškrtnout feature (okno Upravit… se po OK hned uloží), přejmenovat
     first = page.editor.selected()[0]
     page.editor.picker.set_checked(first, False)
-    assert page.save_btn.isEnabled()
-    page.save_current()
+    assert page.apply_editor()
+    assert page.set_info("Moje pohádka", "pohádka bez první feature")
     saved = page.current()
     assert saved is not None and saved.name == "Moje pohádka" and first not in saved.features
     assert saved.path == proto.path  # přejmenování nezakládá druhý soubor
@@ -95,8 +99,8 @@ def test_basic_mode_shows_summary_only(qtbot: QtBot, settings: AppSettings) -> N
     page = window.protocols_page
     page.copy_current()
     assert not page.current().builtin
-    assert page.edit_btn.isHidden() and page.save_btn.isHidden()
-    assert page.delete_btn.isEnabled() and page.export_btn.isEnabled()
+    assert page.edit_btn.isHidden() and not page.rename_action.isVisible()
+    assert page.delete_action.isEnabled() and page.export_btn.isEnabled()
     assert "rozšířeném režimu" in page.note.text()
 
 
@@ -148,3 +152,32 @@ def test_protocol_detail_dialog_lists_features(qtbot: QtBot, settings: AppSettin
     assert "z lišty" in dialog2.params_item.child(0).text(1)
     assert dialog2.params_item.childCount() == 2  # transcript i nlp
     assert dialog2.provider_pills and dialog2.provider_pills[0].property("role") == "ok"
+
+
+def test_new_protocol_and_narrow_layout(qtbot: QtBot, settings: AppSettings) -> None:
+    """Nový protokol… = kopie základního protokolu úlohy; v úzkém okně karty pod sebou."""
+    from PySide6.QtWidgets import QBoxLayout
+
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    window.nav.setCurrentRow(PAGE_PROTOCOLS)
+    page = window.protocols_page
+    assert not page.new_btn.isHidden()
+    assert page.base_protocol("ddk").name == "DDK, základní"
+    proto = page.new_protocol("ddk")
+    assert proto is not None and not proto.builtin and proto.task == "ddk"
+    assert proto.name == "Nový protokol · DDK" and proto.description == ""
+    assert proto.features == page.base_protocol("ddk").features
+    assert page.new_protocol("ddk").name == "Nový protokol · DDK (2)"
+
+    window.resize(900, 700)
+    window.show()
+    page.detail_area.resize(600, 500)
+    qtbot.waitUntil(lambda: page.columns.direction() == QBoxLayout.Direction.TopToBottom)
+    window.resize(1800, 900)
+    page.detail_area.resize(1200, 700)
+    qtbot.waitUntil(lambda: page.columns.direction() == QBoxLayout.Direction.LeftToRight)
+
+    settings.advanced = False
+    page.set_advanced(False)
+    assert page.new_btn.isHidden()

@@ -306,6 +306,15 @@ protokolu.
 Dvojklik na kartu protokolu (Analýza, Protokoly) nebo odkaz „co se počítá“
 otevře `ui/protocol_detail.py`: strom skupina → feature → sloupec s popisem,
 providery se stavem z doctor, parametry nastavené protokolem; jen ke čtení.
+**Stránka Protokoly** (`pages/protocols.py`, 2. 11. 2026 podoba A, mockup
+https://claude.ai/artifact/TFhTurHqvt7kCDJMDR5HYr, `docs/mockups/protokoly/` mimo git; „Kde se
+používá“ uživatel nechtěl): vlevo hledání, filtr vše · přibalené · vlastní a karty `ProtocolCard`
+po úlohách (sloupce · providery · naposledy s); vpravo `StatusHeader` (úloha a původ štítky,
+Upravit… jen vlastní v rozšířeném režimu, Vytvořit kopii, Export…, ⋯ = Přejmenovat… `InfoDialog`,
+Zobrazit soubor, Smazat…), čtyři čísla, Co se počítá (skupiny feature, Všechny sloupce… = detail
+protokolu), Co je potřeba (providery se stavem z doctor), Změněné parametry (výchozí jen
+u providerů). Nový protokol… (rozšířený režim, `NewProtocolDialog`, `new_protocol`) = kopie základního protokolu úlohy (`norm_build.DEFAULT_PROTOCOLS`) a hned editor; pod `NARROW` px detailu jdou karty pod sebe a čísla 2 × 2 (`_fit_columns`). Úprava se ukládá hned (`apply_editor` po OK v editoru, `set_info`), formulář
+s Uložit a rozpracovaný stav zmizely; `summary_text` pro testy.
 
 ## Normy a dimenze (srovnání s normou, pavouk)
 - **Norma** = složka `norms/<slug>/` s `norm.yaml` a `controls.csv`
