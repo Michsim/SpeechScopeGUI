@@ -137,6 +137,7 @@ BAND_ROLES: dict[str, str] = {"ok": "ok", "warn": "warn", "bad": "missing"}
 TREE_AXIS = 6  # logický sloupec osy odchylky ve stromu dimenzí (zobrazený před z)
 PENDING_BAND = "pending"  # štítek karty se teprve spočítá (líně, po zobrazení seznamu)
 BADGE_CHUNK = 4  # kolik karet se vyhodnotí v jednom tiku časovače
+OLDEST_VISIT_COLOR = "#c026d3"  # nejstarší ze tří vyšetření v pavouku Vývoje (fialová)
 WINDOWS: tuple[tuple[str, int | None], ...] = (  # výchozí ±5 (30. 10. 2026)
     ("± 3 let", 3),
     ("± 5 let", 5),
@@ -2427,7 +2428,8 @@ class AssessmentPage(QWidget):
         older = list(range(len(visits) - 1))
         for index in reversed(older):
             oldest = index == 0 and len(visits) >= 3
-            color = "#0284c7" if oldest else "#1d4ed8"
+            # nejstarší fialově: dvě modré splývaly (3. 11. 2026); zelená a oranžová jsou pásma
+            color = OLDEST_VISIT_COLOR if oldest else "#1d4ed8"
             overlays.append(
                 Overlay(
                     _point_text(visits[index]),

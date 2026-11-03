@@ -513,7 +513,7 @@ s Uložit a rozpracovaný stav zmizely; `summary_text` pro testy.
   mimo normu naposledy, resp. dvě položky s největší změnou v procentech. Tabulka
   `trend_table` zůstává jen u Pavouka (název podle obsahu, `_fit_name_column`). **Pavouk** (`can_overlay`: jen SD a 2 až 3
   vyšetření; `SpiderChart.set_axes(axes, overlays)` s `Overlay`: poslední vyšetření
-  černě, prostřední tmavě modře čárkovaně se čtverečky, nejstarší světle modře
+  černě, prostřední tmavě modře čárkovaně se čtverečky, nejstarší fialově (`OLDEST_VISIT_COLOR`, 3. 11. 2026, dvě modré splývaly)
   tečkovaně s kroužky a slabou výplní, legenda `spider_legend`; u jedné dimenze
   značky na pruhu) s tabulkou změn pod ním. Samostatná Mapa a „První → poslední“
   zamítnuty. Norma je v pavouku i v grafech jen tenká čárkovaná čára (silná černá
