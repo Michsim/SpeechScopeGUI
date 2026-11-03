@@ -162,7 +162,9 @@ class NormInfo:
                 if isinstance(v, dict)
             },
             feature_versions={
-                str(t): {str(f): str(v) for f, v in versions.items() if v}
+                str(t): contract.canonical_versions(
+                    {str(f): str(v) for f, v in versions.items() if v}
+                )
                 for t, versions in (data.get("feature_versions") or {}).items()
                 if isinstance(versions, dict)
             },
@@ -468,7 +470,8 @@ def normalize_controls(frame: pd.DataFrame) -> pd.DataFrame:
     Zahodí cesty k nahrávkám a vše, co není metadata nebo feature: v normě
     nemá být nic, co by kontroly identifikovalo nebo prozradilo, odkud jsou.
     """
-    out = frame.rename(columns={c: meta.canonical_column(str(c)) for c in frame.columns})
+    out = contract.canonical_frame(frame)  # starší normy: dřívější jména feature
+    out = out.rename(columns={c: meta.canonical_column(str(c)) for c in out.columns})
     keep = [c for c in out.columns if c in meta.META_COLUMNS or c == "task" or is_feature_column(c)]
     out = out[keep].copy()
     if "task" in out:

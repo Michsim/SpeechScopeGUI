@@ -1,7 +1,7 @@
 {
   "kind": "feature",
-  "name": "acoustic.timing.breaths",
-  "version": "1.0",
+  "name": "acoustic.pauses.all",
+  "version": "1.3",
   "tasks": [
     "reading",
     "spontaneous"
@@ -19,14 +19,14 @@
   },
   "description": "",
   "outputs": {
-    "count": "Počet nádechů (-)",
-    "per_minute": "Nádechy za minutu nahrávky (1/min)",
-    "ratio": "Podíl času nádechů na délce nahrávky (%)",
-    "median": "Medián délky nádechů (ms)",
-    "mean": "Průměr délky nádechů (ms)",
-    "std": "Směrodatná odchylka délky nádechů (ms)",
-    "long_count": "Počet nádechů od long_pause (-)",
-    "long_median": "Medián délky nádechů od long_pause (ms); NaN, když žádná není"
+    "count": "Počet pauz (-)",
+    "per_minute": "Pauzy za minutu nahrávky (1/min)",
+    "ratio": "Podíl času pauz na délce nahrávky (%)",
+    "median": "Medián délky pauz (ms)",
+    "mean": "Průměr délky pauz (ms)",
+    "std": "Směrodatná odchylka délky pauz (ms)",
+    "long_count": "Počet pauz od long_pause (-)",
+    "long_median": "Medián délky pauz od long_pause (ms); NaN, když žádná není"
   },
   "params": {
     "merge_adjacent": {

@@ -1,7 +1,7 @@
 {
   "kind": "feature",
   "name": "acoustic.spectral.mfcc",
-  "version": "1.2",
+  "version": "2.0",
   "tasks": [
     "phonation",
     "reading",
@@ -51,38 +51,22 @@
     "std_c14": "Standard deviation of coefficient c14",
     "std_c15": "Standard deviation of coefficient c15",
     "std_c16": "Standard deviation of coefficient c16",
-    "meanDelta_c1": "Mean of the delta of coefficient c1",
-    "meanDelta_c2": "Mean of the delta of coefficient c2",
-    "meanDelta_c3": "Mean of the delta of coefficient c3",
-    "meanDelta_c4": "Mean of the delta of coefficient c4",
-    "meanDelta_c5": "Mean of the delta of coefficient c5",
-    "meanDelta_c6": "Mean of the delta of coefficient c6",
-    "meanDelta_c7": "Mean of the delta of coefficient c7",
-    "meanDelta_c8": "Mean of the delta of coefficient c8",
-    "meanDelta_c9": "Mean of the delta of coefficient c9",
-    "meanDelta_c10": "Mean of the delta of coefficient c10",
-    "meanDelta_c11": "Mean of the delta of coefficient c11",
-    "meanDelta_c12": "Mean of the delta of coefficient c12",
-    "meanDelta_c13": "Mean of the delta of coefficient c13",
-    "meanDelta_c14": "Mean of the delta of coefficient c14",
-    "meanDelta_c15": "Mean of the delta of coefficient c15",
-    "meanDelta_c16": "Mean of the delta of coefficient c16",
-    "stdDelta_c1": "Standard deviation of the delta of coefficient c1",
-    "stdDelta_c2": "Standard deviation of the delta of coefficient c2",
-    "stdDelta_c3": "Standard deviation of the delta of coefficient c3",
-    "stdDelta_c4": "Standard deviation of the delta of coefficient c4",
-    "stdDelta_c5": "Standard deviation of the delta of coefficient c5",
-    "stdDelta_c6": "Standard deviation of the delta of coefficient c6",
-    "stdDelta_c7": "Standard deviation of the delta of coefficient c7",
-    "stdDelta_c8": "Standard deviation of the delta of coefficient c8",
-    "stdDelta_c9": "Standard deviation of the delta of coefficient c9",
-    "stdDelta_c10": "Standard deviation of the delta of coefficient c10",
-    "stdDelta_c11": "Standard deviation of the delta of coefficient c11",
-    "stdDelta_c12": "Standard deviation of the delta of coefficient c12",
-    "stdDelta_c13": "Standard deviation of the delta of coefficient c13",
-    "stdDelta_c14": "Standard deviation of the delta of coefficient c14",
-    "stdDelta_c15": "Standard deviation of the delta of coefficient c15",
-    "stdDelta_c16": "Standard deviation of the delta of coefficient c16",
+    "std_delta_c1": "Standard deviation of the delta of coefficient c1",
+    "std_delta_c2": "Standard deviation of the delta of coefficient c2",
+    "std_delta_c3": "Standard deviation of the delta of coefficient c3",
+    "std_delta_c4": "Standard deviation of the delta of coefficient c4",
+    "std_delta_c5": "Standard deviation of the delta of coefficient c5",
+    "std_delta_c6": "Standard deviation of the delta of coefficient c6",
+    "std_delta_c7": "Standard deviation of the delta of coefficient c7",
+    "std_delta_c8": "Standard deviation of the delta of coefficient c8",
+    "std_delta_c9": "Standard deviation of the delta of coefficient c9",
+    "std_delta_c10": "Standard deviation of the delta of coefficient c10",
+    "std_delta_c11": "Standard deviation of the delta of coefficient c11",
+    "std_delta_c12": "Standard deviation of the delta of coefficient c12",
+    "std_delta_c13": "Standard deviation of the delta of coefficient c13",
+    "std_delta_c14": "Standard deviation of the delta of coefficient c14",
+    "std_delta_c15": "Standard deviation of the delta of coefficient c15",
+    "std_delta_c16": "Standard deviation of the delta of coefficient c16",
     "global_c1_16": "Mean of the standard deviations of c1 to c16",
     "global_delta_c1_16": "Mean of the standard deviations of the deltas of c1 to c16"
   },
@@ -119,8 +103,45 @@
     "delta_step": {
       "default": 5,
       "type": "int",
-      "description": "Window width for the delta computation (frames)",
+      "description": "Deltas: for regression the width of the regression window (frames), for difference the lag of c(t) − c(t − delta_step)",
       "ge": 1
+    },
+    "filterbank": {
+      "default": "slaney",
+      "type": "str",
+      "description": "Filter bank: slaney = fixed edges 133–6854 Hz as in MATLAB mfcc (default); mel = mel bank from 0 Hz to Nyquist as in version 1.x",
+      "choices": [
+        "slaney",
+        "mel"
+      ]
+    },
+    "delta_method": {
+      "default": "regression",
+      "type": "str",
+      "description": "Deltas: regression = regression line over delta_step frames (default, as 1.x); difference = c(t) − c(t − delta_step) as MATLAB; difference_padded = the same including the zero rows at the end, MATLAB verbatim",
+      "choices": [
+        "regression",
+        "difference",
+        "difference_padded"
+      ]
+    },
+    "outlier_threshold": {
+      "default": "strict",
+      "type": "str",
+      "description": "Outlier frames by c0: strict = distance against the square root of the chi-square quantile (default, as 1.x); matlab = against the quantile without the root, removes fewer frames",
+      "choices": [
+        "strict",
+        "matlab"
+      ]
+    },
+    "std_ddof": {
+      "default": 1,
+      "type": "int",
+      "description": "Standard deviation: 1 = sample (n − 1) as MATLAB (default), 0 = as 1.x",
+      "choices": [
+        0,
+        1
+      ]
     }
   }
 }

@@ -285,6 +285,49 @@ v repu GUI), které tyhle feature přidává ke každému běhu. Testy
 `tests/test_recording.py`; `test_obecne_feature_na_ddk_nejsou` feature
 `acoustic.recording.*` z výčtu vynechává. Verze knihovny zůstala 0.4.0.
 
+## Pauzy jako vlastní skupina (2. 11. 2026, commit 98122e6)
+`acoustic.timing.pauses|silences|breaths` → `acoustic.pauses.all`
+(1.3, všechna neřeč), `acoustic.pauses.silent` (1.1, `ps`) a
+`acoustic.pauses.breath` (1.1, `pb`). Důvod: „pauses“ vedle „silences“
+nebylo poznat jako nadřazená kategorie. Algoritmus beze změny, verze
+zvednuté kvůli jménům sloupců. Kód zůstal v `timing.py`, `rhythm`
+a `speech_rate` zůstávají v `timing`. Stará jména jsou aliasy
+(`registry.FEATURE_ALIASES`, `canonical_feature`, varování jednou za proces)
+ve `select`, `get_feature` (tedy i `list --params`), `--set` a YAML;
+vzory s hvězdičkou se nepřekládají (`acoustic.timing.*` pauzy už nevybere).
+Výstupní sloupce jsou vždy nové. GUI (`quality.yaml`, cokoli s pauzami)
+musí přejít, součást 0.4.0. Test `test_stara_jmena_pauz_jsou_aliasy`.
+
+## MFCC 2.0 (2. 11. 2026, commity ef3e299 parametry beze změny výstupu, 1637b80 verze 2.0)
+Originál je MATLAB `../mfcc/scripts` (Illner 2023), `legacy/mfcc/mfcc.py`
+je jen nepřesný Python port a zlatý test 1.x hlídal shodu s ním. Rozdíly
+portu: vlastní mel banka 0–8 kHz (1127·ln, ne Slaney) místo pevných
+Slaneyho hran 133–6854 Hz z `mfcc` Audio Toolboxu (mean_c ~140 % jinak),
+regresní delty místo c(t)−c(t−5) s nulovými řádky na konci, práh odlehlých
+s odmocninou (MATLAB `sqrt(mahal) < chi2inv` bez ní), std n místo n−1.
+Výchozí VAD MATLABu `vadsohn` na fonaci po ~2 s bere vokál jako šum
+(drží 8–50 % rámců), nepřeneseno.
+- Verze 2.0: `filterbank` slaney|mel, `delta_method`
+  regression|difference|difference_padded, `outlier_threshold`
+  strict|matlab, `std_ddof` 1|0. Výchozí (tým): slaney, regression,
+  strict, 1. S VAD delty uvnitř úseků (`_region_deltas`); úsek bez dost
+  rámců se vynechá (1.x dávala nulové delty).
+- Sloupce: 50, `mean_delta_*` zrušeny (teleskopická suma, šum), `stdDelta_*`
+  → `std_delta_*`. `extract_mfcc_features` vrací dál 66 statistik
+  (`MFCC_STAT_NAMES`, pořadí tabulky MATLABu), feature vydá `MFCC_OUTPUT_NAMES`.
+- `global_c1_16` proti MATLABu (none) −1.4 % (max 4.4 %, jen práh),
+  `global_delta_c1_16` ~0.28× (regrese) – normy delt přepočítat.
+- Shoda: MATLAB volby (`slaney difference_padded matlab 1`) na signálu
+  převzorkovaném MATLABem 1.5e-11. Testy `tests/test_mfcc_matlab.py`
+  (syntetická `tests/data/mfcc_matlab/synth.wav` + `reference.csv`
+  z MATLABu, `make_signal.py`, `make_reference.m`), zlatý
+  `tests/golden/test_golden_mfcc_matlab.py` (`SPEECHSCOPE_GOLDEN_MFCC_DIR`,
+  složku dělá `make_mfcc_matlab_golden.m`), starý port v `test_golden.py`
+  s `filterbank=mel std_ddof=0`.
+- MATLAB na tomhle stroji nemá Statistics Toolbox (`chi2inv`, `mahal`);
+  originál pak tiše vrací nuly. Náhrady jsou popsané v `make_reference.m`.
+- `.gitignore`: `data/` blokovalo i `tests/data/`, přidáno `!tests/data/`.
+
 ## Pravidla pro přenos starých skriptů
 1. Feature funkce nesmí dělat I/O – dostane `Signal`, vrátí čísla.
 2. Konstanty natvrdo → deklarované parametry.

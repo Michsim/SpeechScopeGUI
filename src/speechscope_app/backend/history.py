@@ -39,6 +39,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .. import contract
 from ..i18n import N_, tr
 from . import tasks
 from .protocol import Protocol, slugify
@@ -334,7 +335,7 @@ def _read_run_from_disk(run_dir: Path, *, group_dir: Path | None = None) -> RunI
 def _versions(value: Any) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
-    return {str(k): str(v) for k, v in value.items() if v}
+    return contract.canonical_versions({str(k): str(v) for k, v in value.items() if v})
 
 
 def unique_run_dir(work_root: Path, name: str) -> Path:

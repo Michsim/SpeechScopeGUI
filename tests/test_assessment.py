@@ -24,7 +24,7 @@ from speechscope_app.ui.main_window import PAGE_ASSESSMENT, PAGE_RESULTS, MainWi
 from speechscope_app.ui.pages.assessment import PendingCard, format_number, worst_band
 from speechscope_app.ui.widgets.spider_chart import Axis, SpiderChart, format_sd
 
-PAUSE = "acoustic.timing.pauses.median"  # jediná položka dimenze Pauzy
+PAUSE = "acoustic.pauses.all.median"  # jediná položka dimenze Pauzy
 
 
 @pytest.fixture

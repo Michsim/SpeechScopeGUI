@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .. import contract
+
 
 def failed_paths(frame: pd.DataFrame) -> list[Path]:
     """Cesty nahrávek, jejichž řádek má neprázdný `error`."""
@@ -27,8 +29,8 @@ def merge_results(target: Path, source: Path) -> int:
     nové sloupce se připojí na konec. Nahrávky, které v cíli nejsou, se
     přidají na konec.
     """
-    old = pd.read_csv(target)
-    new = pd.read_csv(source)
+    old = contract.canonical_frame(pd.read_csv(target))
+    new = contract.canonical_frame(pd.read_csv(source))
     key = "path" if "path" in old.columns and "path" in new.columns else "file"
     if key not in old.columns or key not in new.columns or new.empty:
         return 0

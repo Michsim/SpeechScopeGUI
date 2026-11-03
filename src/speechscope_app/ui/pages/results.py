@@ -499,7 +499,7 @@ class ResultsPage(QWidget):
         self._path = path
         self._note = note
         try:
-            self._frame = pd.read_csv(path)
+            self._frame = contract.canonical_frame(pd.read_csv(path))
         except (OSError, pd.errors.ParserError) as exc:
             self.summary.setText(tr("CSV nejde načíst: {error}").format(error=exc))
             self._frame = None

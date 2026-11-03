@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from .. import contract
 from ..i18n import tr
 from . import meta, quality, tasks
 from .history import RunInfo
@@ -130,7 +131,7 @@ def task_problem(runs: list[RunInfo]) -> str:
 
 
 def read_table(run: RunInfo) -> pd.DataFrame:
-    frame = pd.read_csv(run.dir / "features.csv")
+    frame = contract.canonical_frame(pd.read_csv(run.dir / "features.csv"))
     frame = frame.rename(columns={c: meta.canonical_column(str(c)) for c in frame.columns})
     # oba sloupce naráz (assign) na scelené tabulce: přidávání po jednom do tabulky se
     # stovkami sloupců pandas hlásil jako PerformanceWarning („highly fragmented“)

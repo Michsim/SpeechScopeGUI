@@ -40,6 +40,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .. import contract
 from ..i18n import N_, Labels, tr
 from . import meta, tasks
 from .discover import find_recordings
@@ -447,7 +448,9 @@ def finish_plan(plan: NormPlan, library_version: str = "") -> Norm:
         table = task.table
         if table is None:
             continue
-        frame = _select_rows(pd.read_csv(table), files, known, plan.controls)
+        frame = _select_rows(
+            contract.canonical_frame(pd.read_csv(table)), files, known, plan.controls
+        )
         if tasks.is_custom(task.task):
             frame["task"] = task.task  # knihovna zapsala základní úlohu, norma zná vlastní
         frames.append(frame)
@@ -547,7 +550,7 @@ class RunsScan:
 
 def _read_table(run: RunInfo) -> pd.DataFrame | None:
     try:
-        frame = pd.read_csv(run.dir / "features.csv")
+        frame = contract.canonical_frame(pd.read_csv(run.dir / "features.csv"))
     except (OSError, ValueError):
         return None
     return frame.rename(columns={c: meta.canonical_column(str(c)) for c in frame.columns})

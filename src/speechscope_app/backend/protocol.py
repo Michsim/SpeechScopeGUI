@@ -96,10 +96,13 @@ class Protocol:
             name=str(data["name"]),
             task=contract.canonical_task(str(data["task"])),
             description=str(data.get("description", "")),
-            features=[str(f) for f in data.get("features", [])],
+            features=[contract.canonical_feature(str(f)) for f in data.get("features", [])],
             domain=data.get("domain"),
             vad=data.get("vad"),
-            config={str(k): dict(v) for k, v in (data.get("config") or {}).items()},
+            config={
+                contract.canonical_feature(str(k)): dict(v)
+                for k, v in (data.get("config") or {}).items()
+            },
             path=path,
             names={
                 k[len("name_") :]: str(v)

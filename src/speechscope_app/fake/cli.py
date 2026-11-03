@@ -23,6 +23,13 @@ FAKE_VERSION = "0.4.0"
 
 PROVIDERS = ("ddk_events", "nlp", "phonemes", "segments", "transcript")
 
+# Jako `registry.FEATURE_ALIASES` knihovny 0.4.0 (pauzy dostaly vlastní skupinu).
+FEATURE_ALIASES = {
+    "acoustic.timing.pauses": "acoustic.pauses.all",
+    "acoustic.timing.silences": "acoustic.pauses.silent",
+    "acoustic.timing.breaths": "acoustic.pauses.breath",
+}
+
 
 class Fail(Exception):
     def __init__(self, message: str, code: int = 2) -> None:
@@ -55,6 +62,7 @@ def _features() -> list[dict[str, Any]]:
 
 def _params_of(name: str) -> dict[str, Any] | None:
     """Parametry feature nebo providera, jako `list --params NAME --json`."""
+    name = _canonical_feature(name)
     path = FIXTURES / _localized(f"params/{name}.json")
     if path.is_file():
         return json.loads(path.read_text(encoding="utf-8"))
@@ -153,6 +161,15 @@ def _canonical(task: str) -> str:
     return new
 
 
+def _canonical_feature(name: str) -> str:
+    """Dřívější jméno feature na dnešní, s varováním jako knihovna; vzory beze změny."""
+    new = FEATURE_ALIASES.get(name)
+    if new is None:
+        return name
+    sys.stderr.write(f"WARNING speechscope: feature {name!r} is deprecated, using {new!r}\n")
+    return new
+
+
 def _select(task: str, domain: str | None, patterns: list[str]) -> list[dict[str, Any]]:
     if task not in TASKS:
         raise Fail(f"neznámá úloha {task!r}, možnosti: {', '.join(TASKS)}")
@@ -165,6 +182,7 @@ def _select(task: str, domain: str | None, patterns: list[str]) -> list[dict[str
         return pool
     chosen: list[dict[str, Any]] = []
     for pat in patterns:
+        pat = _canonical_feature(pat)
         hits = [f for f in pool if fnmatch.fnmatchcase(f["name"], pat)]
         if not hits:
             known = next((f for f in _features() if f["name"] == pat), None)
@@ -184,6 +202,7 @@ def _validate_sets(items: list[str]) -> None:
             raise Fail(f"--set čeká NAME.PARAM=VALUE, dostal {item!r}")
         key, _ = item.split("=", 1)
         owner, _, param = key.rpartition(".")
+        owner = _canonical_feature(owner)
         if owner not in names and owner not in PROVIDERS:
             raise Fail(f"neznámá feature nebo provider {owner!r}")
         spec = _params_of(owner) or {}

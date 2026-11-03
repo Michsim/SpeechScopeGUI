@@ -52,7 +52,7 @@ dimensions:
     name: Pauzy
     name_en: Pauses
     items:
-      - column: acoustic.timing.pauses.median
+      - column: acoustic.pauses.all.median
         tasks: [spontaneous, reading]
         direction: higher
         log: true
@@ -72,10 +72,10 @@ dimensions:
     name: Dýchání
     name_en: Breathing
     items:
-      - column: acoustic.timing.breaths.per_minute
+      - column: acoustic.pauses.breath.per_minute
         tasks: [spontaneous, reading]
         direction: both
-      - column: acoustic.timing.breaths.median
+      - column: acoustic.pauses.breath.median
         tasks: [spontaneous, reading]
         direction: both
         log: true

@@ -145,7 +145,7 @@ def test_extract_no_recursive(recordings: Path, tmp_path: Path) -> None:
         (["extract", "{d}", "--out", "{o}"], "zadej --task"),
         (["extract", "{d}", "--task", "phonation", "--features", "linguistic.*"], "vzoru"),
         (
-            ["extract", "{d}", "--task", "phonation", "--features", "acoustic.timing.pauses"],
+            ["extract", "{d}", "--task", "phonation", "--features", "acoustic.pauses.all"],
             "nedává smysl",
         ),
         (
@@ -208,7 +208,7 @@ def test_library_wrapper_reads_fake(fake_library: Library) -> None:
     assert fake_library.version_matches()
     assert fake_library.doctor()["all_ready"]
     names = {f.name for f in fake_library.features("phonation")}
-    assert "acoustic.quality.cpp" in names and "acoustic.timing.pauses" not in names
+    assert "acoustic.quality.cpp" in names and "acoustic.pauses.all" not in names
     f0 = fake_library.params("acoustic.pitch.f0")
     assert f0.vad_supported and [p.name for p in f0.params][:2] == ["f_min", "f_max"]
     assert f0.params[0].bounds == {"gt": 0}

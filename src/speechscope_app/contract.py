@@ -38,6 +38,74 @@ def canonical_task(task: str) -> str:
     return TASK_ALIASES.get(task, task)
 
 
+# Knihovna 0.4.0 (2. 11. 2026) dala pauzám vlastní skupinu, algoritmus beze
+# změny (její `registry.FEATURE_ALIASES`). Stará jména bere jen na vstupu,
+# výstupní sloupce nesou nové. GUI je převádí při čtení protokolů, dimenzí,
+# tabulek starších běhů a norem, aby se staré a nové hodnoty potkaly.
+FEATURE_ALIASES: dict[str, str] = {
+    "acoustic.timing.pauses": "acoustic.pauses.all",
+    "acoustic.timing.silences": "acoustic.pauses.silent",
+    "acoustic.timing.breaths": "acoustic.pauses.breath",
+}
+
+# Verze, kterou knihovna zvedla jen kvůli přejmenování: staré jméno + verze
+# znamená tytéž hodnoty jako nové jméno s novou verzí.
+RENAMED_VERSIONS: dict[str, tuple[str, str]] = {
+    "acoustic.timing.pauses": ("1.2", "1.3"),
+    "acoustic.timing.silences": ("1.0", "1.1"),
+    "acoustic.timing.breaths": ("1.0", "1.1"),
+}
+
+
+def canonical_feature(name: str) -> str:
+    """Dnešní jméno feature; jiné jméno (i vzor s hvězdičkou) projde beze změny."""
+    return FEATURE_ALIASES.get(name, name)
+
+
+def canonical_column(column: str) -> str:
+    """Dnešní jméno sloupce `feature.sloupec` (nebo parametru `feature.param`)."""
+    for old, new in FEATURE_ALIASES.items():
+        if column.startswith(old + "."):
+            return new + column[len(old) :]
+    return column
+
+
+def canonical_versions(versions: dict[str, str]) -> dict[str, str]:
+    """Verze feature pod dnešními jmény; přejmenování samo verzi nemění."""
+    out: dict[str, str] = {}
+    for name, version in versions.items():
+        new = canonical_feature(name)
+        if new != name:
+            old_version, new_version = RENAMED_VERSIONS.get(name, ("", ""))
+            if version == old_version:
+                version = new_version
+            out.setdefault(new, version)
+        else:
+            out[name] = version
+    return out
+
+
+def canonical_row(data: dict) -> dict:
+    """Řádek tabulky se sloupci pod dnešními jmény (nový sloupec má přednost)."""
+    if not any(canonical_column(str(k)) != k for k in data):
+        return data
+    out = {k: v for k, v in data.items() if canonical_column(str(k)) == k}
+    for k, v in data.items():
+        out.setdefault(canonical_column(str(k)), v)
+    return out
+
+
+def canonical_frame(frame):  # noqa: ANN001, ANN201 (pandas jen tady, bez importu)
+    """Tabulka se sloupci pod dnešními jmény; sloupec, který už existuje, vyhrává."""
+    rename = {c: canonical_column(str(c)) for c in frame.columns}
+    rename = {c: n for c, n in rename.items() if n != c}
+    if not rename:
+        return frame
+    drop = [c for c, n in rename.items() if n in frame.columns]
+    frame = frame.drop(columns=drop)
+    return frame.rename(columns={c: n for c, n in rename.items() if c not in drop})
+
+
 TASK_LABELS = Labels(
     {
         "phonation": N_("Fonace (prodloužená samohláska)"),
@@ -86,13 +154,14 @@ DOMAIN_LABELS = Labels(
     }
 )
 
-# Skupina = doména a druhá část jména feature (`acoustic.timing.pauses`).
+# Skupina = doména a druhá část jména feature (`acoustic.pauses.all`).
 # Neznámá skupina se v UI ukáže surově, nikdy nespadne.
 GROUP_LABELS = Labels(
     {
         "acoustic.articulation": N_("Akustika · artikulace"),
         "acoustic.ddk": N_("Akustika · DDK"),
         "acoustic.intensity": N_("Akustika · intenzita"),
+        "acoustic.pauses": N_("Akustika · pauzy"),
         "acoustic.pitch": N_("Akustika · pitch"),
         "acoustic.quality": N_("Akustika · kvalita hlasu"),
         "acoustic.recording": N_("Akustika · nahrávka"),

@@ -1124,6 +1124,21 @@ s Uložit a rozpracovaný stav zmizely; `summary_text` pro testy.
   zůstává `cpp.cpp`). CPP i CPPS u čtení a spontánní řeči stoupnou asi o 2 dB
   proti starším běhům, normy i hodnocení znovu spočítat. Fixtury a kopie
   dokumentace obnovené 30. 10. 2026.
+- Pauzy jako vlastní skupina a MFCC 2.0 (knihovna 2. 11. 2026, verze stále
+  0.4.0): `acoustic.timing.pauses|silences|breaths` → `acoustic.pauses.all|silent|breath`
+  (algoritmus stejný, verze 1.3/1.1/1.1 jen kvůli jménu; skupina „Akustika · pauzy“).
+  Knihovna stará jména bere jen na vstupu, sloupce mají vždy nová. GUI je převádí
+  při čtení (`contract.FEATURE_ALIASES`, `canonical_feature` v protokolu i klíčích
+  `config`, `canonical_column` v dimenzích včetně vlastního `dimensions.yaml`,
+  `canonical_frame` u `features.csv` a `controls.csv` (Hodnoty, index nahrávek
+  i z katalogu přes `canonical_row`, Porovnání, Nová norma, `merge_results`),
+  `canonical_versions` u `feature_versions` z `run.json` a `norm.yaml`: stará verze
+  z `RENAMED_VERSIONS` = nová, takže se nehlásí změna). Staré běhy a normy se tak
+  s novými potkají bez přepočtu pauz. MFCC 2.0 (Slaneyho banka filtrů, std n−1,
+  delty po úsecích VAD; 50 sloupců, `mean_delta_*` zrušeny, `stdDelta_*` →
+  `std_delta_*`) dává jiné hodnoty: normy i porovnání s MFCC přepočítat, verzi
+  1.2 → 2.0 GUI hlásí samo. Faleška aliasy umí jako knihovna; fixtury a kopie
+  dokumentace obnovené 3. 11. 2026.
 - Knihovna zapisuje `features.csv` průběžně po každé nahrávce (přes
   `.part` a přejmenování). Po Zrušit nebo chybě GUI ukáže částečnou
   tabulku. Soubor nesmí být během běhu otevřený v Excelu, **ani GUI ho

@@ -122,6 +122,7 @@ def _text(value: Any) -> str:
 
 
 def _recordings(run: RunInfo, frame: pd.DataFrame) -> list[Recording]:
+    frame = contract.canonical_frame(frame)  # starší běhy: dřívější jména feature
     frame = frame.rename(columns={c: meta.canonical_column(str(c)) for c in frame.columns})
     out: list[Recording] = []
     for i, row in enumerate(frame.to_dict(orient="records")):
@@ -253,7 +254,14 @@ class VisitIndex:
         if self.catalog.run_signature(self.work_root, run.key) != key[1:]:
             return None
         return [
-            Recording(run, r.row, r.task, r.file, Path(r.path) if r.path else None, r.data)
+            Recording(
+                run,
+                r.row,
+                r.task,
+                r.file,
+                Path(r.path) if r.path else None,
+                contract.canonical_row(r.data),
+            )
             for r in self.catalog.load_run(self.work_root, run.key)
         ]
 

@@ -181,6 +181,102 @@
     ]
   },
   {
+    "name": "acoustic.pauses.all",
+    "version": "1.3",
+    "tasks": [
+      "reading",
+      "spontaneous"
+    ],
+    "requires": [
+      "segments"
+    ],
+    "description": "",
+    "outputs": {
+      "count": "Number of pauses (-)",
+      "per_minute": "Pauses per minute of recording (1/min)",
+      "ratio": "Share of pause time in the recording length (%)",
+      "median": "Median pause duration (ms)",
+      "mean": "Mean pause duration (ms)",
+      "std": "Standard deviation of pause duration (ms)",
+      "long_count": "Number of pauses of at least long_pause (-)",
+      "long_median": "Median duration of pauses of at least long_pause (ms); NaN when there is none"
+    },
+    "columns": [
+      "acoustic.pauses.all.count",
+      "acoustic.pauses.all.per_minute",
+      "acoustic.pauses.all.ratio",
+      "acoustic.pauses.all.median",
+      "acoustic.pauses.all.mean",
+      "acoustic.pauses.all.std",
+      "acoustic.pauses.all.long_count",
+      "acoustic.pauses.all.long_median"
+    ]
+  },
+  {
+    "name": "acoustic.pauses.breath",
+    "version": "1.1",
+    "tasks": [
+      "reading",
+      "spontaneous"
+    ],
+    "requires": [
+      "segments"
+    ],
+    "description": "",
+    "outputs": {
+      "count": "Number of breaths (-)",
+      "per_minute": "Breaths per minute of recording (1/min)",
+      "ratio": "Share of breath time in the recording length (%)",
+      "median": "Median breath duration (ms)",
+      "mean": "Mean breath duration (ms)",
+      "std": "Standard deviation of breath duration (ms)",
+      "long_count": "Number of breaths of at least long_pause (-)",
+      "long_median": "Median duration of breaths of at least long_pause (ms); NaN when there is none"
+    },
+    "columns": [
+      "acoustic.pauses.breath.count",
+      "acoustic.pauses.breath.per_minute",
+      "acoustic.pauses.breath.ratio",
+      "acoustic.pauses.breath.median",
+      "acoustic.pauses.breath.mean",
+      "acoustic.pauses.breath.std",
+      "acoustic.pauses.breath.long_count",
+      "acoustic.pauses.breath.long_median"
+    ]
+  },
+  {
+    "name": "acoustic.pauses.silent",
+    "version": "1.1",
+    "tasks": [
+      "reading",
+      "spontaneous"
+    ],
+    "requires": [
+      "segments"
+    ],
+    "description": "",
+    "outputs": {
+      "count": "Number of silent pauses (-)",
+      "per_minute": "Silent pauses per minute of recording (1/min)",
+      "ratio": "Share of silent pause time in the recording length (%)",
+      "median": "Median silent pause duration (ms)",
+      "mean": "Mean silent pause duration (ms)",
+      "std": "Standard deviation of silent pause duration (ms)",
+      "long_count": "Number of silent pauses of at least long_pause (-)",
+      "long_median": "Median duration of silent pauses of at least long_pause (ms); NaN when there is none"
+    },
+    "columns": [
+      "acoustic.pauses.silent.count",
+      "acoustic.pauses.silent.per_minute",
+      "acoustic.pauses.silent.ratio",
+      "acoustic.pauses.silent.median",
+      "acoustic.pauses.silent.mean",
+      "acoustic.pauses.silent.std",
+      "acoustic.pauses.silent.long_count",
+      "acoustic.pauses.silent.long_median"
+    ]
+  },
+  {
     "name": "acoustic.pitch.f0",
     "version": "1.1",
     "tasks": [
@@ -350,7 +446,7 @@
   },
   {
     "name": "acoustic.spectral.mfcc",
-    "version": "1.2",
+    "version": "2.0",
     "tasks": [
       "phonation",
       "reading",
@@ -391,38 +487,22 @@
       "std_c14": "Standard deviation of coefficient c14",
       "std_c15": "Standard deviation of coefficient c15",
       "std_c16": "Standard deviation of coefficient c16",
-      "meanDelta_c1": "Mean of the delta of coefficient c1",
-      "meanDelta_c2": "Mean of the delta of coefficient c2",
-      "meanDelta_c3": "Mean of the delta of coefficient c3",
-      "meanDelta_c4": "Mean of the delta of coefficient c4",
-      "meanDelta_c5": "Mean of the delta of coefficient c5",
-      "meanDelta_c6": "Mean of the delta of coefficient c6",
-      "meanDelta_c7": "Mean of the delta of coefficient c7",
-      "meanDelta_c8": "Mean of the delta of coefficient c8",
-      "meanDelta_c9": "Mean of the delta of coefficient c9",
-      "meanDelta_c10": "Mean of the delta of coefficient c10",
-      "meanDelta_c11": "Mean of the delta of coefficient c11",
-      "meanDelta_c12": "Mean of the delta of coefficient c12",
-      "meanDelta_c13": "Mean of the delta of coefficient c13",
-      "meanDelta_c14": "Mean of the delta of coefficient c14",
-      "meanDelta_c15": "Mean of the delta of coefficient c15",
-      "meanDelta_c16": "Mean of the delta of coefficient c16",
-      "stdDelta_c1": "Standard deviation of the delta of coefficient c1",
-      "stdDelta_c2": "Standard deviation of the delta of coefficient c2",
-      "stdDelta_c3": "Standard deviation of the delta of coefficient c3",
-      "stdDelta_c4": "Standard deviation of the delta of coefficient c4",
-      "stdDelta_c5": "Standard deviation of the delta of coefficient c5",
-      "stdDelta_c6": "Standard deviation of the delta of coefficient c6",
-      "stdDelta_c7": "Standard deviation of the delta of coefficient c7",
-      "stdDelta_c8": "Standard deviation of the delta of coefficient c8",
-      "stdDelta_c9": "Standard deviation of the delta of coefficient c9",
-      "stdDelta_c10": "Standard deviation of the delta of coefficient c10",
-      "stdDelta_c11": "Standard deviation of the delta of coefficient c11",
-      "stdDelta_c12": "Standard deviation of the delta of coefficient c12",
-      "stdDelta_c13": "Standard deviation of the delta of coefficient c13",
-      "stdDelta_c14": "Standard deviation of the delta of coefficient c14",
-      "stdDelta_c15": "Standard deviation of the delta of coefficient c15",
-      "stdDelta_c16": "Standard deviation of the delta of coefficient c16",
+      "std_delta_c1": "Standard deviation of the delta of coefficient c1",
+      "std_delta_c2": "Standard deviation of the delta of coefficient c2",
+      "std_delta_c3": "Standard deviation of the delta of coefficient c3",
+      "std_delta_c4": "Standard deviation of the delta of coefficient c4",
+      "std_delta_c5": "Standard deviation of the delta of coefficient c5",
+      "std_delta_c6": "Standard deviation of the delta of coefficient c6",
+      "std_delta_c7": "Standard deviation of the delta of coefficient c7",
+      "std_delta_c8": "Standard deviation of the delta of coefficient c8",
+      "std_delta_c9": "Standard deviation of the delta of coefficient c9",
+      "std_delta_c10": "Standard deviation of the delta of coefficient c10",
+      "std_delta_c11": "Standard deviation of the delta of coefficient c11",
+      "std_delta_c12": "Standard deviation of the delta of coefficient c12",
+      "std_delta_c13": "Standard deviation of the delta of coefficient c13",
+      "std_delta_c14": "Standard deviation of the delta of coefficient c14",
+      "std_delta_c15": "Standard deviation of the delta of coefficient c15",
+      "std_delta_c16": "Standard deviation of the delta of coefficient c16",
       "global_c1_16": "Mean of the standard deviations of c1 to c16",
       "global_delta_c1_16": "Mean of the standard deviations of the deltas of c1 to c16"
     },
@@ -459,104 +539,24 @@
       "acoustic.spectral.mfcc.std_c14",
       "acoustic.spectral.mfcc.std_c15",
       "acoustic.spectral.mfcc.std_c16",
-      "acoustic.spectral.mfcc.meanDelta_c1",
-      "acoustic.spectral.mfcc.meanDelta_c2",
-      "acoustic.spectral.mfcc.meanDelta_c3",
-      "acoustic.spectral.mfcc.meanDelta_c4",
-      "acoustic.spectral.mfcc.meanDelta_c5",
-      "acoustic.spectral.mfcc.meanDelta_c6",
-      "acoustic.spectral.mfcc.meanDelta_c7",
-      "acoustic.spectral.mfcc.meanDelta_c8",
-      "acoustic.spectral.mfcc.meanDelta_c9",
-      "acoustic.spectral.mfcc.meanDelta_c10",
-      "acoustic.spectral.mfcc.meanDelta_c11",
-      "acoustic.spectral.mfcc.meanDelta_c12",
-      "acoustic.spectral.mfcc.meanDelta_c13",
-      "acoustic.spectral.mfcc.meanDelta_c14",
-      "acoustic.spectral.mfcc.meanDelta_c15",
-      "acoustic.spectral.mfcc.meanDelta_c16",
-      "acoustic.spectral.mfcc.stdDelta_c1",
-      "acoustic.spectral.mfcc.stdDelta_c2",
-      "acoustic.spectral.mfcc.stdDelta_c3",
-      "acoustic.spectral.mfcc.stdDelta_c4",
-      "acoustic.spectral.mfcc.stdDelta_c5",
-      "acoustic.spectral.mfcc.stdDelta_c6",
-      "acoustic.spectral.mfcc.stdDelta_c7",
-      "acoustic.spectral.mfcc.stdDelta_c8",
-      "acoustic.spectral.mfcc.stdDelta_c9",
-      "acoustic.spectral.mfcc.stdDelta_c10",
-      "acoustic.spectral.mfcc.stdDelta_c11",
-      "acoustic.spectral.mfcc.stdDelta_c12",
-      "acoustic.spectral.mfcc.stdDelta_c13",
-      "acoustic.spectral.mfcc.stdDelta_c14",
-      "acoustic.spectral.mfcc.stdDelta_c15",
-      "acoustic.spectral.mfcc.stdDelta_c16",
+      "acoustic.spectral.mfcc.std_delta_c1",
+      "acoustic.spectral.mfcc.std_delta_c2",
+      "acoustic.spectral.mfcc.std_delta_c3",
+      "acoustic.spectral.mfcc.std_delta_c4",
+      "acoustic.spectral.mfcc.std_delta_c5",
+      "acoustic.spectral.mfcc.std_delta_c6",
+      "acoustic.spectral.mfcc.std_delta_c7",
+      "acoustic.spectral.mfcc.std_delta_c8",
+      "acoustic.spectral.mfcc.std_delta_c9",
+      "acoustic.spectral.mfcc.std_delta_c10",
+      "acoustic.spectral.mfcc.std_delta_c11",
+      "acoustic.spectral.mfcc.std_delta_c12",
+      "acoustic.spectral.mfcc.std_delta_c13",
+      "acoustic.spectral.mfcc.std_delta_c14",
+      "acoustic.spectral.mfcc.std_delta_c15",
+      "acoustic.spectral.mfcc.std_delta_c16",
       "acoustic.spectral.mfcc.global_c1_16",
       "acoustic.spectral.mfcc.global_delta_c1_16"
-    ]
-  },
-  {
-    "name": "acoustic.timing.breaths",
-    "version": "1.0",
-    "tasks": [
-      "reading",
-      "spontaneous"
-    ],
-    "requires": [
-      "segments"
-    ],
-    "description": "",
-    "outputs": {
-      "count": "Number of breaths (-)",
-      "per_minute": "Breaths per minute of recording (1/min)",
-      "ratio": "Share of breath time in the recording length (%)",
-      "median": "Median breath duration (ms)",
-      "mean": "Mean breath duration (ms)",
-      "std": "Standard deviation of breath duration (ms)",
-      "long_count": "Number of breaths of at least long_pause (-)",
-      "long_median": "Median duration of breaths of at least long_pause (ms); NaN when there is none"
-    },
-    "columns": [
-      "acoustic.timing.breaths.count",
-      "acoustic.timing.breaths.per_minute",
-      "acoustic.timing.breaths.ratio",
-      "acoustic.timing.breaths.median",
-      "acoustic.timing.breaths.mean",
-      "acoustic.timing.breaths.std",
-      "acoustic.timing.breaths.long_count",
-      "acoustic.timing.breaths.long_median"
-    ]
-  },
-  {
-    "name": "acoustic.timing.pauses",
-    "version": "1.2",
-    "tasks": [
-      "reading",
-      "spontaneous"
-    ],
-    "requires": [
-      "segments"
-    ],
-    "description": "",
-    "outputs": {
-      "count": "Number of pauses (-)",
-      "per_minute": "Pauses per minute of recording (1/min)",
-      "ratio": "Share of pause time in the recording length (%)",
-      "median": "Median pause duration (ms)",
-      "mean": "Mean pause duration (ms)",
-      "std": "Standard deviation of pause duration (ms)",
-      "long_count": "Number of pauses of at least long_pause (-)",
-      "long_median": "Median duration of pauses of at least long_pause (ms); NaN when there is none"
-    },
-    "columns": [
-      "acoustic.timing.pauses.count",
-      "acoustic.timing.pauses.per_minute",
-      "acoustic.timing.pauses.ratio",
-      "acoustic.timing.pauses.median",
-      "acoustic.timing.pauses.mean",
-      "acoustic.timing.pauses.std",
-      "acoustic.timing.pauses.long_count",
-      "acoustic.timing.pauses.long_median"
     ]
   },
   {
@@ -579,38 +579,6 @@
       "acoustic.timing.rhythm.vsdr",
       "acoustic.timing.rhythm.ste",
       "acoustic.timing.rhythm.ssr_change"
-    ]
-  },
-  {
-    "name": "acoustic.timing.silences",
-    "version": "1.0",
-    "tasks": [
-      "reading",
-      "spontaneous"
-    ],
-    "requires": [
-      "segments"
-    ],
-    "description": "",
-    "outputs": {
-      "count": "Number of silent pauses (-)",
-      "per_minute": "Silent pauses per minute of recording (1/min)",
-      "ratio": "Share of silent pause time in the recording length (%)",
-      "median": "Median silent pause duration (ms)",
-      "mean": "Mean silent pause duration (ms)",
-      "std": "Standard deviation of silent pause duration (ms)",
-      "long_count": "Number of silent pauses of at least long_pause (-)",
-      "long_median": "Median duration of silent pauses of at least long_pause (ms); NaN when there is none"
-    },
-    "columns": [
-      "acoustic.timing.silences.count",
-      "acoustic.timing.silences.per_minute",
-      "acoustic.timing.silences.ratio",
-      "acoustic.timing.silences.median",
-      "acoustic.timing.silences.mean",
-      "acoustic.timing.silences.std",
-      "acoustic.timing.silences.long_count",
-      "acoustic.timing.silences.long_median"
     ]
   },
   {

@@ -1,7 +1,7 @@
 {
   "kind": "feature",
-  "name": "acoustic.timing.silences",
-  "version": "1.0",
+  "name": "acoustic.pauses.silent",
+  "version": "1.1",
   "tasks": [
     "reading",
     "spontaneous"

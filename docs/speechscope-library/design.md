@@ -7,7 +7,7 @@ Hotovo: jádro, CLI, providery `segments` (labely, pyannote, conformer),
 `transcript`, `nlp` (Stanza) a `phonemes` (phnrec), a **všech osm legacy
 modulů**: `acoustic.quality.cpp`, `acoustic.pitch.f0`,
 `acoustic.spectral.ltas`, `acoustic.spectral.mfcc`,
-`acoustic.timing.speech_rate`, `acoustic.timing.pauses`,
+`acoustic.timing.speech_rate`, `acoustic.pauses.all`,
 `acoustic.intensity.stats`, `acoustic.articulation.vowels` a lingvistika
 (8 lexikálních a 5 syntaktických feature). 117 testů.
 
@@ -344,8 +344,8 @@ Smlouva `--progress-json` beze změny podle CLAUDE.md.
 |---|---|---|---|
 | `cpp` | `acoustic.quality.cpp` | všechny kromě ddk | segments (volitelně) |
 | `f0` | `acoustic.pitch.f0` | všechny kromě ddk | segments (volitelně) |
-| `int_pauses` | `acoustic.intensity.stats` (od 2.0 znělé rámce podle SWIPE, bez segmentace), `acoustic.timing.pauses` | spontaneous, reading | segments jen pro pauzy a volitelný VAD |
-| `timing` (notebook) | `acoustic.timing.silences.median` (DPI), `acoustic.timing.breaths.median` (DBI), `acoustic.timing.rhythm` (VSDR, STE, ΔSSR) | spontaneous, reading | segments, jen čtyři třídy conformeru |
+| `int_pauses` | `acoustic.intensity.stats` (od 2.0 znělé rámce podle SWIPE, bez segmentace), `acoustic.pauses.all` | spontaneous, reading | segments jen pro pauzy a volitelný VAD |
+| `timing` (notebook) | `acoustic.pauses.silent.median` (DPI), `acoustic.pauses.breath.median` (DBI), `acoustic.timing.rhythm` (VSDR, STE, ΔSSR) | spontaneous, reading | segments, jen čtyři třídy conformeru |
 | `ltas` | `acoustic.spectral.ltas` | všechny kromě ddk | segments (volitelně) |
 | `mfcc` | `acoustic.spectral.mfcc` | všechny kromě ddk | segments (volitelně) |
 | `speech_rate` | `acoustic.timing.speech_rate` | spontaneous, reading | transcript |

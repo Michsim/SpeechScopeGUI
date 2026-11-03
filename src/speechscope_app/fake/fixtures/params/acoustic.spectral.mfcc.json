@@ -1,7 +1,7 @@
 {
   "kind": "feature",
   "name": "acoustic.spectral.mfcc",
-  "version": "1.2",
+  "version": "2.0",
   "tasks": [
     "phonation",
     "reading",
@@ -51,38 +51,22 @@
     "std_c14": "Směrodatná odchylka koeficientu c14",
     "std_c15": "Směrodatná odchylka koeficientu c15",
     "std_c16": "Směrodatná odchylka koeficientu c16",
-    "meanDelta_c1": "Průměr delty koeficientu c1",
-    "meanDelta_c2": "Průměr delty koeficientu c2",
-    "meanDelta_c3": "Průměr delty koeficientu c3",
-    "meanDelta_c4": "Průměr delty koeficientu c4",
-    "meanDelta_c5": "Průměr delty koeficientu c5",
-    "meanDelta_c6": "Průměr delty koeficientu c6",
-    "meanDelta_c7": "Průměr delty koeficientu c7",
-    "meanDelta_c8": "Průměr delty koeficientu c8",
-    "meanDelta_c9": "Průměr delty koeficientu c9",
-    "meanDelta_c10": "Průměr delty koeficientu c10",
-    "meanDelta_c11": "Průměr delty koeficientu c11",
-    "meanDelta_c12": "Průměr delty koeficientu c12",
-    "meanDelta_c13": "Průměr delty koeficientu c13",
-    "meanDelta_c14": "Průměr delty koeficientu c14",
-    "meanDelta_c15": "Průměr delty koeficientu c15",
-    "meanDelta_c16": "Průměr delty koeficientu c16",
-    "stdDelta_c1": "Směrodatná odchylka delty koeficientu c1",
-    "stdDelta_c2": "Směrodatná odchylka delty koeficientu c2",
-    "stdDelta_c3": "Směrodatná odchylka delty koeficientu c3",
-    "stdDelta_c4": "Směrodatná odchylka delty koeficientu c4",
-    "stdDelta_c5": "Směrodatná odchylka delty koeficientu c5",
-    "stdDelta_c6": "Směrodatná odchylka delty koeficientu c6",
-    "stdDelta_c7": "Směrodatná odchylka delty koeficientu c7",
-    "stdDelta_c8": "Směrodatná odchylka delty koeficientu c8",
-    "stdDelta_c9": "Směrodatná odchylka delty koeficientu c9",
-    "stdDelta_c10": "Směrodatná odchylka delty koeficientu c10",
-    "stdDelta_c11": "Směrodatná odchylka delty koeficientu c11",
-    "stdDelta_c12": "Směrodatná odchylka delty koeficientu c12",
-    "stdDelta_c13": "Směrodatná odchylka delty koeficientu c13",
-    "stdDelta_c14": "Směrodatná odchylka delty koeficientu c14",
-    "stdDelta_c15": "Směrodatná odchylka delty koeficientu c15",
-    "stdDelta_c16": "Směrodatná odchylka delty koeficientu c16",
+    "std_delta_c1": "Směrodatná odchylka delty koeficientu c1",
+    "std_delta_c2": "Směrodatná odchylka delty koeficientu c2",
+    "std_delta_c3": "Směrodatná odchylka delty koeficientu c3",
+    "std_delta_c4": "Směrodatná odchylka delty koeficientu c4",
+    "std_delta_c5": "Směrodatná odchylka delty koeficientu c5",
+    "std_delta_c6": "Směrodatná odchylka delty koeficientu c6",
+    "std_delta_c7": "Směrodatná odchylka delty koeficientu c7",
+    "std_delta_c8": "Směrodatná odchylka delty koeficientu c8",
+    "std_delta_c9": "Směrodatná odchylka delty koeficientu c9",
+    "std_delta_c10": "Směrodatná odchylka delty koeficientu c10",
+    "std_delta_c11": "Směrodatná odchylka delty koeficientu c11",
+    "std_delta_c12": "Směrodatná odchylka delty koeficientu c12",
+    "std_delta_c13": "Směrodatná odchylka delty koeficientu c13",
+    "std_delta_c14": "Směrodatná odchylka delty koeficientu c14",
+    "std_delta_c15": "Směrodatná odchylka delty koeficientu c15",
+    "std_delta_c16": "Směrodatná odchylka delty koeficientu c16",
     "global_c1_16": "Průměr směrodatných odchylek c1 až c16",
     "global_delta_c1_16": "Průměr směrodatných odchylek delt c1 až c16"
   },
@@ -119,8 +103,45 @@
     "delta_step": {
       "default": 5,
       "type": "int",
-      "description": "Šířka okna pro výpočet delt (rámce)",
+      "description": "Delty: u regression šířka okna regrese (rámce), u difference odstup rozdílu c(t) − c(t − delta_step)",
       "ge": 1
+    },
+    "filterbank": {
+      "default": "slaney",
+      "type": "str",
+      "description": "Banka filtrů: slaney = pevné hrany 133–6854 Hz jako MATLAB mfcc (výchozí); mel = melovská od 0 Hz do Nyquista jako verze 1.x",
+      "choices": [
+        "slaney",
+        "mel"
+      ]
+    },
+    "delta_method": {
+      "default": "regression",
+      "type": "str",
+      "description": "Delty: regression = regresní přímka přes delta_step rámců (výchozí, jako 1.x); difference = c(t) − c(t − delta_step) jako MATLAB; difference_padded = totéž i s nulovými řádky na konci, MATLAB doslova",
+      "choices": [
+        "regression",
+        "difference",
+        "difference_padded"
+      ]
+    },
+    "outlier_threshold": {
+      "default": "strict",
+      "type": "str",
+      "description": "Odlehlé rámce podle c0: strict = vzdálenost proti odmocnině kvantilu chí-kvadrát (výchozí, jako 1.x); matlab = proti kvantilu bez odmocniny, vyřadí méně rámců",
+      "choices": [
+        "strict",
+        "matlab"
+      ]
+    },
+    "std_ddof": {
+      "default": 1,
+      "type": "int",
+      "description": "Směrodatná odchylka: 1 = výběrová (n − 1) jako MATLAB (výchozí), 0 = jako 1.x",
+      "choices": [
+        0,
+        1
+      ]
     }
   }
 }

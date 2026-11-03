@@ -93,7 +93,7 @@ def _parse_item(data: dict[str, Any]) -> Item:
     if not tasks:
         raise ValueError(f"položka {data.get('column')!r}: chybí úlohy")
     return Item(
-        column=str(data["column"]),
+        column=contract.canonical_column(str(data["column"])),  # dřívější jména feature
         tasks=tuple(contract.canonical_task(str(t)) for t in tasks),
         direction=directions[direction],
         log=bool(data.get("log", False)),
