@@ -12,11 +12,18 @@ složek se po úlohách vyberou hotové běhy, volitelně jen řádky jedné sku
 (sloupec metadat = hodnota); kontroly, věk a pohlaví jsou z tabulek běhů a nic
 se nepočítá. Týž průvodce s `extend` je Přidat kontroly…: protokoly jsou dané
 normou, souhrn ukáže, co v normě už je, a volbu přeskočit / nahradit.
+
+Kdo je kdo (3. 11. 2026, mockup docs/mockups/norma-manifest): kontrola jen
+z manifestu (ve složce úlohy, nebo jeden pro všechny úlohy přes Načíst manifest…
+se sloupcem úlohy), nahrávky bez pacienta jsou v oddílu Bez kontroly k doplnění
+nebo vynechání; odhad z názvu souboru jen jako výslovná nouzová volba
+(`from_names`), norma si zdroj zapíše (`NormInfo.controls_from`).
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -31,6 +38,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -47,26 +55,34 @@ from PySide6.QtWidgets import (
 from .. import contract
 from ..backend import meta
 from ..backend import tasks as tasks_mod
+from ..backend.assessment_build import write_manifest_template
 from ..backend.assessments import patient_key
 from ..backend.audio import format_duration as audio_duration
 from ..backend.history import KIND_ASSESSMENT, RunInfo
 from ..backend.norm_build import (
+    FROM_MANIFEST,
+    FROM_MANUAL,
+    FROM_NAME,
     SUBJECT_RULES,
     Control,
     Extension,
     FolderScan,
+    ManifestSource,
     NormPlan,
     RunsScan,
     TaskPlan,
+    assign_controls,
     controls_from_scan,
     default_protocol,
-    guess_controls,
+    manifest_source,
     plan_from_runs,
     read_controls_csv,
+    rekey_manifest,
     run_columns,
     runs_problems,
     scan_folder,
     scan_runs,
+    subject_from_name,
     tasks_from_runs,
     with_language,
 )
@@ -158,6 +174,9 @@ class TaskRow:
         self.sub.setText(self._custom_sub)
         assert self.widget.folder is not None and self.widget.browse is not None
         self.folder = self.widget.folder
+        self.placeholder = (
+            self.folder.placeholderText()
+        )  # bez manifestu se úloha bez složky vynechá
         self.browse = self.widget.browse
         self.remove = self.widget.remove
         self.protocol = self.widget.protocol
@@ -230,6 +249,11 @@ class NewNormDialog(QDialog):
         self._scan = RunsScan()
         self._existing = set(extend.existing_pairs()) if extend is not None else set()
         self._columns: dict[str, list[str]] = {}  # sloupce metadat vybraných běhů
+        self._shared: ManifestSource | None = None  # jeden manifest pro všechny úlohy
+        self._assigned: dict[Path, str] = {}  # ručně doplněná kontrola nahrávky
+        self._excluded: set[Path] = set()  # nahrávky bez kontroly, které se vynechají
+        self._loose: list[tuple[str, Path, str]] = []  # nahrávky bez kontroly v manifestu
+        self._sources: dict[str, set[str]] = {}  # kontrola -> odkud (manifest, name, manual)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(24, 18, 24, 16)
@@ -357,6 +381,7 @@ class NewNormDialog(QDialog):
         folders_layout = QVBoxLayout(self.folders_box)
         folders_layout.setContentsMargins(0, 0, 0, 0)
         folders_layout.setSpacing(12)
+        folders_layout.addWidget(self._build_manifest_bar())
         tasks_head = QHBoxLayout()
         tasks_head.setSpacing(10)
         tasks_title = QLabel(tr("Úlohy"))
@@ -427,6 +452,107 @@ class NewNormDialog(QDialog):
         layout.addWidget(self._build_runs_box())
         layout.addStretch(1)
         return page
+
+    def _build_manifest_bar(self) -> QFrame:
+        """Jeden manifest pro všechny úlohy (sloupec úloha rozdělí nahrávky do řádků)."""
+        bar = QFrame()
+        bar.setObjectName("card")
+        theme.set_role(bar, "accent")
+        layout = QVBoxLayout(bar)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(4)
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        title = QLabel(tr("Manifest"))
+        title.setObjectName("card_title")
+        row.addWidget(title)
+        self.manifest_path = QLabel(tr("žádný · bere se manifest.csv ve složce úlohy"))
+        self.manifest_path.setObjectName("muted")
+        row.addWidget(self.manifest_path, 1)
+        self.manifest_pill = QLabel("")
+        self.manifest_pill.setObjectName("pill")
+        self.manifest_pill.hide()
+        row.addWidget(self.manifest_pill)
+        self.manifest_btn = QPushButton(tr("Načíst manifest…"))
+        self.manifest_btn.clicked.connect(lambda: self._ask_manifest())
+        row.addWidget(self.manifest_btn)
+        self.manifest_clear = QPushButton(tr("Nepoužít"))
+        self.manifest_clear.clicked.connect(lambda: self.clear_manifest())
+        self.manifest_clear.hide()
+        row.addWidget(self.manifest_clear)
+        layout.addLayout(row)
+        self.manifest_hint = QLabel(
+            tr(
+                "Jeden soubor pro všechny úlohy: sloupce path, pacient, task, věk, pohlaví. "
+                "Úloha rozdělí nahrávky do řádků níže; bez úlohy jen doplní údaje k nahrávkám "
+                "ve složkách."
+            )
+        )
+        self.manifest_hint.setObjectName("muted")
+        self.manifest_hint.setWordWrap(True)
+        layout.addWidget(self.manifest_hint)
+        return bar
+
+    def _ask_manifest(self) -> None:
+        source, _ = QFileDialog.getOpenFileName(self, tr("Manifest kontrol"), "", CSV_FILTER)
+        if source:
+            self.load_manifest(Path(source))
+
+    def load_manifest(self, path: Path) -> bool:
+        """Manifest odkudkoli pro všechny úlohy; False, když se nedá použít."""
+        source = manifest_source(path)
+        if not source.manifest.rows:
+            QMessageBox.warning(
+                self,
+                tr("SpeechScope"),
+                "\n".join(source.manifest.problems) or tr("Manifest neobsahuje žádný řádek."),
+            )
+            return False
+        self._shared = source
+        for key in source.scans:
+            custom = tasks_mod.registry().get(key) if key not in self.rows else None
+            if isinstance(custom, tasks_mod.CustomTask):
+                self.add_custom_task(custom)
+        self._update_manifest_bar()
+        self._rescan_all()
+        if self.step() == 1:
+            self._regroup()
+        return True
+
+    def clear_manifest(self) -> None:
+        self._shared = None
+        self._update_manifest_bar()
+        self._rescan_all()
+        if self.step() == 1:
+            self._regroup()
+
+    def shared_manifest(self) -> ManifestSource | None:
+        return self._shared
+
+    def _tasks_from_manifest(self) -> bool:
+        """Nahrávky po úlohách dává manifest (má sloupec úlohy), ne složky."""
+        return self._shared is not None and bool(self._shared.scans)
+
+    def _update_manifest_bar(self) -> None:
+        shared = self._shared
+        self.manifest_clear.setVisible(shared is not None)
+        self.manifest_btn.setText(tr("Změnit…") if shared is not None else tr("Načíst manifest…"))
+        if shared is None:
+            self.manifest_path.setText(tr("žádný · bere se manifest.csv ve složce úlohy"))
+            self.manifest_path.setToolTip("")
+            self.manifest_pill.hide()
+            return
+        self.manifest_path.setText(shared.manifest.path.name)
+        self.manifest_path.setToolTip(str(shared.manifest.path))
+        if shared.scans:
+            text = tr("✓ {n} nahrávek · {k} kontrol").format(n=shared.recordings, k=shared.subjects)
+        else:
+            text = tr("bez úlohy: jen údaje k nahrávkám ve složkách")
+        if shared.missing:
+            text += " · " + tr("{n} souborů nenalezeno").format(n=shared.missing)
+        self.manifest_pill.setText(text)
+        theme.set_role(self.manifest_pill, "warn" if shared.missing else "ok")
+        self.manifest_pill.show()
 
     def _build_runs_box(self) -> QWidget:
         """Zdroj z hotových běhů: běhy po úlohách, filtr skupiny, varování."""
@@ -692,12 +818,26 @@ class NewNormDialog(QDialog):
         return False
 
     def _rescan(self, row: TaskRow) -> None:
+        from_manifest = self._tasks_from_manifest()
+        row.folder.setEnabled(not from_manifest)
+        row.browse.setEnabled(not from_manifest)
+        row.folder.setPlaceholderText(tr("z manifestu") if from_manifest else row.placeholder)
+        if from_manifest:
+            assert self._shared is not None
+            found = self._shared.scans.get(row.task, FolderScan([]))
+            row.scan = FolderScan(list(found.recordings), found.manifest, dict(found.durations))
+            row.count.setText(f"{len(row.scan.recordings)} ✓" if row.scan.recordings else "–")
+            row.refresh_look()
+            self._update_buttons()
+            return
         text = row.folder.text().strip()
         row.scan = (
             scan_folder(Path(text), recursive=self.recursive.isChecked())
             if text
             else FolderScan([])
         )
+        if self._shared is not None:  # manifest bez úlohy: údaje k nahrávkám ze složek
+            row.scan.manifest = rekey_manifest(self._shared.manifest, row.scan.recordings)
         n = len(row.scan.recordings)
         if not text:
             row.count.setText("–")
@@ -725,22 +865,20 @@ class NewNormDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
         top = QHBoxLayout()
-        self.rule_label = QLabel(tr("Kontrolu poznám z názvu souboru:"))
-        top.addWidget(self.rule_label)
-        self.rule = QComboBox()
-        for key, label in SUBJECT_RULES.items():
-            self.rule.addItem(label, key)
-        self.rule.currentIndexChanged.connect(self._regroup)
-        top.addWidget(self.rule)
-        self.example = QLabel("")
-        self.example.setObjectName("muted")
-        top.addWidget(self.example, 1)
-        top.addStretch(0)  # u zdroje z běhů jsou pravidlo a příklad skryté
+        self.source_pill = QLabel("")
+        self.source_pill.setObjectName("pill")
+        self.source_pill.hide()
+        top.addWidget(self.source_pill)
+        self.source_text = QLabel("")
+        self.source_text.setObjectName("muted")
+        top.addWidget(self.source_text, 1)
         self.csv_btn = QPushButton(tr("Načíst věk a pohlaví z CSV…"))
         self.csv_btn.clicked.connect(self._load_csv)
         self.csv_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         top.addWidget(self.csv_btn)
         layout.addLayout(top)
+        layout.addWidget(self._build_names_box())
+        layout.addWidget(self._build_loose_box())
         # Přidat kontroly: co s kontrolou, která úlohu v normě už má (štítky v tabulce)
         self.policy_row = QWidget()
         policy = QHBoxLayout(self.policy_row)
@@ -759,7 +897,7 @@ class NewNormDialog(QDialog):
         self.table = QTableWidget()
         style_table(
             self.table,
-            [tr("kontrola"), tr("věk"), tr("pohlaví"), tr("nahrávky"), tr("stav")],
+            [tr("kontrola"), tr("věk"), tr("pohlaví"), tr("nahrávky"), tr("zdroj"), tr("stav")],
             row_height=44,  # místo na výběr pohlaví
         )
         # věk se píše přímo do buňky (style_table úpravy vypíná)
@@ -778,6 +916,7 @@ class NewNormDialog(QDialog):
         header.resizeSection(2, 110)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self.table.itemChanged.connect(self._age_edited)
         layout.addWidget(card(self.table), 1)
         self.extend_summary = QLabel("")
@@ -787,8 +926,8 @@ class NewNormDialog(QDialog):
         self.counts.setToolTip(
             tr(
                 "Kontrolu bez věku nebo pohlaví jde použít, jen se nevybere podle věkového "
-                "okna nebo pohlaví. Když ve složce je manifest.csv, pacient, věk a pohlaví "
-                "se vezmou z něj."
+                "okna nebo pohlaví. Pacient, věk a pohlaví se berou z manifestu; z názvu "
+                "souboru jen nouzově, když ho zapnete."
             )
         )
         # varování (dřív krok Souhrn): málo kontrol, vynechaná úloha, pacient v normě…
@@ -799,43 +938,360 @@ class NewNormDialog(QDialog):
         layout.addWidget(self.warnings)
         return page
 
+    def _build_names_box(self) -> QFrame:
+        """Bez manifestu: šablona a načtení manifestu, nebo nouzově odhad z názvu souboru."""
+        box = QFrame()
+        box.setObjectName("card")
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
+        self.names_title = QLabel(tr("Ve složkách není manifest. Kdo je na které nahrávce?"))
+        self.names_title.setObjectName("card_title")
+        layout.addWidget(self.names_title)
+        cards = QHBoxLayout()
+        cards.setSpacing(12)
+        self.manifest_card = QFrame()
+        self.manifest_card.setObjectName("card")
+        theme.set_role(self.manifest_card, "accent")
+        left = QVBoxLayout(self.manifest_card)
+        left.setContentsMargins(12, 10, 12, 10)
+        left.setSpacing(6)
+        head = QLabel(tr("Doporučeno: manifest"))
+        head.setObjectName("card_title")
+        left.addWidget(head)
+        hint = QLabel(
+            tr(
+                "Šablona má všechny nahrávky; doplníte pacienta, věk a pohlaví v Excelu "
+                "a načtete ji zpět."
+            )
+        )
+        hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        left.addWidget(hint)
+        buttons = QHBoxLayout()
+        self.template_btn = QPushButton(tr("Uložit šablonu manifestu…"))
+        theme.set_role(self.template_btn, "primary")
+        self.template_btn.clicked.connect(lambda: self._ask_template())
+        buttons.addWidget(self.template_btn)
+        self.load_btn = QPushButton(tr("Načíst manifest…"))
+        self.load_btn.clicked.connect(lambda: self._ask_manifest())
+        buttons.addWidget(self.load_btn)
+        buttons.addStretch(1)
+        left.addLayout(buttons)
+        cards.addWidget(self.manifest_card, 1)
+        self.guess_card = QFrame()
+        self.guess_card.setObjectName("card")
+        theme.set_role(self.guess_card, "warn")
+        right = QVBoxLayout(self.guess_card)
+        right.setContentsMargins(12, 10, 12, 10)
+        right.setSpacing(6)
+        self.from_names = QCheckBox(tr("Nouzově: odhadnout z názvu souboru"))
+        self.from_names.toggled.connect(lambda _on: self._regroup())
+        right.addWidget(self.from_names)
+        rule_row = QHBoxLayout()
+        self.rule_label = QLabel(tr("Pravidlo"))
+        rule_row.addWidget(self.rule_label)
+        self.rule = QComboBox()
+        for key, label in SUBJECT_RULES.items():
+            self.rule.addItem(label, key)
+        self.rule.currentIndexChanged.connect(lambda _i: self._regroup())
+        rule_row.addWidget(self.rule)
+        rule_row.addStretch(1)
+        right.addLayout(rule_row)
+        self.example = QLabel("")
+        self.example.setObjectName("muted")
+        right.addWidget(self.example)
+        self.guess_hint = QLabel(
+            tr("Odhad: zkontrolujte kontroly v tabulce. Norma si zapíše, že jsou z názvu.")
+        )
+        self.guess_hint.setStyleSheet(f"color: {theme.WARN};")
+        self.guess_hint.setWordWrap(True)
+        right.addWidget(self.guess_hint)
+        cards.addWidget(self.guess_card, 1)
+        layout.addLayout(cards)
+        box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        self.names_box = box
+        box.hide()
+        return box
+
+    def _build_loose_box(self) -> QFrame:
+        """Nahrávky, které manifest nezná nebo nemají pacienta: doplnit, nebo vynechat."""
+        box = QFrame()
+        box.setObjectName("card")
+        theme.set_role(box, "warn")
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(6)
+        head = QHBoxLayout()
+        self.loose_title = QLabel("")
+        self.loose_title.setObjectName("card_title")
+        head.addWidget(self.loose_title)
+        hint = QLabel(tr("nic se nehádá: doplňte kontrolu dvojklikem, nebo nahrávky vynechte"))
+        hint.setObjectName("muted")
+        head.addWidget(hint, 1)
+        self.loose_fill_btn = QPushButton(tr("Vyplnit…"))
+        self.loose_fill_btn.clicked.connect(lambda: self._ask_fill_loose())
+        head.addWidget(self.loose_fill_btn)
+        self.loose_skip_btn = QPushButton(tr("Vynechat"))
+        self.loose_skip_btn.setToolTip(tr("Vybrané nahrávky do normy nepůjdou (znovu = vrátit)"))
+        self.loose_skip_btn.clicked.connect(lambda: self.skip_loose(self._selected_loose()))
+        head.addWidget(self.loose_skip_btn)
+        layout.addLayout(head)
+        self.loose_table = QTableWidget()
+        style_table(self.loose_table, [tr("úloha"), tr("nahrávka"), tr("kontrola"), tr("důvod")])
+        self.loose_table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+        self.loose_table.setEditTriggers(
+            QTableWidget.EditTrigger.DoubleClicked
+            | QTableWidget.EditTrigger.EditKeyPressed
+            | QTableWidget.EditTrigger.AnyKeyPressed
+        )
+        self.loose_table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        header = self.loose_table.horizontalHeader()
+        header.setStretchLastSection(False)
+        for col in (0, 2, 3):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.loose_table.itemChanged.connect(self._loose_edited)
+        layout.addWidget(self.loose_table)
+        box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        self.loose_box = box
+        box.hide()
+        return box
+
     def _regroup(self) -> None:
+        if not hasattr(self, "loose_box"):  # krok 1 se staví dřív než krok 2
+            return
         from_runs = self._source == RUNS
+        rule = self._rule() if self.from_names.isChecked() else ""
         if from_runs:
             column, value = self.group_filter()
-            self._scan = scan_runs(self._chosen, column, value, self._rule())
+            self._scan = scan_runs(self._chosen, column, value, rule)
             self._files = {r.path: r.subject for r in self._scan.rows}
+            self._sources = {}
+            for r in self._scan.rows:
+                self._sources.setdefault(r.subject, set()).add(
+                    FROM_NAME if r.from_name else FROM_MANIFEST
+                )
             # kontroly jen z metadat: ručně doplněné zůstávají, jména z jiného pravidla ne
             known = {s: c for s, c in self._controls.items() if s in self._files.values()}
             self._controls = controls_from_scan(self._scan, known)
-            # pravidlo z názvu souboru jen u běhů bez pacienta v metadatech
+            self._loose = []
+            # odhad z názvu jen u běhů bez pacienta v metadatech; šablona tu nedává smysl
+            needs = bool(self._scan.unnamed) or self.from_names.isChecked()
+            self.names_box.setVisible(needs)
+            self.manifest_card.hide()
+            self.names_title.setText(
+                tr(
+                    "{n} nahrávek nemá pacienta v metadatech běhu. Doplňte ho na Výsledcích "
+                    "(Údaje nahrávek…), nebo nouzově:"
+                ).format(n=self._scan.unnamed)
+                if self._scan.unnamed
+                else tr("Kontroly odhadnuté z názvu souboru:")
+            )
             named = next((r for r in self._scan.rows if r.from_name), None)
-            for widget in (self.rule_label, self.rule, self.example):
-                widget.setVisible(named is not None)
-            if named is not None:
-                self.example.setText(f"{named.path.name} → {named.subject}")
-            self._fill_table()
-            return
-        for widget in (self.rule_label, self.rule, self.example):
-            widget.setVisible(True)
-        scans = {r.task: r.scan for r in self.active_rows()}
-        rule = self._rule()
-        self._files, self._controls = guess_controls(scans, rule, self._controls)
-        first = next((p for s in scans.values() for p in s.recordings), None)
-        if first is not None:
-            self.example.setText(f"{first.name} → {self._files.get(first, '')}")
+            self.example.setText(f"{named.path.name} → {named.subject}" if named else "")
+        else:
+            scans = {r.task: r.scan for r in self.active_rows()}
+            found = assign_controls(
+                scans,
+                rule=rule,
+                known=self._controls,
+                assigned=self._assigned,
+                excluded=self._excluded,
+            )
+            self._files, self._controls = found.files, found.controls
+            self._sources, self._loose = found.sources, found.loose
+            any_manifest = any(s.manifest is not None for s in scans.values())
+            self._any_manifest = any_manifest
+            self.names_box.setVisible(not any_manifest or self.from_names.isChecked())
+            self.manifest_card.setVisible(True)
+            self.names_title.setText(
+                tr("Ve složkách není manifest. Kdo je na které nahrávce?")
+                if not any_manifest
+                else tr("Kontroly, které manifest nezná, odhadnuté z názvu souboru:")
+            )
+            first = next((p for sc in scans.values() for p in sc.recordings), None)
+            self.example.setText(
+                f"{first.name} → {subject_from_name(first, self._rule())}" if first else ""
+            )
+        for widget in (self.rule_label, self.rule, self.example, self.guess_hint):
+            widget.setEnabled(self.from_names.isChecked())
+        self._update_source_pill()
+        self._fill_loose()
         self._fill_table()
 
+    def _update_source_pill(self) -> None:
+        source = self.controls_from()
+        if source == FROM_NAME:
+            n = sum(1 for v in self._sources.values() if FROM_NAME in v)
+            text, role = tr("odhad z názvu souboru"), "warn"
+            detail = tr("{n} z {total} kontrol je odhadnutých z názvu souboru.").format(
+                n=n, total=len(self._controls)
+            )
+        elif source in (FROM_MANIFEST, FROM_MANUAL) and self._source == RUNS:
+            text, role, detail = tr("kontroly z metadat běhů"), "ok", ""
+        elif source in (FROM_MANIFEST, FROM_MANUAL):
+            text, role = tr("kontroly z manifestu"), "ok"
+            detail = self._shared.manifest.path.name if self._shared is not None else ""
+        else:
+            self.source_pill.hide()
+            self.source_text.setText("")
+            return
+        self.source_pill.setText(text)
+        theme.set_role(self.source_pill, role)
+        self.source_pill.show()
+        self.source_text.setText(detail)
+
+    def controls_from(self) -> str:
+        """Souhrnný zdroj kontrol pro `NormInfo.controls_from` (name vyhrává)."""
+        found: set[str] = set().union(*self._sources.values()) if self._sources else set()
+        for source in (FROM_NAME, FROM_MANIFEST, FROM_MANUAL):
+            if source in found:
+                return source
+        return ""
+
+    def loose(self) -> list[tuple[str, Path, str]]:
+        """Nahrávky bez kontroly v manifestu (úloha, nahrávka, důvod), i už doplněné."""
+        return list(self._loose)
+
+    def _fill_loose(self) -> None:
+        table = self.loose_table
+        self._filling = True
+        table.setRowCount(len(self._loose))
+        open_count = 0
+        for r, (task, path, reason) in enumerate(self._loose):
+            subject = self._assigned.get(path, "")
+            skipped = path in self._excluded
+            if not subject and not skipped:
+                open_count += 1
+            set_text(table, r, 0, self._task_name(task), muted=True)
+            name = set_text(table, r, 1, path.name, bold=True)
+            name.setToolTip(str(path))
+            name.setData(Qt.ItemDataRole.UserRole, str(path))
+            if skipped:
+                item = set_text(table, r, 2, tr("vynecháno"), muted=True)
+            else:
+                item = QTableWidgetItem(f"{subject} ✓" if subject else "")
+                item.setToolTip(tr("doplnit kontrolu (dvojklik)"))
+                if not subject:
+                    item.setForeground(QColor(theme.WARN))
+                table.setItem(r, 2, item)
+            item.setData(Qt.ItemDataRole.UserRole, str(path))
+            item.setFlags(
+                (item.flags() | Qt.ItemFlag.ItemIsEditable)
+                if not skipped
+                else (item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            )
+            set_text(table, r, 3, reason, muted=True)
+            for c in (0, 1, 3):
+                cell_item = table.item(r, c)
+                if cell_item is not None:
+                    cell_item.setFlags(cell_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self._filling = False
+        self.loose_title.setText(
+            tr("Bez kontroly · {n} nahrávek").format(n=open_count)
+            if open_count
+            else tr("Bez kontroly · vše vyřešeno")
+        )
+        visible = bool(self._loose) and self._source != RUNS
+        self.loose_box.setVisible(visible)
+        if visible:  # bez manifestu jen pro pár ručních kontrol, hlavní je volba nahoře
+            fit_height(table, max_rows=6 if getattr(self, "_any_manifest", True) else 3)
+            # rozvržení kroku jinak dávalo oddílu volné místo místo tabulce kontrol
+            self.loose_box.setMaximumHeight(self.loose_box.sizeHint().height())
+
+    def _loose_edited(self, item: QTableWidgetItem) -> None:
+        if self._filling or item.column() != 2:
+            return
+        path = Path(str(item.data(Qt.ItemDataRole.UserRole) or ""))
+        text = item.text().replace("✓", "").strip()
+        self.fill_loose([path], text)
+
+    def _selected_loose(self) -> list[Path]:
+        rows = sorted({i.row() for i in self.loose_table.selectedIndexes()})
+        return [self._loose[r][1] for r in rows if 0 <= r < len(self._loose)]
+
+    def fill_loose(self, paths: list[Path], subject: str) -> None:
+        """Kontrola pro nahrávky bez pacienta (prázdné = zrušit doplnění), jen pro výpočet."""
+        for path in paths:
+            if subject.strip():
+                self._assigned[path] = subject.strip()
+                self._excluded.discard(path)
+            else:
+                self._assigned.pop(path, None)
+        self._regroup()
+
+    def skip_loose(self, paths: list[Path]) -> None:
+        """Vynechat nahrávky bez kontroly; vynechané znovu = vrátit."""
+        if not paths:
+            return
+        if all(p in self._excluded for p in paths):
+            self._excluded.difference_update(paths)
+        else:
+            self._excluded.update(paths)
+        self._regroup()
+
+    def _ask_fill_loose(self) -> None:
+        paths = self._selected_loose()
+        if not paths:
+            QMessageBox.information(
+                self, tr("Vyplnit"), tr("Vyberte nahrávky v oddílu Bez kontroly.")
+            )
+            return
+        subject, ok = QInputDialog.getText(
+            self, tr("Vyplnit"), tr("Kontrola pro {n} vybraných nahrávek:").format(n=len(paths))
+        )
+        if ok:
+            self.fill_loose(paths, subject)
+
+    def _ask_template(self) -> None:
+        recordings = {rec: row.task for row in self.active_rows() for rec in row.scan.recordings}
+        if not recordings:
+            return
+        base = Path(os.path.commonpath([str(p.parent) for p in recordings]))
+        target, _ = QFileDialog.getSaveFileName(
+            self, tr("Šablona manifestu"), str(base / "manifest.csv"), CSV_FILTER
+        )
+        if not target:
+            return
+        try:
+            write_manifest_template(Path(target), recordings, Path(target).parent)
+        except OSError as exc:
+            QMessageBox.warning(self, tr("SpeechScope"), str(exc))
+            return
+        QMessageBox.information(
+            self,
+            tr("Šablona manifestu"),
+            tr(
+                "Šablona je uložená. Doplňte v ní pacienta, věk a pohlaví a načtěte ji "
+                "tlačítkem Načíst manifest…."
+            ),
+        )
+
     def _rule(self) -> str:
-        """Jak z názvu souboru poznat kontrolu (krok 2; u běhů jen bez pacienta v metadatech)."""
+        """Jak z názvu souboru poznat kontrolu (nouzová volba v kroku 2)."""
         rule = getattr(self, "rule", None)  # krok 1 se staví dřív než krok 2
         return str(rule.currentData() or "prefix") if rule is not None else "prefix"
+
+    def set_from_names(self, on: bool, rule: str = "") -> None:
+        """Nouzový odhad kontroly z názvu souboru (pro testy i průvodce)."""
+        if rule:
+            idx = self.rule.findData(rule)
+            if idx >= 0:
+                self.rule.blockSignals(True)
+                self.rule.setCurrentIndex(idx)
+                self.rule.blockSignals(False)
+        self.from_names.setChecked(on)
+        self._regroup()
 
     def recordings_by_task(self) -> dict[str, list[Path]]:
         """Nahrávky po úlohách podle zdroje (složky, nebo řádky vybraných běhů)."""
         if self._source == RUNS:
             return {t: [r.path for r in rows] for t, rows in self._scan.by_task().items()}
-        return {r.task: list(r.scan.recordings) for r in self.active_rows()}
+        out = {
+            r.task: [p for p in r.scan.recordings if p in self._files] for r in self.active_rows()
+        }
+        return {t: recs for t, recs in out.items() if recs}
 
     def _task_name(self, task: str) -> str:
         row = self.rows.get(task)
@@ -853,10 +1309,12 @@ class NewNormDialog(QDialog):
                 tasks = per_subject.setdefault(self._files.get(rec, ""), {})
                 tasks[task] = tasks.get(task, 0) + 1
         all_tasks = list(by_task)
-        for r in range(self.table.rowCount()):  # staré výběry pohlaví hned pryč, ne až později
-            old = self.table.cellWidget(r, 2)
-            if old is not None:
-                old.hide()
+        for r in range(self.table.rowCount()):  # staré výběry a štítky hned pryč, ne až později
+            for c in (2, 4):
+                old = self.table.cellWidget(r, c)
+                if old is not None:
+                    old.hide()
+                    self.table.removeCellWidget(r, c)
         self.table.setRowCount(len(self._controls))
         for r, (subject, control) in enumerate(self._controls.items()):
             name = QTableWidgetItem(subject)
@@ -883,11 +1341,29 @@ class NewNormDialog(QDialog):
             recs.setFlags(recs.flags() & ~Qt.ItemFlag.ItemIsEditable)
             recs.setForeground(QColor(theme.MUTED))
             self.table.setItem(r, 3, recs)
+            sources = self._sources.get(subject, set())
+            text, role = self._source_label(sources)
+            if text:
+                set_pill(self.table, r, 4, text, role)
+            else:
+                set_text(self.table, r, 4, "–", muted=True)
             state = QTableWidgetItem(self._state_text(control, tasks, all_tasks, subject))
             state.setFlags(state.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(r, 4, state)
+            self.table.setItem(r, 5, state)
         self._filling = False
         self._update_counts()
+
+    @staticmethod
+    def _source_label(sources: set[str]) -> tuple[str, str]:
+        if FROM_NAME in sources:
+            return tr("z názvu"), "warn"
+        if FROM_MANIFEST in sources and FROM_MANUAL in sources:
+            return tr("manifest + ručně"), "accent"
+        if FROM_MANUAL in sources:
+            return tr("ručně"), "accent"
+        if FROM_MANIFEST in sources:
+            return tr("manifest"), "neutral"
+        return "", ""
 
     def _sex_box(self, subject: str, sex: str) -> QComboBox:
         box = QComboBox()
@@ -1028,7 +1504,7 @@ class NewNormDialog(QDialog):
         for r in range(self.table.rowCount()):
             item = self.table.item(r, 0)
             if item is not None and item.text() == subject:
-                state = self.table.item(r, 4)
+                state = self.table.item(r, 5)
                 if state is not None:
                     state.setText(
                         self._state_text(self._controls[subject], tasks, all_tasks, subject)
@@ -1163,6 +1639,23 @@ class NewNormDialog(QDialog):
                     )
         if self._extend is None:
             problems += self._few_controls(by_task)
+        if not from_runs:
+            open_loose = [
+                p for _t, p, _r in self._loose if p not in self._files and p not in self._excluded
+            ]
+            if open_loose:
+                problems.append(
+                    tr("{n} nahrávek bez kontroly se vynechá (oddíl Bez kontroly).").format(
+                        n=len(open_loose)
+                    )
+                )
+        if self.controls_from() == FROM_NAME:
+            n = sum(1 for v in self._sources.values() if FROM_NAME in v)
+            problems.append(
+                tr(
+                    "{n} kontrol je odhadnutých z názvu souboru; norma si to zapíše (O normě)."
+                ).format(n=n)
+            )
         problems += self._patient_warning()
         self.warnings.setText("\n".join("⚠ " + p for p in problems))
         self.warnings.setVisible(bool(problems))
@@ -1201,12 +1694,12 @@ class NewNormDialog(QDialog):
         if self.runs_warning.text():
             problems = self.runs_warning.text().split("\n")
         scan = self._scan
-        if scan.from_name:
+        if scan.unnamed:
             problems.append(
                 tr(
-                    "{n} nahrávek nemá pacienta v metadatech běhu, kontrola je podle názvu "
-                    "souboru (pravidlo nahoře)."
-                ).format(n=scan.from_name)
+                    "{n} nahrávek nemá pacienta v metadatech běhu a do normy nepůjde "
+                    "(Údaje nahrávek… na Výsledcích, nebo nouzově odhad z názvu)."
+                ).format(n=scan.unnamed)
             )
         if scan.no_subject:
             problems.append(
@@ -1307,6 +1800,7 @@ class NewNormDialog(QDialog):
             source=self.source.text().strip(),
             conditions=self.conditions.text().strip(),
             language=language,
+            controls_from=self.controls_from(),
         )
         folder = unique_norm_dir(self._norms_dir, name)
         if self._source == RUNS:
@@ -1321,11 +1815,14 @@ class NewNormDialog(QDialog):
         for row in self.active_rows():
             proto = row.current_protocol()
             assert proto is not None
+            inputs = [p for p in row.scan.recordings if p in self._files]  # jen s kontrolou
+            if not inputs:
+                continue
             tasks.append(
                 TaskPlan(
                     task=row.task,
                     protocol=with_language(proto, language).to_dict(),
-                    inputs=list(row.scan.recordings),
+                    inputs=inputs,
                 )
             )
         files = {p: s for p, s in self._files.items() if any(p in t.inputs for t in tasks)}
@@ -1370,10 +1867,13 @@ class NewNormDialog(QDialog):
                     current = row.current_protocol()
                     assert current is not None
                     proto = with_language(current, language).to_dict()
-                plan_tasks.append(TaskPlan(row.task, proto, list(row.scan.recordings)))
+                inputs = [p for p in row.scan.recordings if p in self._files]
+                if inputs:
+                    plan_tasks.append(TaskPlan(row.task, proto, inputs))
         used = {p for t in plan_tasks for p in t.inputs}
         files = {p: s for p, s in self._files.items() if p in used}
-        return Extension(plan_tasks, files, dict(self._controls)), self.replace_existing()
+        ext = Extension(plan_tasks, files, dict(self._controls), self.controls_from())
+        return ext, self.replace_existing()
 
 
 class PickRunsDialog(QDialog):

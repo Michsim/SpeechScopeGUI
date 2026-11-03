@@ -107,21 +107,29 @@ def test_new_norm_wizard_runs_batches_and_builds_norm(
     assert not dialog.rows["phonation"].protocol.isEnabled()  # klinik: jen přibalený
     assert dialog.next_btn.isEnabled() and "nahrávek: 5" in dialog.hint.text()
     dialog.go_next()
-    assert dialog.step() == 1 and dialog.table.rowCount() == 3
+    # bez manifestu se nic neodhaduje: volba manifest, nebo nouzově z názvu souboru
+    assert dialog.step() == 1 and dialog.table.rowCount() == 0
+    assert dialog.names_box.isVisibleTo(dialog) and not dialog.next_btn.isEnabled()
+    assert len(dialog.loose()) == 5 and dialog.loose_box.isVisibleTo(dialog)
+    dialog.set_from_names(True)
+    assert dialog.table.rowCount() == 3 and dialog.source_pill.text() == "odhad z názvu souboru"
     assert "HC01_a.wav → HC01" in dialog.example.text()
+    assert dialog.table.item(0, 4).text() == "z názvu"
     assert dialog.load_controls_csv(data / "vek.csv") == 2
     dialog.set_age("HC03", 58)
     controls = dialog.controls()
     assert controls["HC01"].age == 64 and controls["HC02"].sex == "f"
     assert controls["HC03"].age == 58 and controls["HC03"].sex == ""
-    assert "chybí pohlaví" in dialog.table.item(2, 4).text()
-    assert "bez DDK" in dialog.table.item(2, 4).text()
+    assert "chybí pohlaví" in dialog.table.item(2, 5).text()
+    assert "bez DDK" in dialog.table.item(2, 5).text()
+    assert "odhadnutých z názvu" in dialog.warnings.text()
     # dva kroky: souhrn v patičce a varování pod kontrolami (dřív krok 3 Souhrn)
     assert dialog.summary.figures()[:2] == ["3 kontrol", "5 nahrávek"]
     assert dialog.next_btn.text() == "Spustit"
     assert not dialog.warnings.isHidden() and "Čtení se vynechá" in dialog.warnings.text()
     plan = dialog.plan()
     assert [t.task for t in plan.tasks] == ["phonation", "ddk"]
+    assert plan.info.controls_from == "name"
 
     # Spustit: dávky do fronty, rozpracovaná norma na stránce Normy
     assert window.start_norm(plan) == 2
@@ -209,6 +217,7 @@ def test_new_norm_wizard_with_custom_task(
     dialog.set_folder("popis-obrazku", data / "obrazek")
     assert "úloh: 2" in dialog.hint.text()
     dialog.go_next()
+    dialog.set_from_names(True)
     assert dialog.step() == 1 and dialog.table.rowCount() == 2
     dialog.set_age("HC01", 60)
     dialog.set_age("HC02", 70)
@@ -465,7 +474,8 @@ def test_norm_from_runs_and_add_controls(
     assert dialog.runs_table.item(0, 2).text() == "Fonace, základní"
     dialog.go_next()
     assert dialog.table.rowCount() == 2 and not dialog.rule.isVisibleTo(dialog)
-    assert "chybí věk" in dialog.table.item(1, 4).text()
+    assert "chybí věk" in dialog.table.item(1, 5).text()
+    assert dialog.source_pill.text() == "kontroly z metadat běhů"
     dialog.set_age("HC02", 58)
     assert dialog.next_btn.text() == "Sestavit" and "Nic se nepočítá" in dialog.hint.text()
     plan = dialog.plan()
@@ -520,6 +530,10 @@ def test_norm_from_runs_and_add_controls(
     extend.set_folder("phonation", data)
     assert not extend.rows["phonation"].protocol.isEnabled()
     extend.go_next()
+    # nahrávka bez manifestu: kontrola se doplní ručně v oddílu Bez kontroly
+    (loose,) = extend.loose()
+    extend.fill_loose([loose[1]], "HC04")
+    assert extend.table.item(0, 0).text() == "HC04" and extend.controls_from() == "manual"
     extend.set_age("HC04", 66)
     extend.set_sex("HC04", "f")
     assert extend.next_btn.text() == "Spustit" and extend.next_btn.isEnabled()
@@ -590,3 +604,51 @@ def test_pick_runs_analyses_and_assessments_with_patient_warning(
     dialog.go_next()
     assert dialog.patients_in_norm() == ["HN032"]
     assert "zároveň na stránce Pacienti (HN032)" in dialog.warnings.text()
+
+
+def test_new_norm_one_manifest_for_all_tasks(
+    qtbot: QtBot, settings: AppSettings, tmp_path: Path
+) -> None:
+    """Jeden manifest se sloupcem task: úlohy bez složek, kontroly z něj, zdroj v normě."""
+    data = tmp_path / "kontroly"
+    data.mkdir()
+    for name in ("HC01_a.wav", "HC01_b.wav", "HC02_a.wav", "rec_9.wav"):
+        (data / name).write_bytes(b"RIFF")
+    manifest = tmp_path / "jinde" / "kontroly.csv"
+    manifest.parent.mkdir()
+    manifest.write_text(
+        "path;pacient;task;věk;pohlaví\n"
+        f"{data / 'HC01_a.wav'};HC01;phonation;64;muž\n"
+        f"{data / 'HC01_b.wav'};HC01;ddk;64;muž\n"
+        f"{data / 'HC02_a.wav'};HC02;phonation;58;žena\n"
+        f"{data / 'rec_9.wav'};;ddk;;\n",
+        encoding="utf-8",
+    )
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    dialog = window.make_new_norm_dialog()
+    qtbot.addWidget(dialog)
+    dialog.name.setText("Z manifestu")
+    assert dialog.load_manifest(manifest)
+    assert dialog.rows["phonation"].count.text() == "2 ✓"
+    assert dialog.rows["ddk"].count.text() == "2 ✓"
+    assert not dialog.rows["phonation"].folder.isEnabled()  # nahrávky dává manifest
+    assert "4 nahrávek · 2 kontrol" in dialog.manifest_pill.text()
+    dialog.go_next()
+    assert dialog.table.rowCount() == 2 and not dialog.names_box.isVisibleTo(dialog)
+    assert dialog.source_pill.text() == "kontroly z manifestu"
+    assert dialog.controls()["HC02"].sex == "f" and dialog.controls()["HC01"].age == 64
+    (loose,) = dialog.loose()
+    assert loose[1].name == "rec_9.wav" and loose[2] == "prázdný pacient"
+    assert "1 nahrávek bez kontroly se vynechá" in dialog.warnings.text()
+    dialog.skip_loose([loose[1]])
+    assert "bez kontroly se vynechá" not in dialog.warnings.text()
+    plan = dialog.plan()
+    assert plan.info.controls_from == "manifest"
+    assert sorted(p.name for t in plan.tasks for p in t.inputs) == [
+        "HC01_a.wav", "HC01_b.wav", "HC02_a.wav",
+    ]  # fmt: skip
+    dialog.clear_manifest()
+    assert (
+        dialog.rows["phonation"].folder.isEnabled() and dialog.rows["phonation"].count.text() == "–"
+    )

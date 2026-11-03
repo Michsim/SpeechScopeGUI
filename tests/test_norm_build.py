@@ -402,3 +402,79 @@ def test_norm_protocols_from_norm_installed_or_missing(tmp_path: Path) -> None:
     # protocol_data jde do norm.yaml i zpět
     again = NormInfo.from_dict(info.to_dict())
     assert again.protocol_data["phonation"]["name"] == stored.name
+
+
+def test_assign_controls_only_from_manifest(tmp_path: Path) -> None:
+    """Kontrola jen z manifestu; bez pacienta se nehádá, jde doplnit nebo vynechat."""
+    from speechscope_app.backend.norm_build import FROM_MANUAL, FROM_NAME, assign_controls
+
+    phon, ddk = tmp_path / "fonace", tmp_path / "ddk"
+    for folder, names in ((phon, ["HC01_a.wav", "HC02_a.wav"]), (ddk, ["x.wav", "y.wav"])):
+        folder.mkdir()
+        for name in names:
+            (folder / name).write_bytes(b"RIFF")
+    (ddk / "manifest.csv").write_text("path;Pacient\nx.wav;HC02\ny.wav;\n", encoding="utf-8")
+    scans = {"phonation": scan_folder(phon), "ddk": scan_folder(ddk)}
+    found = assign_controls(scans)
+    assert found.files == {ddk / "x.wav": "HC02"} and list(found.controls) == ["HC02"]
+    reasons = {p.name: r for _t, p, r in found.loose}
+    assert reasons == {"HC01_a.wav": "bez manifestu", "HC02_a.wav": "bez manifestu",
+                       "y.wav": "prázdný pacient"}  # fmt: skip
+    assert found.source_of() == "manifest"
+    # ručně doplněná a vynechaná nahrávka; zbytek nouzově z názvu
+    found = assign_controls(
+        scans,
+        rule="prefix",
+        assigned={ddk / "y.wav": "HC01"},
+        excluded={phon / "HC02_a.wav"},
+    )
+    assert found.files[ddk / "y.wav"] == "HC01" and phon / "HC02_a.wav" not in found.files
+    assert found.files[phon / "HC01_a.wav"] == "HC01" and FROM_NAME in found.sources["HC01"]
+    assert FROM_MANUAL in found.sources["HC01"] and found.source_of() == FROM_NAME
+    # doplněná zůstává v seznamu (✓ v průvodci), odhadnutá z názvu ne
+    assert {p.name for _t, p, _r in found.loose} == {"y.wav"}
+
+
+def test_manifest_source_splits_tasks_and_rekeys_by_name(tmp_path: Path) -> None:
+    """Jeden manifest pro všechny úlohy; odjinud se páruje i podle jedinečného názvu."""
+    from speechscope_app.backend.norm_build import manifest_source, rekey_manifest
+
+    data = tmp_path / "nahravky"
+    data.mkdir()
+    for name in ("HC01_a.wav", "HC01_b.wav", "HC02_a.wav"):
+        (data / name).write_bytes(b"RIFF")
+    path = tmp_path / "jinde" / "kontroly.csv"
+    path.parent.mkdir()
+    path.write_text(
+        "path;pacient;task;věk\n"
+        f"{data / 'HC01_a.wav'};HC01;phonation;64\n"
+        f"{data / 'HC01_b.wav'};HC01;ddk;64\n"
+        f"{data / 'HC02_a.wav'};HC02;phonation;58\n"
+        f"{data / 'chybi.wav'};HC03;phonation;50\n",
+        encoding="utf-8",
+    )
+    source = manifest_source(path)
+    assert sorted(source.scans) == ["ddk", "phonation"] and source.missing == 1
+    assert source.recordings == 3 and source.subjects == 2
+    # manifest bez úlohy a s relativními cestami jinam: řádek podle názvu souboru
+    other = tmp_path / "jinde" / "udaje.csv"
+    other.write_text("path;pacient\nstare/HC02_a.wav;HC02\n", encoding="utf-8")
+    from speechscope_app.backend.manifest import read_manifest
+
+    rekeyed = rekey_manifest(read_manifest(other, keep_missing=True), [data / "HC02_a.wav"])
+    assert rekeyed.meta_for(data / "HC02_a.wav") == {"subject": "HC02"}
+
+
+def test_runs_without_subject_skip_when_names_off(tmp_path: Path) -> None:
+    from speechscope_app.backend.norm_build import scan_runs
+
+    a = _rec(tmp_path, "HC01_ddk.wav")
+    run = _run(tmp_path, "2026-10-27_23-58-05_ddk", [{"path": a}], task="ddk")
+    scan = scan_runs({"ddk": [run]}, rule="")
+    assert not scan.rows and scan.unnamed == 1
+
+
+def test_norm_info_keeps_controls_source() -> None:
+    info = NormInfo(name="N", controls_from="name")
+    assert NormInfo.from_dict(info.to_dict()).controls_from == "name"
+    assert NormInfo.from_dict({"name": "Stará"}).controls_from == ""

@@ -768,8 +768,21 @@ s Uložit a rozpracovaný stav zmizely; `summary_text` pro testy.
   každou úlohu složka (bez podsložek, pokud se nezaškrtne) a protokol
   (`DEFAULT_PROTOCOLS`, spontánní řeč i s lingvistikou kvůli dimenzi Jazyk;
   jiný jen v rozšířeném režimu; jazyk přes `with_language` jako na Analýze),
-  2 jedna tabulka kontrol pro všechny úlohy: kontrola z názvu souboru
-  (`SUBJECT_RULES`) nebo z `manifest.csv` složky, věk a pohlaví ručně nebo
+  2 jedna tabulka kontrol pro všechny úlohy: **kdo je kdo jen z manifestu**
+  (3. 11. 2026, rozhodnutí uživatele, mockup https://claude.ai/artifact/UBdTGDhwFpLwmYWQ6TGuGQ,
+  `docs/mockups/norma-manifest/` mimo git): `manifest.csv` složky, nebo v kroku 1 pruh Manifest
+  (`load_manifest`, `clear_manifest`, `norm_build.manifest_source`: jeden soubor pro všechny úlohy,
+  sloupec `task` rozdělí nahrávky do řádků a složky se zamknou; bez `task` jen údaje k nahrávkám
+  ve složkách přes `rekey_manifest`, podle cesty, jinak jedinečného názvu souboru);
+  `norm_build.assign_controls` → `Assignment` (files, controls, `sources` po kontrole, `loose`):
+  nahrávka bez pacienta se nehádá, jde do oddílu Bez kontroly (`loose_box`, doplnit dvojklikem /
+  Vyplnit… `fill_loose`, Vynechat `skip_loose`); bez manifestu karty „Doporučeno: manifest“
+  (Uložit šablonu manifestu…, Načíst manifest…) a „Nouzově: odhadnout z názvu souboru“
+  (`from_names`, `set_from_names`, pravidlo `SUBJECT_RULES`); tabulka kontrol má sloupec zdroj
+  (manifest, z názvu, ručně), norma si zdroj zapíše (`NormInfo.controls_from`, O normě, i přes
+  `Extension.controls_from`); z hotových běhů řádky bez pacienta bez odhadu vypadnou
+  (`scan_runs(rule="")`, `RunsScan.unnamed`, odkaz na Údaje nahrávek…). Sloupec úlohy musí
+  v manifestu být `task` (`read_manifest` „úloha“ nezná). Věk a pohlaví ručně nebo
   z CSV (`read_controls_csv`), 3 souhrn s odhadem podle
   `seconds_per_audio_minute`. Výsledek `NormPlan` se uloží jako `plan.json`
   do budoucí složky normy (`unique_norm_dir`); bez `norm.yaml` je norma

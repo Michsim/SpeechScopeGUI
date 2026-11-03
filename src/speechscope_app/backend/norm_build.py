@@ -43,6 +43,7 @@ import pandas as pd
 from .. import contract
 from ..i18n import N_, Labels, tr
 from . import meta, tasks
+from .audio import duration_seconds
 from .discover import find_recordings
 from .history import RunInfo, read_run
 from .manifest import Manifest, find_manifest, read_manifest
@@ -532,6 +533,7 @@ class RunRow:
 class RunsScan:
     rows: list[RunRow] = field(default_factory=list)
     no_subject: int = 0  # řádky bez cesty k nahrávce (nejde je přiřadit ani přepočítat)
+    unnamed: int = 0  # řádky bez pacienta v metadatech, když je odhad z názvu vypnutý
 
     @property
     def from_name(self) -> int:
@@ -582,7 +584,8 @@ def scan_runs(
     """Řádky vybraných běhů po úlohách; táž nahrávka ve dvou bězích úlohy = novější běh.
 
     Řádek bez pacienta v metadatech (analýza bez manifestu) dostane kontrolu z názvu
-    souboru podle `rule` (`SUBJECT_RULES`), jako u zdroje ze složek."""
+    souboru podle `rule` (`SUBJECT_RULES`), jako u zdroje ze složek; s prázdným
+    `rule` (odhad z názvu vypnutý) do normy nejde a jen se spočítá (`unnamed`)."""
     scan = RunsScan()
     column = meta.canonical_column(group_column) if group_column else ""
     for task, runs in runs_by_task.items():
@@ -608,6 +611,9 @@ def scan_runs(
                 subject = row.get(meta.SUBJECT)
                 subject = "" if subject is None or pd.isna(subject) else str(subject).strip()
                 from_name = not subject
+                if from_name and not rule:
+                    scan.unnamed += 1
+                    continue
                 if from_name:
                     subject = subject_from_name(path, rule)
                 chosen[_key(path)] = RunRow(
@@ -730,6 +736,7 @@ class Extension:
     tasks: list[TaskPlan]
     files: dict[Path, str]
     controls: dict[str, Control]
+    controls_from: str = ""  # odkud jsou přidané kontroly (manifest, name, manual)
 
 
 def extend_plan(plan: NormPlan, ext: Extension, *, replace: bool) -> tuple[int, int]:
@@ -778,6 +785,9 @@ def extend_plan(plan: NormPlan, ext: Extension, *, replace: bool) -> tuple[int, 
         else:
             old.age = old.age if old.age is not None else control.age
             old.sex = old.sex or control.sex
+    if added and ext.controls_from:  # odhad z názvu se zapíše, i když zbytek je z manifestu
+        if ext.controls_from == FROM_NAME or not plan.info.controls_from:
+            plan.info.controls_from = ext.controls_from
     if any(t.added and not t.finished for t in plan.tasks):
         plan.recomputing = True  # norma zůstává použitelná, rozpracovaná je do sloučení
     return added, skipped
@@ -812,23 +822,78 @@ def scan_folder(folder: Path, *, recursive: bool = False) -> FolderScan:
     )
 
 
-def guess_controls(
-    scans: dict[str, FolderScan], rule: str, known: dict[str, Control] | None = None
-) -> tuple[dict[Path, str], dict[str, Control]]:
-    """Kontrola každé nahrávky a tabulka kontrol.
+# odkud je kontrola nahrávky (sloupec zdroj v průvodci, `NormInfo.controls_from`)
+FROM_MANIFEST, FROM_NAME, FROM_MANUAL = "manifest", "name", "manual"
 
-    Pacient, věk a pohlaví z manifestu složky mají přednost před pravidlem
-    z názvu souboru; ručně vyplněné hodnoty (`known`) se zachovají.
+
+@dataclass(slots=True)
+class Assignment:
+    """Kdo je na které nahrávce: kontroly, jejich zdroj a nahrávky bez kontroly."""
+
+    files: dict[Path, str] = field(default_factory=dict)  # jen přiřazené a nevynechané
+    controls: dict[str, Control] = field(default_factory=dict)
+    sources: dict[str, set[str]] = field(default_factory=dict)  # kontrola -> zdroje
+    # nahrávky, které manifest nezná nebo nemají pacienta (úloha, nahrávka, důvod);
+    # zůstávají v seznamu i po ručním doplnění, ať je vidět, co se doplnilo
+    loose: list[tuple[str, Path, str]] = field(default_factory=list)
+
+    @property
+    def from_names(self) -> bool:
+        return any(FROM_NAME in s for s in self.sources.values())
+
+    def source_of(self) -> str:
+        """Souhrnný zdroj kontrol normy: name, když se aspoň jedna odhadla z názvu."""
+        found: set[str] = set().union(*self.sources.values()) if self.sources else set()
+        for source in (FROM_NAME, FROM_MANIFEST, FROM_MANUAL):
+            if source in found:
+                return source
+        return ""
+
+
+def assign_controls(
+    scans: dict[str, FolderScan],
+    *,
+    rule: str = "",
+    known: dict[str, Control] | None = None,
+    assigned: dict[Path, str] | None = None,
+    excluded: set[Path] | None = None,
+) -> Assignment:
+    """Kontrola každé nahrávky jen z manifestu, z ručního doplnění, nebo nouzově z názvu.
+
+    Pacient, věk a pohlaví z manifestu mají přednost. Nahrávka bez pacienta
+    v manifestu se nehádá (3. 11. 2026, rozhodnutí uživatele): jde do `loose`,
+    dokud ji uživatel nedoplní (`assigned`) nebo nevynechá (`excluded`). Odhad
+    z názvu souboru podle `rule` (`SUBJECT_RULES`) jen když je `rule` zadané
+    (výslovná nouzová volba). Ručně vyplněný věk a pohlaví (`known`) zůstávají.
     """
-    files: dict[Path, str] = {}
-    controls: dict[str, Control] = {}
+    out = Assignment()
     known = known or {}
-    for scan in scans.values():
+    assigned = assigned or {}
+    excluded = excluded or set()
+    for task, scan in scans.items():
         for rec in scan.recordings:
             row = scan.manifest.meta_for(rec) if scan.manifest else None
-            subject = (row or {}).get(meta.SUBJECT, "").strip() or subject_from_name(rec, rule)
-            files[rec] = subject
-            control = controls.get(subject) or known.get(subject) or Control(subject)
+            subject = (row or {}).get(meta.SUBJECT, "").strip()
+            source = FROM_MANIFEST if subject else ""
+            if not subject:
+                if scan.manifest is None:
+                    reason = tr("bez manifestu")
+                elif row is None:
+                    reason = tr("není v manifestu")
+                else:
+                    reason = tr("prázdný pacient")
+                manual = assigned.get(rec, "").strip()
+                if manual:
+                    subject, source = manual, FROM_MANUAL
+                elif rule:
+                    subject, source = subject_from_name(rec, rule), FROM_NAME
+                if source != FROM_NAME:
+                    out.loose.append((task, rec, reason))
+            if not subject or rec in excluded:
+                continue
+            out.files[rec] = subject
+            out.sources.setdefault(subject, set()).add(source)
+            control = out.controls.get(subject) or known.get(subject) or Control(subject)
             if row:
                 control.age = (
                     control.age
@@ -836,8 +901,81 @@ def guess_controls(
                     else meta.parse_age(row.get(meta.AGE, ""))
                 )
                 control.sex = control.sex or meta.parse_sex(row.get(meta.SEX, ""))
-            controls[subject] = control
-    return files, dict(sorted(controls.items()))
+            out.controls[subject] = control
+    out.controls = dict(sorted(out.controls.items()))
+    return out
+
+
+def guess_controls(
+    scans: dict[str, FolderScan], rule: str, known: dict[str, Control] | None = None
+) -> tuple[dict[Path, str], dict[str, Control]]:
+    """Kontrola každé nahrávky a tabulka kontrol: manifest, jinak odhad z názvu souboru."""
+    found = assign_controls(scans, rule=rule, known=known)
+    return found.files, found.controls
+
+
+def rekey_manifest(manifest: Manifest, recordings: list[Path]) -> Manifest:
+    """Manifest odjinud pro nahrávky ve složkách: řádek podle cesty, jinak podle názvu.
+
+    Název souboru se použije, jen když je v manifestu jedinečný (jako Údaje nahrávek
+    k hotovému běhu). Vrací kopii s řádky pod skutečnými cestami nahrávek."""
+    by_name: dict[str, list[Path]] = {}
+    for key in manifest.rows:
+        by_name.setdefault(key.name.lower(), []).append(key)
+    out = Manifest(path=manifest.path, columns=list(manifest.columns))
+    for rec in recordings:
+        key = _key(rec)
+        source = key if key in manifest.rows else None
+        if source is None:
+            candidates = by_name.get(rec.name.lower(), [])
+            source = candidates[0] if len(candidates) == 1 else None
+        if source is None:
+            continue
+        out.rows[key] = manifest.rows[source]
+        if source in manifest.tasks:
+            out.tasks[key] = manifest.tasks[source]
+    return out
+
+
+@dataclass(slots=True)
+class ManifestSource:
+    """Jeden manifest pro všechny úlohy (sloupec task): nahrávky po úlohách."""
+
+    manifest: Manifest
+    scans: dict[str, FolderScan] = field(default_factory=dict)
+    missing: int = 0  # řádky, jejichž soubor není na disku
+    untasked: int = 0  # nahrávky bez úlohy (jen metadata k nahrávkám ve složkách)
+
+    @property
+    def recordings(self) -> int:
+        return sum(len(s.recordings) for s in self.scans.values())
+
+    @property
+    def subjects(self) -> int:
+        names = {
+            (self.manifest.rows.get(_key(r)) or {}).get(meta.SUBJECT, "").strip()
+            for s in self.scans.values()
+            for r in s.recordings
+        }
+        return len(names - {""})
+
+
+def manifest_source(path: Path) -> ManifestSource:
+    """Načte manifest odkudkoli; se sloupcem úlohy rozdělí nahrávky na disku po úlohách."""
+    manifest = read_manifest(path, keep_missing=True)
+    source = ManifestSource(manifest)
+    for key in manifest.rows:
+        task = manifest.tasks.get(key, "")
+        if not key.is_file():
+            source.missing += 1
+            continue
+        if not task:
+            source.untasked += 1
+            continue
+        scan = source.scans.setdefault(task, FolderScan([], manifest))
+        scan.recordings.append(key)
+        scan.durations[key] = duration_seconds(key)
+    return source
 
 
 def read_controls_csv(path: Path) -> dict[str, Control]:

@@ -924,6 +924,12 @@ class NormsPage(QWidget):
             lines.append(tr("Vznikla {date}.").format(date=format_date(info.created)))
         if info.library_version:
             lines.append(tr("Knihovna {version}.").format(version=info.library_version))
+        if info.controls_from == "name":
+            lines.append(tr("Kontroly odhadnuté z názvů souborů (bez manifestu)."))
+        elif info.controls_from == "manifest":
+            lines.append(tr("Kontroly z manifestu."))
+        elif info.controls_from == "manual":
+            lines.append(tr("Kontroly doplněné ručně."))
         lines.append(
             str(norm.path)
             if norm.path is not None and not norm.builtin

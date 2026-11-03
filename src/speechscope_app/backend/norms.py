@@ -100,6 +100,9 @@ class NormInfo:
     descriptions: dict[str, str] = field(default_factory=dict)
     # nahrávky kontrol vyřazené ručně (kontrola kvality); do výběru kontrol nejdou
     excluded: list[Excluded] = field(default_factory=list)
+    # odkud je, kdo je kdo (3. 11. 2026): manifest | name (odhad z názvu souboru) |
+    # manual; prázdné = starší norma, nezapsáno
+    controls_from: str = ""
 
     @property
     def display_name(self) -> str:
@@ -133,6 +136,8 @@ class NormInfo:
             data["custom_tasks"] = [t.to_dict() for t in self.custom_tasks]
         if self.excluded:
             data["excluded"] = [e.to_dict() for e in self.excluded]
+        if self.controls_from:
+            data["controls_from"] = self.controls_from
         return data
 
     @classmethod
@@ -169,6 +174,7 @@ class NormInfo:
                 if isinstance(versions, dict)
             },
             custom_tasks=custom,
+            controls_from=str(data.get("controls_from", "")),
             names={
                 k[len("name_") :]: str(v)
                 for k, v in data.items()
