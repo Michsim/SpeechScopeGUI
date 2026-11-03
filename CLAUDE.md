@@ -136,8 +136,15 @@ deleguje atributy na `widget`). Po Spustit jednoho pacienta Domů nabídne „Da
 vyšetření téhož pacienta…“ (`offer_next_visit`, `next_visit_requested` →
 `MainWindow.next_visit_from_home` s `_last_patient`: průvodce s předvyplněným
 pacientem, věkem a pohlavím přes `AssessmentBuildWidget.prefill`, datum a složky
-prázdné). Pod kartami pruh „právě běží“ (`set_running`, ve frontě první dávka
-jménem a počet dalších; `set_running`
+prázdné). Pod kartami pruh „právě běží“ (`set_running` = název a postup) a pod ním
+fronta (3. 11. 2026, podoba A z mockupu https://claude.ai/artifact/VYeG2UiM55A3sFtJR6xfXQ,
+`docs/mockups/fronta-domu/` mimo git; `HomePage.set_queue(QueueEntry…, finish)`): „Ve frontě · n“,
+nejvýš `QUEUE_ROWS` = 3 řádky, po sobě jdoucí dávky jednoho plánu (hodnocení, norma) jeden řádek
+(`MainWindow._queue_entries`, `_queue_title`) s úlohami jako štítky (norma žlutě), odhad
+`_job_seconds` jako při spuštění (`rough_seconds`), „vše hotovo kolem HH:MM“ jen když jsou známé
+všechny odhady (`_queue_finish` + `RunPage.remaining_seconds`), ✕ → `remove_queue_entry` (víc dávek
+s potvrzením, plán zůstane rozpracovaný), klik na řádek a „+n další · Zobrazit vše ve Výsledcích ›“ →
+přehled Výsledků (`_show_queue_overview`); řádky se přestaví jen při změně fronty; `set_running`
 z `_show_progress`, `set_progress` z `_file_done`, klik → Výpočet, po konci
 `clear_running`); dole pod čarou tlačítko Nová norma… (→ Normy a průvodce) a
 stav: štítek knihovna/modely jako dřív na uvítání (`set_state`, `set_report`,

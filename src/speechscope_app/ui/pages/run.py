@@ -552,6 +552,27 @@ class RunPage(QWidget):
             text += " · " + " · ".join(parts)
         self.current.setText(text)
 
+    def remaining_seconds(self) -> float | None:
+        """Zbývající čas běžící dávky stejným odhadem jako řádek času; None = neznámý."""
+        state = self.runner.state
+        if self._finished_at is not None or not state.total:
+            return None
+        per_file = estimate_per_file(self._durations)
+        if per_file is None:
+            per_file = self._expected
+        remaining_files = state.total - state.processed
+        if remaining_files <= 0:
+            return 0.0
+        remaining = self._remaining_by_audio(per_file)
+        if remaining is None:
+            if per_file is None:
+                return None
+            remaining = per_file * remaining_files
+        if self._file_started_at is not None:
+            current_guess = per_file if per_file is not None else remaining
+            remaining -= min(current_guess, time.monotonic() - self._file_started_at)
+        return max(0.0, remaining)
+
     def _update_timing(self) -> None:
         state = self.runner.state
         end = self._finished_at if self._finished_at is not None else time.monotonic()

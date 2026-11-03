@@ -20,6 +20,7 @@ Krok 2 (`show_builder`) je průvodce `AssessmentBuildWidget` se záhlavím
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -40,9 +41,32 @@ from ... import __version__
 from ...backend.cache import format_size, free_bytes
 from ...i18n import tr
 from .. import theme
+from ..widgets.clean_table import pill
 from ..widgets.elided_label import ElidedLabel
 
 LOW_SPACE = 6_000_000_000  # balík modelů má přes 5 GB
+QUEUE_ROWS = 3  # řádků fronty na Domů; zbytek je v přehledu Výsledků
+
+
+def rough_seconds(seconds: float) -> str:
+    """Hrubý odhad do fronty: ~1 min, ~14 min, ~2 h 05 min."""
+    minutes = max(1, int(round(seconds / 60)))
+    if minutes < 60:
+        return tr("~{m} min").format(m=minutes)
+    if minutes % 60 == 0:
+        return tr("~{h} h").format(h=minutes // 60)
+    return tr("~{h} h {m:02d} min").format(h=minutes // 60, m=minutes % 60)
+
+
+@dataclass(frozen=True, slots=True)
+class QueueEntry:
+    """Řádek fronty na Domů: jedna dávka, nebo všechny dávky jednoho hodnocení či normy."""
+
+    title: str
+    chips: tuple[str, ...] = ()  # úlohy, u analýzy „analýza · úloha“
+    seconds: float | None = None  # odhad; None = neznámý
+    indices: tuple[int, ...] = ()  # pozice dávek ve frontě hlavního okna
+    warn: bool = False  # norma: štítek žlutě, bývá dlouhá
 
 
 class FolderRow:
@@ -108,6 +132,8 @@ class HomePage(QWidget):
     environment_requested = Signal()  # stránka Prostředí
     norms_requested = Signal()  # stránka Normy (varování o změněné feature)
     run_requested = Signal()  # stránka Výpočet (pruh „právě běží“)
+    queue_requested = Signal()  # „Zobrazit vše ve Výsledcích“: přehled s frontou
+    queue_remove_requested = Signal(object)  # řádek fronty ✕: indexy dávek (tuple[int, ...])
     next_visit_requested = Signal()  # „Další vyšetření téhož pacienta…“ po Spustit
     models_dir_requested = Signal()  # uživatel chce změnit složku modelů
     work_root_requested = Signal()  # … a složku výsledků
@@ -172,9 +198,12 @@ class HomePage(QWidget):
         theme.set_role(self.running, "accent")
         self.running.setCursor(Qt.CursorShape.PointingHandCursor)
         self.running.mousePressEvent = lambda event: self.run_requested.emit()  # type: ignore[method-assign]
-        run_layout = QHBoxLayout(self.running)
-        run_layout.setContentsMargins(16, 10, 16, 10)
+        running_box = QVBoxLayout(self.running)
+        running_box.setContentsMargins(16, 10, 16, 10)
+        running_box.setSpacing(8)
+        run_layout = QHBoxLayout()
         run_layout.setSpacing(14)
+        running_box.addLayout(run_layout)
         self.running_pill = QLabel(tr("právě běží"))
         self.running_pill.setObjectName("pill")
         theme.set_role(self.running_pill, "accent")
@@ -198,6 +227,36 @@ class HomePage(QWidget):
         self.run_btn = QPushButton(tr("Výpočet"))
         self.run_btn.clicked.connect(self.run_requested)
         run_layout.addWidget(self.run_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        # fronta pod pruhem (3. 11. 2026, podoba A): nejvýš QUEUE_ROWS řádků, dávky
+        # jednoho hodnocení či normy jako jeden řádek, ✕ vyndá z fronty
+        self.queue_box = QWidget()
+        queue_layout = QVBoxLayout(self.queue_box)
+        queue_layout.setContentsMargins(0, 4, 0, 0)
+        queue_layout.setSpacing(0)
+        queue_head = QHBoxLayout()
+        self.queue_title = QLabel("")
+        self.queue_title.setObjectName("muted")
+        caps = self.queue_title.font()
+        caps.setBold(True)
+        caps.setCapitalization(caps.Capitalization.AllUppercase)
+        self.queue_title.setFont(caps)
+        queue_head.addWidget(self.queue_title)
+        queue_head.addStretch(1)
+        self.queue_finish = QLabel("")
+        self.queue_finish.setObjectName("muted")
+        queue_head.addWidget(self.queue_finish)
+        queue_layout.addLayout(queue_head)
+        self.queue_rows = QVBoxLayout()
+        self.queue_rows.setSpacing(0)
+        queue_layout.addLayout(self.queue_rows)
+        self.queue_more = QLabel("")
+        self.queue_more.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.queue_more.linkActivated.connect(lambda _link: self.queue_requested.emit())
+        queue_layout.addWidget(self.queue_more)
+        running_box.addWidget(self.queue_box)
+        self.queue_box.hide()
+        self._queue_widgets: list[QWidget] = []
+        self._queue_shown: list[QueueEntry] = []
         layout.addWidget(self.running)
         self.running.hide()
 
@@ -441,21 +500,87 @@ class HomePage(QWidget):
         self._dismissed = True
         self._show_setup(False)
 
-    def set_running(
-        self, title: str, detail: str, queued: int = 0, names: list[str] | None = None
-    ) -> None:
-        """Pruh „právě běží“: název dávky, postup a co čeká ve frontě (první jménem)."""
+    def set_running(self, title: str, detail: str) -> None:
+        """Pruh „právě běží“: název dávky a postup; fronta je pod ním (`set_queue`)."""
         self.running_title.setText(title)
-        parts = [detail] if detail else []
-        if names:
-            text = tr("ve frontě: {name}").format(name=names[0])
-            if len(names) > 1:
-                text += f" (+{len(names) - 1})"
-            parts.append(text)
-        elif queued:
-            parts.append(tr("ve frontě: {n}").format(n=queued))
-        self.running_detail.setText(" · ".join(parts))
+        self.running_detail.setText(detail)
         self.running.show()
+
+    def set_queue(self, entries: list[QueueEntry], finish: str = "") -> None:
+        """Fronta pod pruhem „právě běží“; prázdná = jen pruh jako dřív.
+
+        `finish` je čas, kdy bude hotovo všechno (HH:MM), prázdné = neznámý. Řádky se
+        přestaví jen při změně fronty, ne po každé nahrávce běžící dávky.
+        """
+        self.queue_finish.setText(
+            tr("vše hotovo kolem <b>{time}</b>").format(time=finish) if finish else ""
+        )
+        if entries == self._queue_shown:
+            return
+        self._queue_shown = list(entries)
+        for widget in self._queue_widgets:
+            widget.hide()  # deleteLater maže až z fronty událostí, napřed skrýt
+            widget.deleteLater()
+        self._queue_widgets = []
+        count = sum(len(e.indices) or 1 for e in entries)
+        self.queue_box.setVisible(bool(entries))
+        if not entries:
+            return
+        self.queue_title.setText(tr("Ve frontě · {n}").format(n=count))
+        for number, entry in enumerate(entries[:QUEUE_ROWS], start=1):
+            row = self._queue_row(number, entry)
+            self.queue_rows.addWidget(row)
+            self._queue_widgets.append(row)
+        hidden = len(entries) - QUEUE_ROWS
+        self.queue_more.setText(
+            "<a href='all'>"
+            + tr("+{n} další · Zobrazit vše ve Výsledcích ›").format(n=hidden)
+            + "</a>"
+            if hidden > 0
+            else ""
+        )
+        self.queue_more.setVisible(hidden > 0)
+
+    def queue_entries(self) -> list[QLabel]:
+        """Názvy viditelných řádků fronty (pro testy)."""
+        return [w.findChild(QLabel, "queue_name") for w in self._queue_widgets]
+
+    def _queue_row(self, number: int, entry: QueueEntry) -> QWidget:
+        row = QWidget()
+        row.setMinimumHeight(40)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        no = QLabel(str(number))
+        no.setObjectName("muted")
+        no.setFixedWidth(16)
+        no.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(no)
+        name = QLabel(entry.title)
+        name.setObjectName("queue_name")
+        bold = name.font()
+        bold.setBold(True)
+        name.setFont(bold)
+        layout.addWidget(name)
+        for chip in entry.chips:
+            layout.addWidget(
+                pill(chip, "warn" if entry.warn else "neutral"), 0, Qt.AlignmentFlag.AlignVCenter
+            )
+        layout.addStretch(1)
+        when = QLabel(rough_seconds(entry.seconds) if entry.seconds is not None else "")
+        when.setObjectName("muted")
+        layout.addWidget(when)
+        remove = QPushButton("✕")
+        remove.setFlat(True)
+        remove.setFixedWidth(40)
+        remove.setToolTip(tr("Vyndat z fronty"))
+        remove.setAccessibleName(tr("Vyndat z fronty"))
+        indices = entry.indices
+        remove.clicked.connect(lambda: self.queue_remove_requested.emit(indices))
+        layout.addWidget(remove)
+        # klik na řádek = fronta v přehledu Výsledků (ne Průběh běžící dávky)
+        row.mousePressEvent = lambda event: (event.accept(), self.queue_requested.emit())  # type: ignore[method-assign]
+        return row
 
     def offer_next_visit(self, subject: str) -> None:
         """Po Spustit hodnocení jednoho pacienta: nabídka další návštěvy téhož pacienta."""

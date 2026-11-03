@@ -14,6 +14,7 @@ from pytestqt.qtbot import QtBot
 from speechscope_app import contract
 from speechscope_app.backend.history import read_run
 from speechscope_app.backend.library import ParamInfo
+from speechscope_app.backend.protocol import Protocol
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import (
     PAGE_ASSESSMENT,
@@ -22,6 +23,7 @@ from speechscope_app.ui.main_window import (
     PAGE_HOME,
     PAGE_RESULTS,
     PAGE_RUN,
+    Job,
     MainWindow,
 )
 from speechscope_app.ui.widgets.meta_table import GROUP_FOLDER
@@ -1232,11 +1234,18 @@ def test_home_cards_running_strip_and_norm_warning(
 
     # pruh právě běží: název dávky, postup, fronta; po konci zmizí
     window._running_label = "Pacienti září"
-    window._queue.append(object())  # type: ignore[arg-type]
+    window._queue.append(
+        Job("extract", Protocol("Čtení", "reading"), [Path("a.wav")], label="Pilot")
+    )
+    window._show_queue()
     window._show_progress("1/3")
     assert not home.running.isHidden() and home.running_title.text() == "Pacienti září"
-    assert home.running_detail.text() == "1/3 nahrávek · ve frontě: 1"
+    assert home.running_detail.text() == "1/3 nahrávek"
+    assert not home.queue_box.isHidden()
+    assert [w.text() for w in home.queue_entries()] == ["Pilot"]
     window._queue.clear()
+    window._show_queue()
+    assert home.queue_box.isHidden()
     window._show_progress("")
     assert home.running.isHidden()
     home.run_btn.click()
@@ -1644,3 +1653,48 @@ def test_finished_batch_does_not_pull_away(qtbot: QtBot, settings: AppSettings) 
     window.nav.setCurrentRow(PAGE_HOME)  # z Domů se přejde rovnou
     window._go_after_batch()
     assert window.nav.currentRow() == PAGE_RESULTS
+
+
+def test_home_queue_groups_plans_and_removes(
+    qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fronta na Domů: dávky jednoho hodnocení jeden řádek, nejvýš tři řádky, ✕ vyndá."""
+    from PySide6.QtWidgets import QMessageBox
+
+    window = MainWindow(settings)
+    qtbot.addWidget(window)
+    home = window.home_page
+    plan = Path("p.plan.json")
+
+    def job(task: str, **kw: object) -> Job:
+        return Job("extract", Protocol(task, task), [Path("a.wav")], **kw)  # type: ignore[arg-type]
+
+    window._queue.extend(
+        [
+            job("ddk", plan_kind="assessment", plan=plan, plan_task="ddk", subject="P-017"),
+            job("reading", plan_kind="assessment", plan=plan, plan_task="reading", subject="P-017"),
+            job("reading", label="Pilot"),
+            job("phonation", label="Druhá"),
+            job("phonation", label="Třetí"),
+        ]
+    )
+    window._running_label = "Fonace"
+    window._show_queue()
+    window._show_progress("1/3")
+    entries = window._queue_entries()
+    assert [e.indices for e in entries] == [(0, 1), (2,), (3,), (4,)]
+    assert entries[0].title == "Hodnocení P-017" and len(entries[0].chips) == 2
+    assert [w.text() for w in home.queue_entries()] == ["Hodnocení P-017", "Pilot", "Druhá"]
+    assert not home.queue_more.isHidden() and "+1" in home.queue_more.text()
+    assert "5" in home.queue_title.text()
+
+    # dvě dávky hodnocení naráz: s potvrzením
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.No)
+    home.queue_remove_requested.emit((0, 1))
+    assert len(window.queued_jobs()) == 5
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    home.queue_remove_requested.emit((0, 1))
+    assert [j.label for j in window.queued_jobs()] == ["Pilot", "Druhá", "Třetí"]
+    assert home.queue_more.isHidden()
+    home.queue_remove_requested.emit((0,))  # jedna dávka bez ptaní
+    assert [w.text() for w in home.queue_entries()] == ["Druhá", "Třetí"]

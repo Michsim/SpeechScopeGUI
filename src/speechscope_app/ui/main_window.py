@@ -90,7 +90,7 @@ from .pages.assessment import AssessmentPage
 from .pages.batch import BatchPage
 from .pages.dimensions import DimensionsPage
 from .pages.environment import EnvironmentPage
-from .pages.home import HomePage
+from .pages.home import HomePage, QueueEntry
 from .pages.norms import NormsPage
 from .pages.protocols import ProtocolsPage
 from .pages.results import ResultsPage
@@ -282,6 +282,8 @@ class MainWindow(QMainWindow):
         self.home_page.environment_requested.connect(lambda: self.nav.setCurrentRow(PAGE_ENV))
         self.home_page.norms_requested.connect(lambda: self.nav.setCurrentRow(PAGE_NORMS))
         self.home_page.run_requested.connect(lambda: self.show_running())
+        self.home_page.queue_requested.connect(self._show_queue_overview)
+        self.home_page.queue_remove_requested.connect(self.remove_queue_entry)
         self.env_page.report_changed.connect(self.protocols_page.set_doctor)
         self.batch_page.set_stats_lookup(self.settings.seconds_per_file)
         self.batch_page.set_rate_lookup(self.settings.seconds_per_audio_minute)
@@ -543,6 +545,11 @@ class MainWindow(QMainWindow):
         live = getattr(self, "_running_dir", None) if self.run_page.runner.running else None
         self.runs_page.show_running(live)
 
+    def _show_queue_overview(self) -> None:
+        """Výsledky s přehledem, kde je oddíl Běží a ve frontě (z fronty na Domů)."""
+        self.nav.setCurrentRow(PAGE_RESULTS)
+        self.runs_page.show_overview()
+
     def _go_after_batch(self) -> None:
         """Po poslední dávce: Výsledky s detailem na Hodnotách, po hodnocení Pacienti.
 
@@ -714,9 +721,9 @@ class MainWindow(QMainWindow):
             self.home_page.set_running(
                 getattr(self, "_running_label", "") or getattr(self, "_running_name", ""),
                 tr("{progress} nahrávek").format(progress=text) if "/" in text else text,
-                len(self._queue),
-                [j.title() for j in self._queue if hasattr(j, "title")],
             )
+            rows = getattr(self, "_queue_rows", [])
+            self.home_page.set_queue(rows, self._queue_finish(rows))
             self.runs_page.set_running(
                 getattr(self, "_running_label", "") or getattr(self, "_running_name", ""),
                 tr("{progress} nahrávek").format(progress=text) if "/" in text else text,
@@ -1952,9 +1959,108 @@ class MainWindow(QMainWindow):
         self._queue.clear()
         self._show_queue()
 
+    def remove_queue_entry(self, indices: tuple[int, ...]) -> None:
+        """✕ u řádku fronty na Domů: dávka, nebo všechny dávky hodnocení či normy.
+
+        Víc dávek najednou se potvrzuje; plán zůstane rozpracovaný a jde dopočítat."""
+        valid = sorted({i for i in indices if 0 <= i < len(self._queue)}, reverse=True)
+        if not valid:
+            return
+        if len(valid) > 1:
+            answer = QMessageBox.question(
+                self,
+                tr("Vyndat z fronty"),
+                tr(
+                    "Vyndat z fronty {n} dávek? Rozpracované hodnocení nebo normu "
+                    "půjde později dopočítat."
+                ).format(n=len(valid)),
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        for i in valid:
+            del self._queue[i]
+        self._show_queue()
+
+    def _queue_entries(self) -> list[QueueEntry]:
+        """Fronta po řádcích Domů: po sobě jdoucí dávky jednoho plánu = jeden řádek."""
+        entries: list[QueueEntry] = []
+        groups: list[list[int]] = []
+        for i, job in enumerate(self._queue):
+            prev = self._queue[groups[-1][0]] if groups else None
+            same_plan = (
+                prev is not None
+                and job.plan is not None
+                and (prev.plan_kind, prev.plan) == (job.plan_kind, job.plan)
+            )
+            if same_plan:
+                groups[-1].append(i)
+            else:
+                groups.append([i])
+        for group in groups:
+            jobs = [self._queue[i] for i in group]
+            first = jobs[0]
+            seconds: float | None = 0.0
+            for job in jobs:
+                estimate = self._job_seconds(job)
+                seconds = None if estimate is None or seconds is None else seconds + estimate
+            chips: list[str] = []
+            if first.plan_kind:
+                for job in jobs:
+                    label = tasks.label(task_of_key(job.plan_task) or job.proto.task)
+                    if label not in chips:
+                        chips.append(label)
+            else:
+                chips.append(
+                    tr("analýza · {task}").format(task=tasks.label(first.proto.task))
+                    if first.kind == "extract"
+                    else first.title()
+                )
+            entries.append(
+                QueueEntry(
+                    title=self._queue_title(first),
+                    chips=tuple(chips),
+                    seconds=seconds,
+                    indices=tuple(group),
+                    warn=first.plan_kind == "norm",
+                )
+            )
+        return entries
+
+    def _queue_title(self, job: Job) -> str:
+        if job.plan_kind == "assessment":
+            if job.plan_type == "multi" or (not job.subject and job.plan_patients):
+                return tr("Hodnocení · {n} pacientů").format(n=job.plan_patients)
+            return tr("Hodnocení {subject}").format(subject=job.subject or "?")
+        if job.plan_kind == "norm" and job.plan is not None:
+            plan = load_plan(job.plan)
+            name = plan.info.name if plan is not None else job.plan.name
+            return tr("Norma {name}").format(name=name)
+        if job.merge_into is not None:
+            return tr("Znovu chybné · {name}").format(name=job.label or job.proto.display_name)
+        return job.label.strip() or job.proto.display_name
+
+    def _job_seconds(self, job: Job) -> float | None:
+        """Odhad dávky ve frontě jako při spuštění; None bez statistiky protokolu."""
+        if job.kind != "extract":
+            return None
+        slug = job.proto.slug()
+        durations = job.durations or [None] * len(job.inputs)
+        return self._expected_total(slug, durations, self.settings.seconds_per_file(slug))
+
+    def _queue_finish(self, entries: list[QueueEntry]) -> str:
+        """HH:MM, kdy bude hotová běžící dávka i celá fronta; prázdné, když něco neznáme."""
+        if not entries or any(e.seconds is None for e in entries):
+            return ""
+        running = self.run_page.remaining_seconds() if self.run_page.runner.running else 0.0
+        if running is None:
+            return ""
+        total = running + sum(e.seconds or 0.0 for e in entries)
+        return (dt.datetime.now() + dt.timedelta(seconds=total)).strftime("%H:%M")
+
     def _show_queue(self) -> None:
         self.run_page.set_queue([job.title() for job in self._queue])
         self.runs_page.set_queue([job.title() for job in self._queue])
+        self._queue_rows = self._queue_entries()
         self._show_progress(self._last_progress)
 
     def _launch_next(self) -> None:
