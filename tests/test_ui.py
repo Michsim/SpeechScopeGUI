@@ -17,10 +17,14 @@ from speechscope_app.backend.library import ParamInfo
 from speechscope_app.backend.protocol import Protocol
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import (
+    PAGE_ASSESS,
     PAGE_ASSESSMENT,
     PAGE_BATCH,
+    PAGE_DIMENSIONS,
     PAGE_ENV,
     PAGE_HOME,
+    PAGE_NORMS,
+    PAGE_PROTOCOLS,
     PAGE_RESULTS,
     PAGE_RUN,
     Job,
@@ -201,7 +205,8 @@ def test_start_page_depends_on_models(settings: AppSettings, qtbot: QtBot) -> No
     assert window2.pages.currentIndex() == PAGE_HOME
     home2 = window2.home_page
     assert not home2.recommends_environment() and home2.env_btn.property("role") != "primary"
-    assert home2.assess_btn.property("role") == "primary"  # doporučená karta
+    # obě tlačítka stejně modrá
+    assert home2.assess_btn.property("role") == home2.start_btn.property("role") == "primary"
     assert window2.env_page.checking  # doctor běží na pozadí i s modely (kvůli Spustit)
     home2.start_btn.click()
     assert window2.nav.currentRow() == PAGE_BATCH
@@ -1193,7 +1198,8 @@ def test_analysis_two_steps(qtbot: QtBot, settings: AppSettings, recordings: Pat
 def test_home_cards_running_strip_and_norm_warning(
     qtbot: QtBot, settings: AppSettings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Domů: karty vedou na stránky, pruh „právě běží“ sleduje dávku, stará norma varuje."""
+    """Domů: tlačítka a dlaždice vedou na stránky, pruh „právě běží“ sleduje dávku, stará
+    norma varuje."""
     from PySide6.QtWidgets import QDialog
     from test_norms import controls_frame
 
@@ -1209,27 +1215,36 @@ def test_home_cards_running_strip_and_norm_warning(
     qtbot.addWidget(window)
     home = window.home_page
     assert window.nav.currentRow() == PAGE_HOME and window.nav_labels[PAGE_HOME] == "Domů"
+    assert window.nav_labels[PAGE_ASSESS] == "Hodnocení pacienta"
     assert window.nav_labels[PAGE_BATCH] == "Analýza nahrávek"
-    assert home.running.isHidden() and not home.norm_warning.isHidden()
-    assert "Stará norma" in home.norm_warning.text()
+    assert home.running.isHidden() and not home.idle.isHidden()
+    assert not home.norm_warning.isHidden() and "Stará norma" in home.norm_warning.text()
+    assert home.norms_tile.role() == "warn" and "1" in home.norms_tile.text.text()
+    assert "vlastní: 0" in home.protocols_tile.text.text()
+    assert home.quality_tile.text.text() == "výchozí prahy"
+    assert str(settings.work_root) in home.work_tile.text.text()
     home.start_btn.click()
     assert window.nav.currentRow() == PAGE_BATCH
     window.nav.setCurrentRow(PAGE_HOME)
-    home.assess_btn.click()  # průvodce v kroku 2, nabídka zůstává na Domů
-    assert window.nav.currentRow() == PAGE_HOME and home.step() == 1
-    assert home.builder is not None and home.builder.step() == 0
-    home.home_btn.click()
-    assert home.step() == 0 and home.builder is None
+    home.assess_btn.click()  # průvodce je vlastní stránka v nabídce
+    assess = window.assess_page
+    assert window.nav.currentRow() == PAGE_ASSESS
+    assert assess.builder is not None and assess.builder.step() == 0
     # odkaz „…nebo z hotových běhů“ vede na Pacienty a rovnou do dialogu nad běhy
-    home.assess_btn.click()
     monkeypatch.setattr(
         "speechscope_app.ui.pages.assessment.AssessmentDialog.exec",
         lambda self: QDialog.DialogCode.Rejected,
     )
-    home.runs_link.linkActivated.emit("runs")
-    assert window.nav.currentRow() == PAGE_ASSESSMENT and home.step() == 0
-    home.env_btn.click()
-    assert window.nav.currentRow() == PAGE_ENV
+    assess.runs_link.linkActivated.emit("runs")
+    assert window.nav.currentRow() == PAGE_ASSESSMENT
+    for button, target in (
+        (home.env_btn, PAGE_ENV),
+        (home.norms_tile.button, PAGE_NORMS),
+        (home.protocols_tile.button, PAGE_PROTOCOLS),
+        (home.dimensions_tile.button, PAGE_DIMENSIONS),
+    ):
+        button.click()
+        assert window.nav.currentRow() == target
     window.nav.setCurrentRow(PAGE_HOME)
 
     # pruh právě běží: název dávky, postup, fronta; po konci zmizí
@@ -1247,7 +1262,7 @@ def test_home_cards_running_strip_and_norm_warning(
     window._show_queue()
     assert home.queue_box.isHidden()
     window._show_progress("")
-    assert home.running.isHidden()
+    assert home.running.isHidden() and not home.idle.isHidden()
     home.run_btn.click()
     assert window.nav.currentRow() == PAGE_RUN
 

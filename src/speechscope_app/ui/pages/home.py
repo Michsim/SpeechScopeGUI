@@ -1,21 +1,18 @@
-"""Domů: první stránka nabídky a rozcestník podle výstupu (30. 10. 2026).
+"""Domů: první stránka nabídky, přehled výpočtů a stavu aplikace (19. 11. 2026).
 
-Nahrazuje dřívější Uvítání mimo nabídku. Nahoře dvě velké karty: Hodnocení
-pacienta (nahrávky jednoho pacienta → pavouk proti normě, doporučená) a
-Analýza nahrávek (složka → tabulka feature). Pod nimi pruh „právě běží“
-s postupem dávky a frontou, který hlavní okno plní z Výpočtu a který zmizí,
-když nic neběží. Dole pod čarou tlačítko Nová norma… (dělá se jednou za čas)
-a dva řádky stavu: knihovna a modely, případně norma, které se od spočítání
-změnila feature. Stránka sama nic nepočítá, jen volá to, co existuje.
+Do 19. 11. 2026 byl Domů rozcestník se dvěma velkými kartami a průvodcem hodnocení
+v druhém kroku. Hodnocení pacienta má teď vlastní stránku v nabídce (`pages/assess.py`)
+vedle Analýzy nahrávek, takže Domů jen ukazuje: nahoře nadpis a dvě stejná modrá tlačítka
+Nové hodnocení… a Nová analýza… (vedou na ty stránky), pod nimi pruh „právě běží“
+s postupem dávky a frontou, který hlavní okno plní z Výpočtu (když nic neběží, karta
+„Nic se nepočítá“), a dlaždice Stav a nastavení (`StatusTile`): knihovna a modely, normy
+(i varování o změněné feature), protokoly, dimenze, složka výsledků a kontrola kvality,
+každá s tlačítkem na svou stránku nebo dialog. Dole pod čarou Nová norma… a Nastavení….
+Stránka sama nic nepočítá, jen volá to, co existuje.
 
-Dokud chybí modely, je pod kartami blok „První nastavení“: složka modelů
+Dokud chybí modely, je nad dlaždicemi blok „První nastavení“: složka modelů
 (návrh vedle aplikace) a složka výsledků, obojí jde změnit, a tlačítka na
 instalaci modelů z balíku nebo stažení. Po instalaci blok zmizí.
-
-Nové hodnocení… nepřeskakuje na Pacienty: stránka má dva kroky jako Analýza.
-Krok 2 (`show_builder`) je průvodce `AssessmentBuildWidget` se záhlavím
-„‹ Domů · Nové hodnocení z nahrávek“ a odkazem „…nebo z hotových běhů“
-(`runs_requested`); po Spustit nebo Zpět se vrátí karty (`show_cards`).
 """
 
 from __future__ import annotations
@@ -32,7 +29,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QProgressBar,
     QPushButton,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -91,50 +87,72 @@ class FolderRow:
         self.path.setToolTip(str(path))
 
 
-class ActionCard(QFrame):
-    """Velká karta výstupu: název, popis, nápověda a modré tlačítko; dál vede jen tlačítko."""
+DOT_COLORS = {"ok": theme.OK, "warn": theme.WARN, "missing": theme.MISSING}
 
-    activated = Signal()
 
-    def __init__(
-        self, title: str, text: str, hint: str, button: str, *, primary: bool = False
-    ) -> None:
+class StatusTile(QFrame):
+    """Dlaždice stavu: tečka, název, jeden řádek textu a tlačítko, které vede dál."""
+
+    def __init__(self, title: str, button: str, *, wrap: bool = False) -> None:
         super().__init__()
         self.setObjectName("card")
-        self.setProperty("role", "option")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(22, 18, 22, 18)
-        layout.setSpacing(8)
+        # název a tlačítko v řádku, text pod nimi přes celou šířku (v úzkém okně se
+        # vedle tlačítka nevešel); volné místo zůstává dole
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(16, 12, 12, 12)
+        self.grid.setHorizontalSpacing(12)
+        self.grid.setVerticalSpacing(2)
+        self.grid.setColumnStretch(1, 1)
+        self.dot = QLabel("")
+        self.dot.setFixedSize(10, 10)
+        self.grid.addWidget(self.dot, 0, 0)
         self.title = QLabel(title)
-        self.title.setObjectName("headline")
-        layout.addWidget(self.title)
-        self.text = QLabel(text)
-        self.text.setWordWrap(True)
-        layout.addWidget(self.text, 1)
-        self.hint = QLabel(hint)
-        self.hint.setObjectName("muted")
-        self.hint.setWordWrap(True)
-        layout.addWidget(self.hint)
+        self.title.setObjectName("card_title")
+        self.grid.addWidget(self.title, 0, 1)
         self.button = QPushButton(button)
-        theme.set_role(self.button, "primary")
-        self.button.clicked.connect(self.activated)
-        row = QHBoxLayout()
-        row.addWidget(self.button)
-        row.addStretch(1)
-        layout.addLayout(row)
+        self.grid.addWidget(self.button, 0, 2)
+        # stav prostředí je věta a zalomí se; cesty a počty se zkrátí výpustkou
+        self.text: QLabel = QLabel("") if wrap else ElidedLabel("")
+        self.text.setWordWrap(wrap)
+        self.text.setObjectName("muted")
+        self._lines = 0
+        self.add_line(self.text)
+        self._role = ""
+        self.set_role("")
+
+    def set_role(self, role: str) -> None:
+        """Barva tečky: ok, warn, missing; cokoli jiného šedá (jen informace)."""
+        self._role = role
+        color = DOT_COLORS.get(role, "#9ca3af")
+        self.dot.setStyleSheet(f"background: {color}; border-radius: 5px;")
+
+    def add_line(self, widget: QWidget) -> None:
+        """Další řádek pod názvem přes celou šířku dlaždice."""
+        self.grid.setRowStretch(self._lines + 1, 0)
+        self._lines += 1
+        self.grid.addWidget(widget, self._lines, 1, 1, 2)
+        self.grid.setRowStretch(self._lines + 1, 1)
+
+    def role(self) -> str:
+        return self._role
+
+    def set_text(self, text: str) -> None:
+        self.text.setText(text)
 
 
 class HomePage(QWidget):
-    assessment_requested = Signal()  # Hodnocení pacienta → průvodce v kroku 2
-    runs_requested = Signal()  # z kroku 2: hodnocení z hotových běhů (dialog na Pacientech)
+    assessment_requested = Signal()  # Nové hodnocení… → stránka Hodnocení pacienta
     analysis_requested = Signal()  # Analýza nahrávek → stránka Analýza
     norm_requested = Signal()  # Nová norma… → průvodce Nová norma
     environment_requested = Signal()  # stránka Prostředí
     norms_requested = Signal()  # stránka Normy (varování o změněné feature)
+    protocols_requested = Signal()  # stránka Protokoly
+    dimensions_requested = Signal()  # stránka Dimenze
+    quality_requested = Signal()  # dialog Prahy kontroly kvality
+    settings_requested = Signal()  # dialog Nastavení
     run_requested = Signal()  # stránka Výpočet (pruh „právě běží“)
     queue_requested = Signal()  # „Zobrazit vše ve Výsledcích“: přehled s frontou
     queue_remove_requested = Signal(object)  # řádek fronty ✕: indexy dávek (tuple[int, ...])
-    next_visit_requested = Signal()  # „Další vyšetření téhož pacienta…“ po Spustit
     models_dir_requested = Signal()  # uživatel chce změnit složku modelů
     work_root_requested = Signal()  # … a složku výsledků
     install_requested = Signal()  # modely ze souboru (balík)
@@ -142,55 +160,64 @@ class HomePage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        page_layout = QVBoxLayout(self)
-        page_layout.setContentsMargins(0, 0, 0, 0)
-        self.stack = QStackedWidget()
-        page_layout.addWidget(self.stack)
-        cards_page = QWidget()
-        self.stack.addWidget(cards_page)
-        self.stack.addWidget(self._build_builder_page())
-        layout = QVBoxLayout(cards_page)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 20)
         layout.setSpacing(14)
 
-        self.headline = QLabel(tr("Co chcete udělat?"))
+        head = QHBoxLayout()
+        head.setSpacing(10)
+        titles = QVBoxLayout()
+        titles.setSpacing(4)
+        self.headline = QLabel(tr("Přehled"))
         self.headline.setObjectName("page_title")
-        layout.addWidget(self.headline)
-        self.intro = QLabel(
-            tr("Výpočet nahrávek proběhne vždy stejně, liší se jen to, co z něj vznikne.")
-        )
+        titles.addWidget(self.headline)
+        self.intro = QLabel(tr("Co se právě počítá a v jakém stavu je aplikace."))
         self.intro.setObjectName("muted")
-        layout.addWidget(self.intro)
-
-        cards = QHBoxLayout()
-        cards.setSpacing(16)
-        self.assessment_card = ActionCard(
-            tr("Hodnocení pacienta"),
+        titles.addWidget(self.intro)
+        head.addLayout(titles, 1)
+        # obě tlačítka stejně modrá (rozhodnutí uživatele 19. 11. 2026)
+        self.assess_btn = QPushButton(tr("Nové hodnocení…"))
+        self.assess_btn.setToolTip(
             tr(
-                "Nahrávky jednoho pacienta po úlohách. Výsledkem je pavouk proti normě "
+                "Nahrávky pacienta po úlohách. Výsledkem je pavouk proti normě "
                 "a strom hodnot, uložený k pacientovi jako vyšetření."
-            ),
-            tr("složka s nahrávkami · nebo z hotových běhů"),
-            tr("Nové hodnocení…"),
-            primary=True,
+            )
         )
-        self.assessment_card.activated.connect(self.assessment_requested)
-        self.analysis_card = ActionCard(
-            tr("Analýza nahrávek"),
+        theme.set_role(self.assess_btn, "primary")
+        self.assess_btn.clicked.connect(self.assessment_requested)
+        self.start_btn = QPushButton(tr("Nová analýza…"))
+        self.start_btn.setToolTip(
             tr(
                 "Složka s nahrávkami, protokol a tabulka feature pro každou nahrávku. "
                 "Pro studie a export do statistiky."
-            ),
-            tr("složka · protokol · tabulka CSV"),
-            tr("Nová analýza…"),
+            )
         )
-        self.analysis_card.activated.connect(self.analysis_requested)
-        cards.addWidget(self.assessment_card, 1)
-        cards.addWidget(self.analysis_card, 1)
-        layout.addLayout(cards)
-        # tlačítka karet pro testy a klávesnici pod jmény jako dřív na uvítání
-        self.start_btn = self.analysis_card.button
-        self.assess_btn = self.assessment_card.button
+        theme.set_role(self.start_btn, "primary")
+        self.start_btn.clicked.connect(self.analysis_requested)
+        head.addWidget(self.assess_btn, 0, Qt.AlignmentFlag.AlignBottom)
+        head.addWidget(self.start_btn, 0, Qt.AlignmentFlag.AlignBottom)
+        layout.addLayout(head)
+
+        # --- nic neběží ------------------------------------------------------------------
+        self.idle = QFrame()
+        self.idle.setObjectName("card")
+        idle_layout = QVBoxLayout(self.idle)
+        idle_layout.setContentsMargins(16, 12, 16, 12)
+        idle_layout.setSpacing(2)
+        idle_title = QLabel(tr("Nic se nepočítá"))
+        idle_title.setObjectName("card_title")
+        idle_layout.addWidget(idle_title)
+        self.idle_text = QLabel(
+            tr(
+                "Začněte hodnocením pacienta nebo analýzou nahrávek. "
+                'Hotové běhy jsou ve <a href="results">Výsledcích ›</a>'
+            )
+        )
+        self.idle_text.setObjectName("muted")
+        self.idle_text.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self.idle_text.linkActivated.connect(lambda _href: self.queue_requested.emit())
+        idle_layout.addWidget(self.idle_text)
+        layout.addWidget(self.idle)
 
         # --- právě běží ------------------------------------------------------------------
         self.running = QFrame()
@@ -260,26 +287,6 @@ class HomePage(QWidget):
         layout.addWidget(self.running)
         self.running.hide()
 
-        # po Spustit: další návštěva téhož pacienta bez psaní údajů znovu
-        self.next_visit = QFrame()
-        self.next_visit.setObjectName("card")
-        theme.set_role(self.next_visit, "neutral")
-        next_layout = QHBoxLayout(self.next_visit)
-        next_layout.setContentsMargins(16, 10, 16, 10)
-        next_layout.setSpacing(14)
-        self.next_visit_text = QLabel("")
-        self.next_visit_text.setWordWrap(True)
-        next_layout.addWidget(self.next_visit_text, 1)
-        self.next_visit_btn = QPushButton(tr("Další vyšetření téhož pacienta…"))
-        self.next_visit_btn.clicked.connect(self.next_visit_requested)
-        next_layout.addWidget(self.next_visit_btn)
-        self.next_visit_close = QPushButton(tr("Zavřít"))
-        self.next_visit_close.setFlat(True)
-        self.next_visit_close.clicked.connect(self.next_visit.hide)
-        next_layout.addWidget(self.next_visit_close)
-        layout.addWidget(self.next_visit)
-        self.next_visit.hide()
-
         # --- první nastavení (jen dokud chybí modely) ---------------------------------------
         self.setup = QFrame()
         self.setup.setObjectName("card")
@@ -333,9 +340,54 @@ class HomePage(QWidget):
         layout.addWidget(self.setup)
         self.setup.hide()
 
+        # --- stav a nastavení --------------------------------------------------------------
+        self.tiles_title = QLabel(tr("Stav a nastavení"))
+        self.tiles_title.setObjectName("muted")
+        caps = self.tiles_title.font()
+        caps.setBold(True)
+        caps.setCapitalization(caps.Capitalization.AllUppercase)
+        self.tiles_title.setFont(caps)
+        layout.addWidget(self.tiles_title)
+        tiles = QGridLayout()
+        tiles.setSpacing(12)
+        self.env_tile = StatusTile(tr("Knihovna a modely"), tr("Prostředí"), wrap=True)
+        self.norms_tile = StatusTile(tr("Normy"), tr("Normy"))
+        self.protocols_tile = StatusTile(tr("Protokoly"), tr("Protokoly"))
+        self.dimensions_tile = StatusTile(tr("Dimenze"), tr("Dimenze"))
+        self.work_tile = StatusTile(tr("Složka výsledků"), tr("Změnit…"))
+        self.quality_tile = StatusTile(tr("Kontrola kvality"), tr("Prahy…"))
+        self.tiles = (
+            self.env_tile,
+            self.norms_tile,
+            self.protocols_tile,
+            self.dimensions_tile,
+            self.work_tile,
+            self.quality_tile,
+        )
+        for index, tile in enumerate(self.tiles):
+            tiles.addWidget(tile, index // 3, index % 3)
+            tiles.setColumnStretch(index % 3, 1)
+        layout.addLayout(tiles)
+        self.status = self.env_tile.text
+        self.env_btn = self.env_tile.button
+        self.env_btn.clicked.connect(self.environment_requested)
+        self.norms_tile.button.clicked.connect(self.norms_requested)
+        self.protocols_tile.button.clicked.connect(self.protocols_requested)
+        self.dimensions_tile.button.clicked.connect(self.dimensions_requested)
+        self.work_tile.button.clicked.connect(self.work_root_requested)
+        self.quality_tile.button.clicked.connect(self.quality_requested)
+        # varování o normě se změněnou feature: druhý řádek dlaždice Normy
+        self.norm_warning = QLabel("")
+        self.norm_warning.setObjectName("muted")
+        self.norm_warning.setWordWrap(True)
+        self.norm_warning.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self.norm_warning.linkActivated.connect(lambda _href: self.norms_requested.emit())
+        self.norms_tile.add_line(self.norm_warning)
+        self.norm_warning.hide()
+
         layout.addStretch(1)
 
-        # --- dole: Nová norma a stav ----------------------------------------------------------
+        # --- dole: Nová norma a nastavení -----------------------------------------------------
         rule = QFrame()
         rule.setFrameShape(QFrame.Shape.HLine)
         rule.setObjectName("rule")
@@ -343,107 +395,41 @@ class HomePage(QWidget):
         bottom = QHBoxLayout()
         bottom.setSpacing(14)
         self.norm_btn = QPushButton(tr("Nová norma…"))
-        self.norm_btn.clicked.connect(self.norm_requested)
-        bottom.addWidget(self.norm_btn, 0, Qt.AlignmentFlag.AlignTop)
-        self.norm_hint = QLabel(
+        self.norm_btn.setToolTip(
             tr(
                 "Nahrávky zdravých kontrol s věkem a pohlavím. Dělá se jednou za čas, "
                 "hotové normy jsou na stránce Normy."
             )
         )
-        self.norm_hint.setObjectName("muted")
-        self.norm_hint.setWordWrap(True)
-        self.norm_hint.setMaximumWidth(560)
-        bottom.addWidget(self.norm_hint, 0, Qt.AlignmentFlag.AlignTop)
+        self.norm_btn.clicked.connect(self.norm_requested)
+        bottom.addWidget(self.norm_btn)
         bottom.addStretch(1)
-        status_block = QVBoxLayout()
-        status_block.setSpacing(4)
-        status_row = QHBoxLayout()
-        status_row.setSpacing(10)
-        self.status = QLabel("")
-        self.status.setObjectName("pill")
-        status_row.addWidget(self.status)
-        self.env_btn = QPushButton(tr("Prostředí"))
-        self.env_btn.clicked.connect(self.environment_requested)
-        status_row.addWidget(self.env_btn)
-        status_block.addLayout(status_row)
-        self.norm_warning = QLabel("")
-        self.norm_warning.setObjectName("muted")
-        self.norm_warning.setWordWrap(True)
-        self.norm_warning.setMaximumWidth(520)
-        self.norm_warning.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
-        self.norm_warning.linkActivated.connect(lambda _href: self.norms_requested.emit())
-        status_block.addWidget(self.norm_warning)
-        self.norm_warning.hide()
         self.version = QLabel(tr("aplikace {version}").format(version=__version__))
         self.version.setObjectName("muted")
-        status_block.addWidget(self.version)
-        bottom.addLayout(status_block)
+        bottom.addWidget(self.version)
+        self.settings_btn = QPushButton(tr("Nastavení…"))
+        self.settings_btn.clicked.connect(self.settings_requested)
+        bottom.addWidget(self.settings_btn)
         layout.addLayout(bottom)
 
+        self._norms_role = ""
         self._recommend_env = False
         self._library_ok = False
         self._models_present = False
         self._dismissed = False  # Hotovo: blok se v tomto běhu už neukáže
         self.set_state(library_ok=False, models_ok=False)
 
-    # --- krok 2: průvodce ------------------------------------------------------------
-
-    def _build_builder_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(28, 24, 28, 20)
-        layout.setSpacing(14)
-        head = QHBoxLayout()
-        head.setSpacing(12)
-        self.home_btn = QPushButton(tr("‹ Domů"))
-        self.home_btn.clicked.connect(self.show_cards)
-        head.addWidget(self.home_btn)
-        title = QLabel(tr("Nové hodnocení z nahrávek"))
-        title.setObjectName("page_title")
-        head.addWidget(title, 1)
-        self.runs_link = QLabel(tr('<a href="runs">…nebo z hotových běhů</a>'))
-        self.runs_link.setObjectName("muted")
-        self.runs_link.setToolTip(tr("Nahrávky, které už jsou spočítané, bez dalšího výpočtu"))
-        self.runs_link.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
-        self.runs_link.linkActivated.connect(lambda _href: self.runs_requested.emit())
-        head.addWidget(self.runs_link)
-        layout.addLayout(head)
-        self.builder_slot = QVBoxLayout()
-        self.builder_slot.setContentsMargins(0, 0, 0, 0)
-        layout.addLayout(self.builder_slot, 1)
-        self.builder: QWidget | None = None
-        return page
-
-    def step(self) -> int:
-        return self.stack.currentIndex()
-
-    def show_builder(self, widget: QWidget) -> None:
-        """Krok 2 s čerstvým průvodcem; předchozí se zahodí."""
-        self.next_visit.hide()
-        self._drop_builder()
-        self.builder = widget
-        self.builder_slot.addWidget(widget)
-        self.stack.setCurrentIndex(1)
-
-    def show_cards(self) -> None:
-        """Zpět na karty; rozdělaný průvodce se bez ptaní zahodí."""
-        self._drop_builder()
-        self.stack.setCurrentIndex(0)
-
-    def _drop_builder(self) -> None:
-        if self.builder is not None:
-            self.builder_slot.removeWidget(self.builder)
-            self.builder.hide()
-            self.builder.setParent(None)
-            self.builder.deleteLater()
-            self.builder = None
-
     # --- stav ------------------------------------------------------------------------
 
     def set_folders(self, models_dir: Path, work_root: Path) -> None:
         self.models_row.set_path(models_dir)
         self.work_row.set_path(work_root)
+        work_free = free_bytes(work_root)
+        self.work_tile.set_text(
+            tr("{path} · volných {size}").format(path=work_root, size=format_size(work_free))
+            if work_free is not None
+            else str(work_root)
+        )
         free = free_bytes(models_dir)
         if free is None:
             self.space.setText("")
@@ -504,6 +490,7 @@ class HomePage(QWidget):
         """Pruh „právě běží“: název dávky a postup; fronta je pod ním (`set_queue`)."""
         self.running_title.setText(title)
         self.running_detail.setText(detail)
+        self.idle.hide()
         self.running.show()
 
     def set_queue(self, entries: list[QueueEntry], finish: str = "") -> None:
@@ -582,16 +569,6 @@ class HomePage(QWidget):
         row.mousePressEvent = lambda event: (event.accept(), self.queue_requested.emit())  # type: ignore[method-assign]
         return row
 
-    def offer_next_visit(self, subject: str) -> None:
-        """Po Spustit hodnocení jednoho pacienta: nabídka další návštěvy téhož pacienta."""
-        self.next_visit_text.setText(
-            tr(
-                "Hodnocení pacienta {subject} se počítá. Máte další návštěvu téhož "
-                "pacienta? Údaje zůstanou vyplněné, stačí datum a složky."
-            ).format(subject=subject)
-        )
-        self.next_visit.show()
-
     def set_progress(self, processed: int, total: int) -> None:
         if total > 0:
             self.running_bar.setRange(0, total)
@@ -601,10 +578,12 @@ class HomePage(QWidget):
 
     def clear_running(self) -> None:
         self.running.hide()
+        self.idle.show()
         self.running_bar.setRange(0, 0)
 
     def set_norm_warnings(self, names: list[str]) -> None:
         """Normy, kterým se od spočítání změnila feature (odkaz vede na Normy)."""
+        self.norms_tile.set_role("warn" if names else self._norms_role)
         if not names:
             self.norm_warning.hide()
             return
@@ -615,6 +594,22 @@ class HomePage(QWidget):
             ).format(names=", ".join(f"„{n}“" for n in names))
         )
         self.norm_warning.show()
+
+    def set_overview(
+        self, *, norms: int, builtin: int, custom: int, dimensions: int, quality_custom: bool
+    ) -> None:
+        """Čísla do dlaždic: počet norem, protokolů a os pavouka, vlastní prahy kvality."""
+        self._norms_role = "ok" if norms else ""
+        if self.norm_warning.isHidden():
+            self.norms_tile.set_role(self._norms_role)
+        self.norms_tile.set_text(
+            tr("počet norem: {n}").format(n=norms) if norms else tr("zatím žádná norma")
+        )
+        self.protocols_tile.set_text(
+            tr("přibalené: {a} · vlastní: {b}").format(a=builtin, b=custom)
+        )
+        self.dimensions_tile.set_text(tr("osy pavouka: {n}").format(n=dimensions))
+        self.quality_tile.set_text(tr("upravené prahy") if quality_custom else tr("výchozí prahy"))
 
     def _show_setup(self, shown: bool) -> None:
         shown = shown and not self._dismissed
@@ -639,4 +634,4 @@ class HomePage(QWidget):
 
     def _set_status(self, role: str, text: str) -> None:
         self.status.setText(text)
-        theme.set_role(self.status, role)
+        self.env_tile.set_role(role)

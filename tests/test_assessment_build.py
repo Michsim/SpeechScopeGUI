@@ -32,6 +32,7 @@ from speechscope_app.backend.norms import Norm, NormInfo
 from speechscope_app.backend.protocol import Protocol, builtin_protocols
 from speechscope_app.backend.settings import AppSettings
 from speechscope_app.ui.main_window import (
+    PAGE_ASSESS,
     PAGE_ASSESSMENT,
     PAGE_HOME,
     PAGE_RESULTS,
@@ -363,31 +364,42 @@ def test_recompute_assessment_reruns_and_replaces(
 
 
 def test_home_runs_wizard_in_place(qtbot: QtBot, settings: AppSettings, tmp_path: Path) -> None:
-    """Nové hodnocení… na Domů: průvodce v kroku 2, Spustit zařadí dávky a vrátí karty."""
+    """Nové hodnocení… na Domů vede na stránku Hodnocení pacienta; Spustit zařadí dávky
+    a nechá na stránce čerstvého průvodce s nabídkou dalšího vyšetření."""
     data = make_folder(tmp_path / "pacient", {"": ["aaa1.wav"]})
     window = MainWindow(settings)
     qtbot.addWidget(window)
     home = window.home_page
-    assert window.nav.currentRow() == PAGE_HOME and home.step() == 0
+    page = window.assess_page
+    assert window.nav.currentRow() == PAGE_HOME and page.builder is None
     home.assess_btn.click()
-    builder = home.builder
-    assert home.step() == 1 and builder is not None and not builder.next_btn.isEnabled()
+    builder = page.builder
+    assert window.nav.currentRow() == PAGE_ASSESS
+    assert builder is not None and not builder.next_btn.isEnabled()
     assert builder.mode() == "choose"
     builder.mode_cards["single"].click()
     builder.subject.setText("P1")
     builder.set_folder("phonation", data)
     assert builder.rows["phonation"].count.text() == "1 ✓" and builder.next_btn.isEnabled()
     builder.go_next()  # Spustit hodnocení
-    assert window.nav.currentRow() == PAGE_RUN and home.step() == 0 and home.builder is None
+    assert window.nav.currentRow() == PAGE_RUN
+    assert page.builder is not builder and page.builder.mode() == "choose"  # čerstvý průvodce
     # nabídka další návštěvy téhož pacienta: průvodce s předvyplněným pacientem
-    assert not home.next_visit.isHidden() and "P1" in home.next_visit_text.text()
-    home.next_visit_btn.click()
-    assert window.nav.currentRow() == PAGE_HOME and home.step() == 1
+    assert not page.next_visit.isHidden() and "P1" in page.next_visit_text.text()
+    page.next_visit_btn.click()
+    assert window.nav.currentRow() == PAGE_ASSESS
     # další vyšetření = Vývoj v čase s pacientem
-    assert home.builder.mode() == "series" and home.next_visit.isHidden()
-    assert home.builder.series.subject_text() == "P1"
-    home.home_btn.click()
-    assert home.step() == 0
+    assert page.builder.mode() == "series" and page.next_visit.isHidden()
+    assert page.builder.series.subject_text() == "P1"
+    # rozdělaný průvodce přežije odchod ze stránky, Storno v prvním kroku ho zahodí
+    kept = page.builder
+    window.nav.setCurrentRow(PAGE_HOME)
+    window.nav.setCurrentRow(PAGE_ASSESS)
+    assert page.builder is kept
+    kept.rejected.emit()
+    assert page.builder is not kept and page.builder.mode() == "choose"
+    # konec dávky přepne na Pacienty jen z Domů a Výsledků; rozdělaného průvodce neruší
+    window.nav.setCurrentRow(PAGE_HOME)
     page = window.assessment_page
     page.refresh()
     assert page.count() == 1 and page.current_plan() is not None

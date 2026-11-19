@@ -216,6 +216,16 @@ class AppSettings:
         self._q.setValue("ui/trend_scale", value)
 
     @property
+    def spider_group(self) -> str:
+        """Pavouk a strom vyšetření na Pacientech: dimensions (výchozí) nebo tasks."""
+        raw = str(self._q.value("ui/spider_group", "dimensions") or "dimensions")
+        return raw if raw in ("dimensions", "tasks") else "dimensions"
+
+    @spider_group.setter
+    def spider_group(self, value: str) -> None:
+        self._q.setValue("ui/spider_group", value)
+
+    @property
     def compare_sort(self) -> str:
         """Řazení tabulky Porovnání: effect (podle rozdílu, výchozí) nebo feature."""
         raw = str(self._q.value("ui/compare_sort", "effect") or "effect")

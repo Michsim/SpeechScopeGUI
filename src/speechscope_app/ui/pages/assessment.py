@@ -66,6 +66,7 @@ from ...backend.dimensions import (
     Evaluation,
     ItemResult,
     active_dimensions,
+    by_task,
     evaluate,
     load_dimensions,
 )
@@ -111,6 +112,7 @@ from ..widgets.dimension_tree import (
     band_dot,
 )
 from ..widgets.elided_label import ElidedLabel
+from ..widgets.inputs import Segmented
 from ..widgets.patient_overview import OverviewRow, PatientOverview
 from ..widgets.spider_chart import (
     BAND_COLORS,
@@ -354,6 +356,7 @@ class AssessmentPage(QWidget):
     open_run_requested = Signal(object)  # složka běhu: Otevřít běh ve Výsledcích
     orientation_changed = Signal(str)  # orientace pavouka (hlavní okno uloží)
     scale_changed = Signal(str)  # měřítko Vývoje v čase: sd | values (hlavní okno uloží)
+    spider_group_changed = Signal(str)  # pavouk a strom: dimensions | tasks
     form_changed = Signal(str)  # podoba Vývoje: spider | charts (hlavní okno uloží)
     trend_selection_changed = Signal(str, object)  # ("dims" | "items", seznam klíčů s grafem)
     norm_choice_changed = Signal(str)  # cesta k normě, NO_NORM, nebo "" = první (hlavní okno uloží)
@@ -386,6 +389,7 @@ class AssessmentPage(QWidget):
         self._badge_generation = 0  # líné štítky: starší tik po novém seznamu nic nedělá
         self._current: Visit | None = None
         self._evaluation: Evaluation | None = None
+        self._spider_group = "dimensions"  # pavouk a strom: dimensions | tasks
         self._view = "visit"  # „visit“ = pavouk a strom vybraného vyšetření, „trend“ = vývoj
         self._timeline: Timeline | None = None
         self._scale = "sd"  # měřítko Vývoje: „sd“ proti normě, „values“ jednotky feature
@@ -703,9 +707,29 @@ class AssessmentPage(QWidget):
         chart_layout = QVBoxLayout(self.chart_card)
         chart_layout.setContentsMargins(12, 10, 12, 10)
         chart_layout.setSpacing(6)
-        chart_title = QLabel(tr("Odchylka od normy po dimenzích"))
-        chart_title.setObjectName("card_title")
-        chart_layout.addWidget(chart_title)
+        # pavouk a strom podle dimenzí řeči, nebo podle úloh (19. 11. 2026): tytéž položky,
+        # jen jinak seskupené (`dimensions.by_task`); štítek pacienta a Vývoj zůstávají po dimenzích
+        chart_head = QHBoxLayout()
+        chart_head.setSpacing(10)
+        self.chart_title = QLabel(tr("Odchylka od normy po dimenzích"))
+        self.chart_title.setObjectName("card_title")
+        chart_head.addWidget(self.chart_title, 1)
+        group_label = QLabel(tr("Pavouk podle"))
+        group_label.setObjectName("muted")
+        chart_head.addWidget(group_label)
+        self._group_choices = {tr("dimenzí řeči"): "dimensions", tr("úloh"): "tasks"}
+        self.group_switch = Segmented(list(self._group_choices))
+        self.group_switch.setToolTip(
+            tr(
+                "Dimenze říkají, co je narušené; úlohy, kde se to projevilo. Oba pohledy "
+                "počítají ze stejných položek, jen jinak seskupených."
+            )
+        )
+        self.group_switch.currentChanged.connect(
+            lambda text: self.set_spider_group(self._group_choices[text])
+        )
+        chart_head.addWidget(self.group_switch)
+        chart_layout.addLayout(chart_head)
         self.chart_hint = QLabel("")
         self.chart_hint.setObjectName("muted")
         self.chart_hint.setWordWrap(True)
@@ -763,9 +787,9 @@ class AssessmentPage(QWidget):
         tree_layout.setSpacing(6)
         tree_top = QHBoxLayout()
         tree_top.setSpacing(8)
-        tree_title = QLabel(tr("Dimenze a jejich položky"))
-        tree_title.setObjectName("card_title")
-        tree_top.addWidget(tree_title)
+        self.tree_title = QLabel(tr("Dimenze a jejich položky"))
+        self.tree_title.setObjectName("card_title")
+        tree_top.addWidget(self.tree_title)
         tree_top.addStretch(1)
         self.expand_all_btn = QPushButton(tr("rozbalit vše"))
         self.expand_all_btn.clicked.connect(lambda: self.tree.expandAll())
@@ -2072,8 +2096,7 @@ class AssessmentPage(QWidget):
             )
         self.header.set_pills(pills)
         self._update_norm_recompute()
-        self._fill_chart(self._evaluation)
-        self._fill_tree(self._evaluation)
+        self._fill_grouped()
         self.selection_label.setText(self._selection_text(visit, self._evaluation))
         self.same_sex.setEnabled(visit.sex in ("f", "m"))
         self.about.setText(self._about_text(norm))
@@ -2737,6 +2760,50 @@ class AssessmentPage(QWidget):
             )
         return "\n".join(lines)
 
+    def spider_group(self) -> str:
+        return self._spider_group
+
+    def set_spider_group(self, group: str, *, emit: bool = True) -> None:
+        """Pavouk a strom vyšetření podle dimenzí řeči (`dimensions`), nebo úloh (`tasks`)."""
+        if group not in ("dimensions", "tasks") or group == self._spider_group:
+            return
+        self._spider_group = group
+        text = next(t for t, value in self._group_choices.items() if value == group)
+        self.group_switch.blockSignals(True)
+        self.group_switch.set_current(text)
+        self.group_switch.blockSignals(False)
+        if self._evaluation is not None:
+            self._fill_grouped()
+        if emit:
+            self.spider_group_changed.emit(group)
+
+    def shown_evaluation(self) -> Evaluation | None:
+        """Vyhodnocení tak, jak ho ukazuje pavouk a strom (po dimenzích, nebo po úlohách)."""
+        if self._evaluation is None or self._spider_group != "tasks":
+            return self._evaluation
+        return by_task(self._evaluation)
+
+    def _fill_grouped(self) -> None:
+        shown = self.shown_evaluation()
+        if shown is None:
+            return
+        self.chart_title.setText(
+            tr("Odchylka od normy po úlohách")
+            if self._spider_group == "tasks"
+            else tr("Odchylka od normy po dimenzích")
+        )
+        self._fill_chart(shown)
+        self._fill_tree(shown)
+        head = self.tree.headerItem()
+        if self._spider_group == "tasks":
+            self.tree_title.setText(tr("Úlohy a jejich položky"))
+            head.setText(0, tr("úloha / položka").upper())
+            head.setText(1, tr("dimenze").upper())
+        else:
+            self.tree_title.setText(tr("Dimenze a jejich položky"))
+            head.setText(0, tr("dimenze / položka").upper())
+            head.setText(1, tr("úloha").upper())
+
     def _fill_chart(self, evaluation: Evaluation) -> None:
         axes = [Axis(_dimension_label(r), r.score or 0.0, r.band) for r in evaluation.shown]
         self.chart.set_axes(axes)
@@ -2785,6 +2852,10 @@ class AssessmentPage(QWidget):
         )
         self._set_norm_columns(False)
         self.tree.clear()
+        # bez normy je strom vždy po dimenzích (přepínač je v kartě pavouka, která je skrytá)
+        self.tree_title.setText(tr("Dimenze a jejich položky"))
+        self.tree.headerItem().setText(0, tr("dimenze / položka").upper())
+        self.tree.headerItem().setText(1, tr("úloha").upper())
         # jediné vyšetření: datum je jen kvůli řazení, bez něj by se vynechalo
         probe = Assessment("", visit.subject, date="2000-01-01")
         timeline = build_value_timeline(
@@ -2847,11 +2918,14 @@ class AssessmentPage(QWidget):
         )
         self._set_norm_columns(True)
         self.tree.clear()
+        by_tasks = self._spider_group == "tasks"
         for result in evaluation.results:
             top = QTreeWidgetItem(
                 [
                     result.dimension.display_name,
-                    ", ".join(
+                    ", ".join(dict.fromkeys(i.group for i in result.items if i.group))
+                    if by_tasks
+                    else ", ".join(
                         tasks.label(t)
                         for t in sorted({i.task for i in result.items}, key=tasks.task_order)
                     )
@@ -2896,7 +2970,7 @@ class AssessmentPage(QWidget):
                     child = QTreeWidgetItem(
                         [
                             label,
-                            tasks.label(item.task),
+                            item.group if by_tasks else tasks.label(item.task),
                             value,
                             norm_text,
                             z_text,

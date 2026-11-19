@@ -87,6 +87,27 @@ a parametrů). Cíl: jeden instalátor exe pro Windows.
   `proto.display_name`, `proto.name` zůstává klíč.
 
 ## Stránky
+**Od 19. 11. 2026 (varianta A, mockup https://claude.ai/artifact/B21mYSZEvScytuvN6GYCf4,
+`docs/mockups/domu-hodnoceni/` mimo git):** nabídka je Domů · Hodnocení pacienta · Analýza nahrávek ·
+Výsledky · Pacienti, dole Protokoly · Normy · Dimenze · Prostředí (`PAGE_HOME`, `PAGE_ASSESS`,
+`PAGE_BATCH`, `PAGE_RESULTS`, `PAGE_ASSESSMENT` = Pacienti, …, `PAGE_ENV`; Ctrl+1…9).
+**Hodnocení pacienta** (`pages/assess.py`, `AssessPage`, ikona `assess`) je průvodce z nahrávek
+`AssessmentBuildWidget`, dřív krok 2 Domů: `MainWindow._show_assess_page` ho při zobrazení vyrobí
+(`new_assessment_from_home`, bez knihovny jen hláška), průvodce na úvodní volbě typu se při každém
+zobrazení vyrobí znovu (čerstvé protokoly a normy), rozdělaný zůstává, dokud ho uživatel nespustí
+nebo nezahodí (Storno v prvním kroku = čerstvý průvodce); odkaz „…nebo z hotových běhů“
+(`runs_requested`) a nabídka „Další vyšetření téhož pacienta…“ (`offer_next_visit`,
+`next_visit_requested`) jsou na této stránce. Konec dávky z této stránky nepřepíná (jen nabídka
+vpravo dole), aby nerušil rozdělaného průvodce. **Domů je přehled** (`HomePage`, nadpis Přehled):
+vpravo nahoře dvě stejně modrá tlačítka Nové hodnocení… (`assess_btn` → `PAGE_ASSESS`) a Nová
+analýza… (`start_btn` → Analýza), pruh „právě běží“ s frontou jako dřív, bez výpočtu karta „Nic se
+nepočítá“ (`idle`), blok První nastavení jako dřív a dlaždice Stav a nastavení (`StatusTile`: tečka,
+název, tlačítko, text pod nimi přes celou šířku; 3 × 2): Knihovna a modely (`env_tile`, `status`,
+`env_btn`), Normy (`norms_tile`, varování o změněné feature `norm_warning` jako druhý řádek a žlutá
+tečka), Protokoly, Dimenze, Složka výsledků (Změnit…), Kontrola kvality (Prahy…); čísla plní
+`set_overview` z `MainWindow._refresh_home`; dole Nová norma… a Nastavení…. Velké karty `ActionCard`,
+krok 2 na Domů, `show_builder`/`show_cards` a „‹ Domů“ zmizely; popis Domů níže platí jen pro pruh
+„právě běží“, frontu a První nastavení.
 Pořadí v nabídce (od 30. 10. 2026, mockup
 https://claude.ai/artifact/UkcxmVZDY3M9n89UQFuhdq, `docs/mockups/domu-pacienti/` mimo
 git): Domů · Analýza nahrávek · Výsledky · Pacienti, dole Protokoly · Normy ·
@@ -414,6 +435,17 @@ s Uložit a rozpracovaný stav zmizely; `summary_text` pro testy.
   YAML se projeví hned při příštím zobrazení (norma má jen surové hodnoty
   kontrol, z-skóre, log i směr se počítají až při prohlížení), aplikaci stačí
   restartovat; nová feature v dimenzi musí být i v tabulce normy.
+- **Pavouk podle úloh** (19. 11. 2026, podoba A, mockup https://claude.ai/artifact/2DYqRbRfZX3aZaECCN1iqh,
+  `docs/mockups/dva-pavouky/` mimo git; oba pavouky vedle sebe zamítnuty): v kartě pavouka na záložce
+  Vyšetření přepínač „Pavouk podle dimenzí řeči · úloh“ (`group_switch`, `set_spider_group`,
+  `spider_group()`, volba v `ui/spider_group` přes `spider_group_changed`). Úlohy nic nového nepočítají:
+  `dimensions.by_task(evaluation)` rozdělí položky dimenzí na osy podle úlohy, ze které se měřily
+  (`task_axis`: spontánní řeč i vlastní úloha nad ní má dvě osy, akustika a jazyk podle prefixu sloupce
+  `linguistic.`; položka ve dvou dimenzích jde do osy jednou), skóre osy jako u dimenze (`_dimension_result`
+  s `_reference`). Osy tedy tvoří jen feature, které jsou v některé dimenzi. Přepne se pavouk i strom
+  (`_fill_grouped`, `shown_evaluation()`; nadpisy, záhlaví „úloha / položka · dimenze“, u položky štítek
+  dimenze z `ItemResult.group`); štítek pacienta, hlavička, Vývoj v čase a strom bez normy zůstávají po
+  dimenzích (`evaluation()`).
 - **Stránka Dimenze** (1. 11. 2026, mockup https://claude.ai/artifact/XZFXixJuPiT6wmPctQTLV9,
   `docs/mockups/dimenze/` mimo git; `ui/pages/dimensions.py`, `DimensionsPage`, `PAGE_DIMENSIONS` dole mezi
   Normami a Prostředím, ikona pavouka `_dimensions`, Ctrl+7, Prostředí Ctrl+8): vlevo dimenze v pořadí os pavouka

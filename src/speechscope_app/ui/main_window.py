@@ -86,6 +86,7 @@ from .assessment_series import SeriesPatient
 from .models_dialog import ModelsDownloadDialog
 from .models_install_dialog import ModelsInstallDialog
 from .new_norm_dialog import NewNormDialog
+from .pages.assess import AssessPage
 from .pages.assessment import AssessmentPage
 from .pages.batch import BatchPage
 from .pages.dimensions import DimensionsPage
@@ -104,14 +105,15 @@ from .widgets.sidebar_nav import SidebarNav, parse_progress
 # Pořadí v nabídce: od každodenního (analýza) k jednorázovému (prostředí).
 (
     PAGE_HOME,
+    PAGE_ASSESS,  # Hodnocení pacienta: průvodce z nahrávek (19. 11. 2026, dřív krok 2 Domů)
     PAGE_BATCH,
     PAGE_RESULTS,
-    PAGE_ASSESSMENT,
+    PAGE_ASSESSMENT,  # Pacienti
     PAGE_PROTOCOLS,
     PAGE_NORMS,
     PAGE_DIMENSIONS,
     PAGE_ENV,
-) = range(8)
+) = range(9)
 # Výpočet je od 31. 10. 2026 záložka Průběh v detailu běhu na Výsledcích (`RunsPage`).
 PAGE_RUN = PAGE_RESULTS
 
@@ -190,9 +192,11 @@ class MainWindow(QMainWindow):
         self.norms_page = NormsPage()
         self.dimensions_page = DimensionsPage()  # které feature patří do které dimenze
         self.home_page = HomePage()
+        self.assess_page = AssessPage()
 
         self.nav_labels = (
             tr("Domů"),
+            tr("Hodnocení pacienta"),
             tr("Analýza nahrávek"),
             tr("Výsledky"),
             tr("Pacienti"),
@@ -206,6 +210,7 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         for page in (
             self.home_page,
+            self.assess_page,
             self.batch_page,
             self.runs_page,
             self.assessment_page,
@@ -272,9 +277,13 @@ class MainWindow(QMainWindow):
         self.home_page.install_requested.connect(self.install_models)
         self.home_page.download_requested.connect(self.download_models)
         self.home_page.analysis_requested.connect(lambda: self.nav.setCurrentRow(PAGE_BATCH))
-        self.home_page.assessment_requested.connect(self.new_assessment_from_home)
-        self.home_page.runs_requested.connect(self.new_assessment_from_runs)
-        self.home_page.next_visit_requested.connect(self.next_visit_from_home)
+        self.home_page.assessment_requested.connect(lambda: self.nav.setCurrentRow(PAGE_ASSESS))
+        self.assess_page.runs_requested.connect(self.new_assessment_from_runs)
+        self.assess_page.next_visit_requested.connect(self.next_visit_from_home)
+        self.home_page.protocols_requested.connect(lambda: self.nav.setCurrentRow(PAGE_PROTOCOLS))
+        self.home_page.dimensions_requested.connect(lambda: self.nav.setCurrentRow(PAGE_DIMENSIONS))
+        self.home_page.quality_requested.connect(lambda: self.edit_quality_thresholds())
+        self.home_page.settings_requested.connect(lambda: self._open_settings())
         self.assessment_page.new_visit_from_recordings_requested.connect(
             self.new_visit_from_recordings
         )
@@ -307,6 +316,7 @@ class MainWindow(QMainWindow):
         self.assessment_page.set_orientation(self.settings.spider_orientation)
         self.assessment_page.orientation_changed.connect(self._spider_orientation_changed)
         self.assessment_page.set_scale(self.settings.trend_scale, emit=False)
+        self.assessment_page.set_spider_group(self.settings.spider_group, emit=False)
         self.runs_page.compare_page.set_sort(self.settings.compare_sort, emit=False)
         self.runs_page.compare_page.sort_changed.connect(
             lambda key: setattr(self.settings, "compare_sort", key)
@@ -316,6 +326,7 @@ class MainWindow(QMainWindow):
             self.settings.trend_dims, self.settings.trend_items
         )
         self.assessment_page.scale_changed.connect(self._trend_scale_changed)
+        self.assessment_page.spider_group_changed.connect(self._spider_group_changed)
         self.assessment_page.form_changed.connect(self._trend_form_changed)
         self.assessment_page.trend_selection_changed.connect(self._trend_selection_changed)
         self.assessment_page.norm_choice_changed.connect(self._norm_choice_changed)
@@ -380,6 +391,8 @@ class MainWindow(QMainWindow):
     def _page_shown(self, index: int) -> None:
         if index == PAGE_HOME:
             self._refresh_home()
+        elif index == PAGE_ASSESS:
+            self._show_assess_page()
         elif index == PAGE_RESULTS:
             self._merge_finished_groups()
             self.results_page.refresh()
@@ -394,43 +407,62 @@ class MainWindow(QMainWindow):
             self.env_page.refresh_cache()
 
     def _refresh_home(self) -> None:
-        """Stav na Domů: normy, kterým se od spočítání změnila feature."""
+        """Stav na Domů: počty do dlaždic a normy, kterým se od spočítání změnila feature."""
         versions = self.norms_page.current_versions()
+        norms = all_norms(self.settings.norms_dir())
         names = [
             norm.info.display_name
-            for norm in all_norms(self.settings.norms_dir())
+            for norm in norms
             if versions and outdated_features(norm, versions)
         ]
+        protocols = all_protocols(self.settings.protocols_dir())
+        dims, _error = dimensions_mod.load_effective(self.settings.dimensions_file())
+        self.home_page.set_overview(
+            norms=len(norms),
+            builtin=sum(1 for p in protocols if p.builtin),
+            custom=sum(1 for p in protocols if not p.builtin),
+            dimensions=len(dimensions_mod.active_dimensions(dims)),
+            quality_custom=self.settings.quality_file().exists(),
+        )
         self.home_page.set_norm_warnings(names)
 
+    def _show_assess_page(self) -> None:
+        """Hodnocení pacienta se zobrazilo: průvodce na úvodní volbě se vyrobí znovu (čerstvé
+        protokoly a normy), rozdělaný zůstává, dokud ho uživatel nespustí nebo nezahodí."""
+        builder = self.assess_page.builder
+        if builder is None or builder.mode() == "choose":
+            self.new_assessment_from_home()
+
     def new_assessment_from_home(self, template: Patient | None = None) -> None:
-        """Karta Hodnocení pacienta: průvodce z nahrávek v kroku 2 na Domů.
+        """Čerstvý průvodce z nahrávek na stránce Hodnocení pacienta.
 
         `template` = další vyšetření téhož pacienta (pacient, věk, pohlaví předvyplněné)."""
         if self.library is None:
-            QMessageBox.warning(self, tr("SpeechScope"), tr("Knihovna není nastavená."))
+            self.assess_page.set_builder(None)
             return
         builder = self.make_assessment_build_widget()
         if template is not None:
             builder.prefill(template.subject, template.age, template.sex)
         builder.accepted.connect(lambda: self._start_home_plan(builder))
-        builder.rejected.connect(self.home_page.show_cards)
-        self.home_page.show_builder(builder)
+        # Storno v prvním kroku: rozdělané pryč, průvodce znovu od volby typu
+        builder.rejected.connect(lambda: self.new_assessment_from_home())
+        self.assess_page.next_visit.hide()
+        self.assess_page.set_builder(builder)
 
     def _start_home_plan(self, builder: AssessmentBuildWidget) -> None:
         plan = builder.plan()
         self._remember_birth_year(builder)
-        self.home_page.show_cards()  # průvodce pryč dřív, než se přepne na Výpočet
+        self.new_assessment_from_home()  # průvodce pryč dřív, než se přepne na Výpočet
         self._last_patient = plan.patient if not plan.multi else None
         if self._last_patient is not None:
-            self.home_page.offer_next_visit(plan.patient.subject)
+            self.assess_page.offer_next_visit(plan.patient.subject)
         self.start_plan("assessment", plan)
 
     def next_visit_from_home(self) -> None:
-        """„Další vyšetření téhož pacienta…“ na Domů: průvodce s pacientem z minulého Spustit."""
+        """„Další vyšetření téhož pacienta…“: průvodce s pacientem z minulého Spustit."""
         template = getattr(self, "_last_patient", None)
-        self.nav.setCurrentRow(PAGE_HOME)
         self.new_assessment_from_home(template)
+        self.nav.setCurrentRow(PAGE_ASSESS)
 
     def new_visit_from_recordings(self, assessment: Assessment) -> int:
         """Nové vyšetření… na Pacientech, z nahrávek: dialog průvodce s předvyplněným pacientem."""
@@ -445,8 +477,8 @@ class MainWindow(QMainWindow):
         return self.start_plan("assessment", dialog.plan())
 
     def new_assessment_from_runs(self) -> None:
-        """Odkaz „…nebo z hotových běhů“ na Domů: dialog nad hotovými běhy, pak Pacienti."""
-        self.home_page.show_cards()
+        """Odkaz „…nebo z hotových běhů“ na stránce Hodnocení pacienta: dialog nad hotovými
+        běhy, pak Pacienti."""
         self.nav.setCurrentRow(PAGE_ASSESSMENT)
         self.assessment_page.new_from_runs()
 
@@ -482,6 +514,9 @@ class MainWindow(QMainWindow):
 
     def _spider_orientation_changed(self, orientation: str) -> None:
         self.settings.spider_orientation = orientation
+
+    def _spider_group_changed(self, group: str) -> None:
+        self.settings.spider_group = group
 
     def _trend_scale_changed(self, scale: str) -> None:
         self.settings.trend_scale = scale
@@ -634,6 +669,8 @@ class MainWindow(QMainWindow):
             title += tr(" [falešná knihovna]")
             sub += tr(" · falešná knihovna")
         self._base_title = title
+        if self.nav.currentRow() == PAGE_ASSESS:
+            self._show_assess_page()  # jiná knihovna nebo protokoly: průvodce znovu
         self.setWindowTitle(title)
         self.brand_sub.setText(sub)
 

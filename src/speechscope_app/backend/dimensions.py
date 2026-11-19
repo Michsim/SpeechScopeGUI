@@ -271,6 +271,7 @@ class ItemResult:
     reason: str = ""  # proč bez skóre; prázdné = v pořádku
     # (verze feature u pacienta, u kontrol normy), když se liší; jinak None
     versions: tuple[str, str] | None = None
+    group: str = ""  # název dimenze, ze které položka je (štítek ve stromu podle úloh)
 
     @property
     def band(self) -> str:
@@ -458,6 +459,8 @@ def evaluate(
                         item, task, value, score, reason, _changed(item, task, versions, norm)
                     )
                 )
+        for found in items:
+            found.group = dim.display_name
         if any(i.score is not None for i in items):
             results.append(_dimension_result(dim, items, _reference(items, selections)))
             continue
@@ -478,3 +481,48 @@ def evaluate(
             )
         results.append(DimensionResult(dim, None, items, reason))
     return Evaluation(results, selections)
+
+
+LANGUAGE_PREFIX = "linguistic."  # doména jazykových feature; monolog má pro ně vlastní osu
+SPLIT_TASK = "spontaneous"
+
+
+def task_axis(task: str, column: str) -> tuple[str, str]:
+    """Osa pavouka podle úloh: (klíč, název). Spontánní řeč (i vlastní úloha nad ní) se dělí
+    na akustiku a jazyk podle domény feature, ostatní úlohy mají jednu osu."""
+    label = tasks.label(task)
+    if tasks.base_task(task) != SPLIT_TASK:
+        return f"task:{task}", label
+    if column.startswith(LANGUAGE_PREFIX):
+        return f"task:{task}:language", tr("{task} · jazyk").format(task=label)
+    return f"task:{task}:acoustic", tr("{task} · akustika").format(task=label)
+
+
+def by_task(evaluation: Evaluation) -> Evaluation:
+    """Totéž vyhodnocení seskupené podle úloh místo dimenzí (19. 11. 2026).
+
+    Nic nového se nepočítá: položky dimenzí se rozdělí na osy podle úlohy, ze které se
+    měřily (`task_axis`), a skóre osy je jako u dimenze průměr z-skóre položek
+    standardizovaný rozdělením téhož průměru u vybraných kontrol. Položka, která je ve
+    dvou dimenzích, jde do osy jednou. Pořadí os je pořadí úloh, akustika před jazykem.
+    """
+    groups: dict[str, tuple[str, list[ItemResult]]] = {}
+    order: dict[str, tuple[int, int]] = {}
+    seen: set[tuple[str, str]] = set()
+    for result in evaluation.results:
+        for found in result.items:
+            if (found.task, found.item.column) in seen:
+                continue
+            seen.add((found.task, found.item.column))
+            key, name = task_axis(found.task, found.item.column)
+            groups.setdefault(key, (name, []))[1].append(found)
+            order[key] = (tasks.task_order(found.task), int(key.endswith(":language")))
+    results: list[DimensionResult] = []
+    for key in sorted(groups, key=lambda k: order[k]):
+        name, items = groups[key]
+        axis = Dimension(key, name, [i.item for i in items])
+        if any(i.score is not None for i in items):
+            results.append(_dimension_result(axis, items, _reference(items, evaluation.selections)))
+        else:
+            results.append(DimensionResult(axis, None, items, items[0].reason or tr("bez dat")))
+    return Evaluation(results, evaluation.selections)

@@ -13,6 +13,7 @@ from speechscope_app import contract, i18n
 from speechscope_app.backend.dimensions import (
     Dimension,
     Item,
+    by_task,
     evaluate,
     load_dimensions,
     parse_dimensions,
@@ -132,10 +133,24 @@ def test_evaluate_scores_dimensions_and_explains_missing(tmp_path: Path) -> None
     phon_sel = ev.selections["phonation"]
     assert phon_sel.same_sex and phon_sel.widened and phon_sel.window == 15  # mužů v ±10 málo
 
+    # tytéž položky po úlohách: osa na úlohu, jedna položka = stejné skóre jako její dimenze
+    tasks_ev = by_task(ev)
+    assert [r.dimension.key for r in tasks_ev.results] == ["task:phonation", "task:reading"]
+    phonation, reading = tasks_ev.results
+    assert phonation.dimension.display_name == "Fonace" and len(phonation.scored) == 2
+    assert phonation.score == pytest.approx(voice.score)  # fonace = obě položky Kvality hlasu
+    assert (
+        reading.score == pytest.approx(pauses.score) and reading.items[0].group == "Pauzy a tempo"
+    )
+    assert {i.group for i in phonation.items} == {voice.dimension.display_name}
+    assert tasks_ev.selections is ev.selections
+
     # norma bez úlohy: položka má důvod, dimenze chybí
     only_phon = Norm(NormInfo(name="Fonace"), controls_frame()[lambda f: f["task"] == "phonation"])
     ev2 = evaluate(DIMS, {"phonation": phon, "reading": read}, only_phon, age=64)
     assert ev2.results[1].reason == "norma nemá úlohu Čtení" and not ev2.results[1].shown
+    missing_axis = by_task(ev2).results[1]
+    assert not missing_axis.shown and missing_axis.reason == "norma nemá úlohu Čtení"
     # chybějící hodnota ve vyšetření
     ev3 = evaluate(DIMS, {"phonation": pd.DataFrame({JIT: [float("nan")], HNR: [20.0]})}, norm)
     item_jit, item_hnr = ev3.results[0].items
@@ -207,3 +222,13 @@ def test_evaluate_marks_items_with_changed_feature_version() -> None:
     assert not evaluate(
         DIMS, {"phonation": phon}, plain, age=64, versions={"phonation": {pert: "1.1"}}
     ).version_changes
+
+
+def test_task_axis_splits_spontaneous_into_acoustics_and_language() -> None:
+    from speechscope_app.backend.dimensions import task_axis
+
+    assert task_axis("ddk", "acoustic.ddk.rate") == ("task:ddk", "DDK")
+    key, name = task_axis("spontaneous", "acoustic.pauses.all.median")
+    assert key == "task:spontaneous:acoustic" and name.endswith("· akustika")
+    key, name = task_axis("spontaneous", "linguistic.lexical.mattr")
+    assert key == "task:spontaneous:language" and name.endswith("· jazyk")

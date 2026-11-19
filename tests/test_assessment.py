@@ -209,6 +209,22 @@ def test_manual_assessment_create_score_edit_and_delete(
     assert hnr.text(1) == "Fonace" and hnr.text(2).startswith("12,0")
     assert "Fonace: " in page.selection_label.text() and "jen muži" in page.selection_label.text()
     assert "60 osob" in page.about.text() and page.image_btn.isEnabled()
+    # přepínač Pavouk podle dimenzí řeči · úloh: tytéž položky seskupené po úlohách
+    changed: list[str] = []
+    page.spider_group_changed.connect(changed.append)
+    page.group_switch.buttons[1].click()
+    assert page.spider_group() == "tasks" and changed == ["tasks"]
+    assert [a.label for a in page.chart.axes()] == ["Fonace", "Čtení"]
+    assert page.chart_title.text() == "Odchylka od normy po úlohách"
+    assert not page.missing_label.isVisibleTo(page) and page.tree.topLevelItemCount() == 2
+    phonation = page.tree.topLevelItem(0)
+    assert phonation.text(0) == "Fonace" and phonation.text(1) == "Kvalita hlasu"
+    assert phonation.childCount() == 2 and phonation.child(0).text(1) == "Kvalita hlasu"
+    assert page.tree.headerItem().text(1) == "DIMENZE"
+    assert page.evaluation() is ev and page.card(0).pill.text() == "mimo normu"  # štítek zůstal
+    page.set_spider_group("dimensions")
+    assert [a.label for a in page.chart.axes()] == ["Kvalita hlasu", "Pauzy"]
+    assert page.tree.topLevelItemCount() == 8 and page.tree.headerItem().text(1) == "ÚLOHA"
     assert page.recordings.item(0, 3).text() == ""  # norma protokoly nezná
     page.same_sex.setChecked(False)
     page.window_combo.setCurrentIndex(3)  # bez omezení

@@ -6,7 +6,7 @@ https://claude.ai/artifact/8Hf6JPLaZd8XZ83FQx3itR, `docs/mockups/lista/` mimo gi
 Nahoře každodenní stránky, dole pod nadpisem Nastavení ostatní. Vybraná položka
 je bílá karta s modrým proužkem vlevo. Položka může nést štítek (počet hotových
 nahrávek běžící dávky) a tenký průběh pod sebou. Ctrl+B lištu sbalí na samé
-ikony, Ctrl+1 … Ctrl+8 přepnou stránku.
+ikony, Ctrl+1 … Ctrl+9 přepnou stránku.
 
 Navenek se chová jako dřív jeden `QListWidget` (`setCurrentRow`, `currentRow`,
 `item`, `currentRowChanged`), ostatní kód se o vzhled nestará. Ikony se kreslí
@@ -103,6 +103,16 @@ def _users(p: QPainterPath) -> None:
     p.cubicTo(19.3, 15.2, 20.5, 16.9, 20.9, 19.5)
 
 
+def _assess(p: QPainterPath) -> None:
+    """Hodnocení pacienta: jedna osoba a plus (nové vyšetření)."""
+    p.addEllipse(QPointF(10, 8.5), 3.3, 3.3)
+    p.moveTo(3.5, 19.5)
+    p.cubicTo(4.3, 16.2, 6.9, 14.3, 10, 14.3)
+    p.cubicTo(11.6, 14.3, 13.1, 14.8, 14.3, 15.8)
+    _line(p, 18.5, 14, 18.5, 20)
+    _line(p, 15.5, 17, 21.5, 17)
+
+
 def _protocol(p: QPainterPath) -> None:
     p.addRoundedRect(QRectF(5, 4.5, 14, 16), 2, 2)
     _poly(p, (9, 4.5), (9, 3.5), (15, 3.5), (15, 4.5))
@@ -156,6 +166,7 @@ def _expand(p: QPainterPath) -> None:
 
 ICONS: dict[str, Callable[[QPainterPath], None]] = {
     "home": _home,
+    "assess": _assess,
     "wave": _wave,
     "table": _table,
     "users": _users,
@@ -167,9 +178,19 @@ ICONS: dict[str, Callable[[QPainterPath], None]] = {
     "expand": _expand,
 }
 
-# ikona podle pořadí stránky (Domů · Analýza · Výsledky · Pacienti · Protokoly · Normy ·
-# Dimenze · Prostředí)
-PAGE_ICONS = ("home", "wave", "table", "users", "protocol", "norm", "dimensions", "environment")
+# ikona podle pořadí stránky (Domů · Hodnocení pacienta · Analýza · Výsledky · Pacienti ·
+# Protokoly · Normy · Dimenze · Prostředí)
+PAGE_ICONS = (
+    "home",
+    "assess",
+    "wave",
+    "table",
+    "users",
+    "protocol",
+    "norm",
+    "dimensions",
+    "environment",
+)
 
 
 def draw_icon(painter: QPainter, name: str, rect: QRectF, color: QColor | str) -> None:
