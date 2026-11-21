@@ -734,7 +734,9 @@ class ProtocolsPage(QWidget):
         for row, name in enumerate(needed):
             set_text(table, row, 0, contract.PROVIDER_LABELS.get(name, name), bold=True)
             ready = state.get(name, {}).get("ready") if name in state else None
-            if ready:
+            if name in contract.MODELLESS_PROVIDERS:
+                set_pill(table, row, 1, tr("bez modelu"), "ok")
+            elif ready:
                 set_pill(table, row, 1, tr("připraveno"), "ok")
             elif ready is False:
                 set_pill(table, row, 1, tr("chybí"), "missing", tooltip=tr("viz Prostředí"))

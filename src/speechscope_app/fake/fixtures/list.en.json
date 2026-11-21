@@ -280,7 +280,6 @@
     "name": "acoustic.pitch.f0",
     "version": "1.1",
     "tasks": [
-      "phonation",
       "reading",
       "spontaneous"
     ],
@@ -310,6 +309,25 @@
     ]
   },
   {
+    "name": "acoustic.pitch.phonation",
+    "version": "1.0",
+    "tasks": [
+      "phonation"
+    ],
+    "requires": [
+      "phonation_f0"
+    ],
+    "description": "",
+    "outputs": {
+      "median_hz": "Median F0 of the phonation (Hz)",
+      "std": "Robust standard deviation of F0, 1.4826 × median absolute deviation (semitones)"
+    },
+    "columns": [
+      "acoustic.pitch.phonation.median_hz",
+      "acoustic.pitch.phonation.std"
+    ]
+  },
+  {
     "name": "acoustic.quality.cpp",
     "version": "1.3",
     "tasks": [
@@ -332,29 +350,86 @@
   },
   {
     "name": "acoustic.quality.perturbation",
-    "version": "1.1",
+    "version": "2.0",
     "tasks": [
       "phonation"
     ],
-    "requires": [],
+    "requires": [
+      "phonation_f0"
+    ],
     "description": "",
     "outputs": {
-      "jitter_local": "Jitter local (%)",
-      "jitter_rap": "Jitter RAP, relative average perturbation (%)",
-      "jitter_ppq5": "Jitter PPQ5, five-point period perturbation quotient (%)",
-      "shimmer_local": "Shimmer local (%)",
-      "shimmer_apq3": "Shimmer APQ3, three-point amplitude perturbation quotient (%)",
-      "shimmer_apq11": "Shimmer APQ11, eleven-point amplitude perturbation quotient (%)",
-      "hnr": "Mean harmonics-to-noise ratio, HNR (dB)"
+      "jitter": "Jitter: median period change relative to the median period (%)",
+      "shimmer": "Shimmer: median amplitude change relative to the median amplitude (%)",
+      "hnr": "Harmonics-to-noise ratio, HNR (dB)"
     },
     "columns": [
-      "acoustic.quality.perturbation.jitter_local",
-      "acoustic.quality.perturbation.jitter_rap",
-      "acoustic.quality.perturbation.jitter_ppq5",
-      "acoustic.quality.perturbation.shimmer_local",
-      "acoustic.quality.perturbation.shimmer_apq3",
-      "acoustic.quality.perturbation.shimmer_apq11",
+      "acoustic.quality.perturbation.jitter",
+      "acoustic.quality.perturbation.shimmer",
       "acoustic.quality.perturbation.hnr"
+    ]
+  },
+  {
+    "name": "acoustic.quality.subharmonics",
+    "version": "1.0",
+    "tasks": [
+      "phonation"
+    ],
+    "requires": [
+      "phonation_f0"
+    ],
+    "description": "",
+    "outputs": {
+      "psi": "Proportion of F0 frames in subharmonic intervals, PSI (%)",
+      "lsi": "Start of the first subharmonic interval, LSI (s); NaN when there is none",
+      "shi": "Mean subharmonic-to-harmonic ratio over the whole phonation, SHI (0 to 1)",
+      "gmi": "Mean subharmonic-to-harmonic ratio within subharmonic intervals, GMI (0 to 1); 0 when there is no interval",
+      "pas": "1 when subharmonics occurred, otherwise 0, PAS (-)"
+    },
+    "columns": [
+      "acoustic.quality.subharmonics.psi",
+      "acoustic.quality.subharmonics.lsi",
+      "acoustic.quality.subharmonics.shi",
+      "acoustic.quality.subharmonics.gmi",
+      "acoustic.quality.subharmonics.pas"
+    ]
+  },
+  {
+    "name": "acoustic.quality.tremor",
+    "version": "1.0",
+    "tasks": [
+      "phonation"
+    ],
+    "requires": [
+      "phonation_f0"
+    ],
+    "description": "",
+    "outputs": {
+      "ff0t": "F0 tremor frequency: the strongest slow modulation of the F0 contour, FF0T (Hz)",
+      "pf0t": "F0 tremor prominence: depth of that modulation, PF0T (semitones)",
+      "fat": "Amplitude tremor frequency: the strongest slow modulation of the envelope, FAT (Hz)",
+      "pat": "Amplitude tremor prominence: depth of that modulation, PAT (%)"
+    },
+    "columns": [
+      "acoustic.quality.tremor.ff0t",
+      "acoustic.quality.tremor.pf0t",
+      "acoustic.quality.tremor.fat",
+      "acoustic.quality.tremor.pat"
+    ]
+  },
+  {
+    "name": "acoustic.quality.vocal_arrest",
+    "version": "1.0",
+    "tasks": [
+      "phonation"
+    ],
+    "requires": [
+      "phonation_f0"
+    ],
+    "description": "Voice breaks, DVA: sum of gaps between voiced segments relative to the time from the first to the last voicing (%)",
+    "outputs": {},
+    "columns": [
+      "acoustic.quality.vocal_arrest"
     ]
   },
   {
@@ -419,6 +494,45 @@
       "acoustic.recording.snr.snr_db",
       "acoustic.recording.snr.noise_db",
       "acoustic.recording.snr.speech_db"
+    ]
+  },
+  {
+    "name": "acoustic.respiration.mpt",
+    "version": "1.0",
+    "tasks": [
+      "phonation"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "mpt": "Maximum phonation time: length of the longest continuous voiced segment (s)",
+      "start": "Start of the longest segment from the beginning of the recording (s)",
+      "end": "End of the longest segment from the beginning of the recording (s)",
+      "segments": "Number of voiced segments of at least min_segment; more than 1 = several attempts (-)",
+      "truncated": "1 when the longest segment reaches the start or the end of the file and the time is only a lower bound, otherwise 0 (-)"
+    },
+    "columns": [
+      "acoustic.respiration.mpt.mpt",
+      "acoustic.respiration.mpt.start",
+      "acoustic.respiration.mpt.end",
+      "acoustic.respiration.mpt.segments",
+      "acoustic.respiration.mpt.truncated"
+    ]
+  },
+  {
+    "name": "acoustic.respiration.rate",
+    "version": "1.0",
+    "tasks": [
+      "reading",
+      "spontaneous"
+    ],
+    "requires": [
+      "segments"
+    ],
+    "description": "Rate of speech respiration, RSR: 60 / median interval between the onsets of consecutive breaths (breaths/min)",
+    "outputs": {},
+    "columns": [
+      "acoustic.respiration.rate"
     ]
   },
   {

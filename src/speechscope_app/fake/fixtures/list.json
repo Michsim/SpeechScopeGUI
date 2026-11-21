@@ -280,7 +280,6 @@
     "name": "acoustic.pitch.f0",
     "version": "1.1",
     "tasks": [
-      "phonation",
       "reading",
       "spontaneous"
     ],
@@ -310,6 +309,25 @@
     ]
   },
   {
+    "name": "acoustic.pitch.phonation",
+    "version": "1.0",
+    "tasks": [
+      "phonation"
+    ],
+    "requires": [
+      "phonation_f0"
+    ],
+    "description": "",
+    "outputs": {
+      "median_hz": "Medián F0 fonace (Hz)",
+      "std": "Robustní směrodatná odchylka F0, 1,4826 × mediánová odchylka (půltóny)"
+    },
+    "columns": [
+      "acoustic.pitch.phonation.median_hz",
+      "acoustic.pitch.phonation.std"
+    ]
+  },
+  {
     "name": "acoustic.quality.cpp",
     "version": "1.3",
     "tasks": [
@@ -332,29 +350,86 @@
   },
   {
     "name": "acoustic.quality.perturbation",
-    "version": "1.1",
+    "version": "2.0",
     "tasks": [
       "phonation"
     ],
-    "requires": [],
+    "requires": [
+      "phonation_f0"
+    ],
     "description": "",
     "outputs": {
-      "jitter_local": "Jitter local (%)",
-      "jitter_rap": "Jitter RAP, relative average perturbation (%)",
-      "jitter_ppq5": "Jitter PPQ5, five-point period perturbation quotient (%)",
-      "shimmer_local": "Shimmer local (%)",
-      "shimmer_apq3": "Shimmer APQ3, three-point amplitude perturbation quotient (%)",
-      "shimmer_apq11": "Shimmer APQ11, eleven-point amplitude perturbation quotient (%)",
-      "hnr": "Průměrný poměr harmonických k šumu, HNR (dB)"
+      "jitter": "Jitter: medián změn periody k mediánu periody (%)",
+      "shimmer": "Shimmer: medián změn amplitudy k mediánu amplitudy (%)",
+      "hnr": "Poměr harmonických k šumu, HNR (dB)"
     },
     "columns": [
-      "acoustic.quality.perturbation.jitter_local",
-      "acoustic.quality.perturbation.jitter_rap",
-      "acoustic.quality.perturbation.jitter_ppq5",
-      "acoustic.quality.perturbation.shimmer_local",
-      "acoustic.quality.perturbation.shimmer_apq3",
-      "acoustic.quality.perturbation.shimmer_apq11",
+      "acoustic.quality.perturbation.jitter",
+      "acoustic.quality.perturbation.shimmer",
       "acoustic.quality.perturbation.hnr"
+    ]
+  },
+  {
+    "name": "acoustic.quality.subharmonics",
+    "version": "1.0",
+    "tasks": [
+      "phonation"
+    ],
+    "requires": [
+      "phonation_f0"
+    ],
+    "description": "",
+    "outputs": {
+      "psi": "Podíl rámců F0 v subharmonických úsecích, PSI (%)",
+      "lsi": "Začátek prvního subharmonického úseku, LSI (s); NaN, když žádný není",
+      "shi": "Průměrný poměr subharmonických k harmonickým přes celou fonaci, SHI (0 až 1)",
+      "gmi": "Průměrný poměr subharmonických k harmonickým uvnitř subharmonických úseků, GMI (0 až 1); 0, když žádný úsek není",
+      "pas": "1, když se subharmonické vyskytly, jinak 0, PAS (-)"
+    },
+    "columns": [
+      "acoustic.quality.subharmonics.psi",
+      "acoustic.quality.subharmonics.lsi",
+      "acoustic.quality.subharmonics.shi",
+      "acoustic.quality.subharmonics.gmi",
+      "acoustic.quality.subharmonics.pas"
+    ]
+  },
+  {
+    "name": "acoustic.quality.tremor",
+    "version": "1.0",
+    "tasks": [
+      "phonation"
+    ],
+    "requires": [
+      "phonation_f0"
+    ],
+    "description": "",
+    "outputs": {
+      "ff0t": "Frekvence třesu F0: nejsilnější pomalá modulace kontury F0, FF0T (Hz)",
+      "pf0t": "Výraznost třesu F0: hloubka té modulace, PF0T (půltóny)",
+      "fat": "Frekvence třesu amplitudy: nejsilnější pomalá modulace obálky, FAT (Hz)",
+      "pat": "Výraznost třesu amplitudy: hloubka té modulace, PAT (%)"
+    },
+    "columns": [
+      "acoustic.quality.tremor.ff0t",
+      "acoustic.quality.tremor.pf0t",
+      "acoustic.quality.tremor.fat",
+      "acoustic.quality.tremor.pat"
+    ]
+  },
+  {
+    "name": "acoustic.quality.vocal_arrest",
+    "version": "1.0",
+    "tasks": [
+      "phonation"
+    ],
+    "requires": [
+      "phonation_f0"
+    ],
+    "description": "Přerušování hlasu, DVA: součet mezer mezi znělými úseky k době od prvního do posledního hlasu (%)",
+    "outputs": {},
+    "columns": [
+      "acoustic.quality.vocal_arrest"
     ]
   },
   {
@@ -419,6 +494,45 @@
       "acoustic.recording.snr.snr_db",
       "acoustic.recording.snr.noise_db",
       "acoustic.recording.snr.speech_db"
+    ]
+  },
+  {
+    "name": "acoustic.respiration.mpt",
+    "version": "1.0",
+    "tasks": [
+      "phonation"
+    ],
+    "requires": [],
+    "description": "",
+    "outputs": {
+      "mpt": "Maximální doba fonace: délka nejdelšího souvislého znělého úseku (s)",
+      "start": "Začátek nejdelšího úseku od začátku nahrávky (s)",
+      "end": "Konec nejdelšího úseku od začátku nahrávky (s)",
+      "segments": "Počet znělých úseků od min_segment; víc než 1 = víc pokusů (-)",
+      "truncated": "1, když nejdelší úsek sahá na začátek nebo konec souboru a doba je jen dolní odhad, jinak 0 (-)"
+    },
+    "columns": [
+      "acoustic.respiration.mpt.mpt",
+      "acoustic.respiration.mpt.start",
+      "acoustic.respiration.mpt.end",
+      "acoustic.respiration.mpt.segments",
+      "acoustic.respiration.mpt.truncated"
+    ]
+  },
+  {
+    "name": "acoustic.respiration.rate",
+    "version": "1.0",
+    "tasks": [
+      "reading",
+      "spontaneous"
+    ],
+    "requires": [
+      "segments"
+    ],
+    "description": "Dechová frekvence při řeči, RSR: 60 / medián odstupu začátků po sobě jdoucích nádechů (nádechy/min)",
+    "outputs": {},
+    "columns": [
+      "acoustic.respiration.rate"
     ]
   },
   {

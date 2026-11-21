@@ -1,0 +1,63 @@
+{
+  "kind": "feature",
+  "name": "acoustic.respiration.mpt",
+  "version": "1.0",
+  "tasks": [
+    "phonation"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "phonation": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "mpt": "Maximum phonation time: length of the longest continuous voiced segment (s)",
+    "start": "Start of the longest segment from the beginning of the recording (s)",
+    "end": "End of the longest segment from the beginning of the recording (s)",
+    "segments": "Number of voiced segments of at least min_segment; more than 1 = several attempts (-)",
+    "truncated": "1 when the longest segment reaches the start or the end of the file and the time is only a lower bound, otherwise 0 (-)"
+  },
+  "params": {
+    "max_gap": {
+      "default": 0.2,
+      "type": "float",
+      "description": "Longest voicing dropout that still belongs to the same phonation (s); 0 = none",
+      "ge": 0
+    },
+    "min_segment": {
+      "default": 0.5,
+      "type": "float",
+      "description": "Shortest voiced segment that counts as a phonation (s)",
+      "ge": 0
+    },
+    "f_min": {
+      "default": 40.0,
+      "type": "float",
+      "description": "Lowest F0 still taken as voice (Hz); lower than for F0 so that a voice that drops an octave lower is counted",
+      "gt": 0
+    },
+    "f_max": {
+      "default": 400.0,
+      "type": "float",
+      "description": "Highest allowed F0 for voicing (Hz)",
+      "gt": 0
+    },
+    "timestep": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Step of the voicing frames (s)",
+      "gt": 0
+    },
+    "strength_threshold": {
+      "default": 0.3,
+      "type": "float",
+      "description": "Minimum tone strength below which a frame is unvoiced",
+      "ge": 0,
+      "le": 1
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "kind": "feature",
+  "name": "acoustic.respiration.mpt",
+  "version": "1.0",
+  "tasks": [
+    "phonation"
+  ],
+  "requires": [],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "phonation": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "mpt": "Maximální doba fonace: délka nejdelšího souvislého znělého úseku (s)",
+    "start": "Začátek nejdelšího úseku od začátku nahrávky (s)",
+    "end": "Konec nejdelšího úseku od začátku nahrávky (s)",
+    "segments": "Počet znělých úseků od min_segment; víc než 1 = víc pokusů (-)",
+    "truncated": "1, když nejdelší úsek sahá na začátek nebo konec souboru a doba je jen dolní odhad, jinak 0 (-)"
+  },
+  "params": {
+    "max_gap": {
+      "default": 0.2,
+      "type": "float",
+      "description": "Nejdelší výpadek znělosti, který ještě patří do téže fonace (s); 0 = žádný",
+      "ge": 0
+    },
+    "min_segment": {
+      "default": 0.5,
+      "type": "float",
+      "description": "Nejkratší znělý úsek, který se bere jako fonace (s)",
+      "ge": 0
+    },
+    "f_min": {
+      "default": 40.0,
+      "type": "float",
+      "description": "Nejnižší F0, které se ještě bere jako hlas (Hz); níž než u F0, aby se počítal i hlas přeskočený o oktávu níž",
+      "gt": 0
+    },
+    "f_max": {
+      "default": 400.0,
+      "type": "float",
+      "description": "Nejvyšší povolená hodnota F0 pro znělost (Hz)",
+      "gt": 0
+    },
+    "timestep": {
+      "default": 0.01,
+      "type": "float",
+      "description": "Krok rámců znělosti (s)",
+      "gt": 0
+    },
+    "strength_threshold": {
+      "default": 0.3,
+      "type": "float",
+      "description": "Minimální síla tónu, pod kterou je rámec neznělý",
+      "ge": 0,
+      "le": 1
+    }
+  }
+}

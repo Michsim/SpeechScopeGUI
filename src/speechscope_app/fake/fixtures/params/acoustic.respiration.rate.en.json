@@ -1,0 +1,30 @@
+{
+  "kind": "feature",
+  "name": "acoustic.respiration.rate",
+  "version": "1.0",
+  "tasks": [
+    "reading",
+    "spontaneous"
+  ],
+  "requires": [
+    "segments"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "reading": false,
+      "spontaneous": false
+    }
+  },
+  "description": "Rate of speech respiration, RSR: 60 / median interval between the onsets of consecutive breaths (breaths/min)",
+  "outputs": {},
+  "params": {
+    "min_breaths": {
+      "default": 2,
+      "type": "int",
+      "description": "Minimum number of breaths for the rate to be computed; 2 = a single interval as in the original computation",
+      "ge": 2
+    }
+  }
+}

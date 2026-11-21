@@ -145,7 +145,7 @@ def test_card_short_description_and_details_signal(qtbot: QtBot) -> None:
 
     from speechscope_app.backend.library import Library, fake_command
 
-    catalog = Library(fake_command()).features("phonation")
+    catalog = Library(fake_command()).features("reading")
     info = next(f for f in catalog if f.name == "acoustic.pitch.f0")
     dialog = FeatureDetailDialog(info)
     qtbot.addWidget(dialog)

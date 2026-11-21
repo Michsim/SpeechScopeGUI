@@ -1,0 +1,45 @@
+{
+  "kind": "feature",
+  "name": "acoustic.quality.tremor",
+  "version": "1.0",
+  "tasks": [
+    "phonation"
+  ],
+  "requires": [
+    "phonation_f0"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "phonation": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "ff0t": "F0 tremor frequency: the strongest slow modulation of the F0 contour, FF0T (Hz)",
+    "pf0t": "F0 tremor prominence: depth of that modulation, PF0T (semitones)",
+    "fat": "Amplitude tremor frequency: the strongest slow modulation of the envelope, FAT (Hz)",
+    "pat": "Amplitude tremor prominence: depth of that modulation, PAT (%)"
+  },
+  "params": {
+    "min_frequency": {
+      "default": 0.6666666666666666,
+      "type": "float",
+      "description": "Lowest modulation frequency taken as tremor (Hz)",
+      "gt": 0
+    },
+    "max_frequency": {
+      "default": 21.0,
+      "type": "float",
+      "description": "Highest modulation frequency taken as tremor (Hz)",
+      "gt": 0,
+      "lt": 25
+    },
+    "stable_filter": {
+      "default": true,
+      "type": "bool",
+      "description": "60 Hz high-pass before the amplitude tremor as second-order sections; False = transfer-function form as in the MATLAB original, which is numerically unstable at 48 kHz"
+    }
+  }
+}

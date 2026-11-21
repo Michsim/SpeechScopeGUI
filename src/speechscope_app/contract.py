@@ -14,6 +14,7 @@ a ``stage``) se stále přijímá, jen GUI neukáže průběh uvnitř nahrávky.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from .i18n import N_, Labels, tr
@@ -165,6 +166,7 @@ GROUP_LABELS = Labels(
         "acoustic.pitch": N_("Akustika · pitch"),
         "acoustic.quality": N_("Akustika · kvalita hlasu"),
         "acoustic.recording": N_("Akustika · nahrávka"),
+        "acoustic.respiration": N_("Akustika · dýchání"),
         "acoustic.spectral": N_("Akustika · spektrum"),
         "acoustic.timing": N_("Akustika · časování"),
         "linguistic.lexical": N_("Lingvistika · lexikum"),
@@ -216,8 +218,19 @@ PROVIDER_LABELS = Labels(
         "transcript": N_("Přepis (Whisper)"),
         "nlp": N_("Jazykový rozbor (Stanza)"),
         "ddk_events": N_("Slabiky DDK (detektor v ONNX)"),
+        "phonation_f0": N_("Analýza fonace (F0 a subharmonické)"),
     }
 )
+
+# Providery, které jen počítají a žádný model nepotřebují: `doctor` je nehlásí,
+# na Prostředí nemají kartu a protokol jen s nimi je pořád „bez modelů“.
+MODELLESS_PROVIDERS: frozenset[str] = frozenset({"phonation_f0"})
+
+
+def needs_models(providers: Iterable[str]) -> bool:
+    """Potřebuje některý z providerů model (tedy stav z `doctor`)?"""
+    return any(p not in MODELLESS_PROVIDERS for p in providers)
+
 
 # Krátké popisky do tabulek.
 PROVIDER_SHORT = Labels(
@@ -227,6 +240,7 @@ PROVIDER_SHORT = Labels(
         "nlp": N_("jaz. rozbor"),
         "phonemes": N_("fonémy"),
         "ddk_events": N_("slabiky DDK"),
+        "phonation_f0": N_("analýza fonace"),
     }
 )
 
@@ -238,6 +252,7 @@ PROVIDER_COST: tuple[tuple[str, str], ...] = (
     ("segments", N_("desítky sekund na nahrávku")),
     ("phonemes", N_("sekundy na nahrávku")),
     ("ddk_events", N_("sekundy na nahrávku")),
+    ("phonation_f0", N_("sekundy na nahrávku")),
 )
 NO_MODELS_COST = N_("sekundy na nahrávku")
 

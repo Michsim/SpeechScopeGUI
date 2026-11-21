@@ -21,7 +21,7 @@ TASK_ALIASES = {"story": "spontaneous", "monologue": "spontaneous"}  # jako knih
 PROTOCOL_VERSION = 2
 FAKE_VERSION = "0.4.0"
 
-PROVIDERS = ("ddk_events", "nlp", "phonemes", "segments", "transcript")
+PROVIDERS = ("ddk_events", "nlp", "phonation_f0", "phonemes", "segments", "transcript")
 
 # Jako `registry.FEATURE_ALIASES` knihovny 0.4.0 (pauzy dostaly vlastní skupinu).
 FEATURE_ALIASES = {
@@ -445,7 +445,7 @@ def cmd_extract(ns: argparse.Namespace) -> int:
             for col in columns:
                 row[col] = _value(path.name, col)
             if "short" in stem:
-                first = features[0] if features else "acoustic.pitch.f0"
+                first = features[0] if features else "acoustic.quality.cpp"
                 row["notes"] = f"{first}=příliš krátký úsek řeči"
                 for col in columns:
                     if col.startswith(first):

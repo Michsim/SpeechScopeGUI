@@ -1,0 +1,30 @@
+{
+  "kind": "feature",
+  "name": "acoustic.respiration.rate",
+  "version": "1.0",
+  "tasks": [
+    "reading",
+    "spontaneous"
+  ],
+  "requires": [
+    "segments"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "reading": false,
+      "spontaneous": false
+    }
+  },
+  "description": "Dechová frekvence při řeči, RSR: 60 / medián odstupu začátků po sobě jdoucích nádechů (nádechy/min)",
+  "outputs": {},
+  "params": {
+    "min_breaths": {
+      "default": 2,
+      "type": "int",
+      "description": "Nejméně nádechů, aby se frekvence počítala; 2 = jeden interval jako původní výpočet",
+      "ge": 2
+    }
+  }
+}

@@ -43,7 +43,7 @@ def test_fake_cli_serves_english_descriptions() -> None:
 
 def test_library_wrapper_passes_language(tmp_path: Path) -> None:
     lib = Library(fake_command(), models_dir=tmp_path / "models", lang="en")
-    outputs = {f.name: f.outputs for f in lib.features("phonation")}
+    outputs = {f.name: f.outputs for f in lib.features("reading")}
     assert "Median" in outputs["acoustic.pitch.f0"]["median"]
     by_name = {p.name: p for p in lib.params("transcript").params}
     assert "Language code" in by_name["language"].description

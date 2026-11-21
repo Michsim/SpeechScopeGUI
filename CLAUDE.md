@@ -1191,6 +1191,22 @@ s Uložit a rozpracovaný stav zmizely; `summary_text` pro testy.
   `std_delta_*`) dává jiné hodnoty: normy i porovnání s MFCC přepočítat, verzi
   1.2 → 2.0 GUI hlásí samo. Faleška aliasy umí jako knihovna; fixtury a kopie
   dokumentace obnovené 3. 11. 2026.
+- Fonace z MATLAB skriptů (knihovna 21. 11. 2026, verze stále 0.4.0; 19. 11. přibyly
+  `acoustic.respiration.rate` (RSR, čtení a spontánní řeč) a `acoustic.respiration.mpt`
+  (fonace), skupina „Akustika · dýchání“): nový provider `phonation_f0` (znělost, F0
+  Kalmanovým filtrem, subharmonické; **bez modelu**, asi 5 s na nahrávku, `doctor` ho
+  nehlásí) a nad ním `acoustic.pitch.phonation` (`median_hz`, `std`),
+  `acoustic.quality.subharmonics`, `.vocal_arrest`, `.tremor` a perturbace 2.0
+  (sloupce jen `jitter`, `shimmer`, `hnr`; dřív Praat se sedmi sloupci, hodnoty
+  nesrovnatelné, verzi 1.1 → 2.0 GUI hlásí samo). `acoustic.pitch.f0` už na fonaci není
+  (jen čtení a spontánní řeč); vlastní protokol fonace, který ji jmenuje, knihovna odmítne
+  kódem 2. GUI: `contract.MODELLESS_PROVIDERS` a `needs_models` = provider bez modelu nemá
+  kartu na Prostředí, na Analýze je řádek úlohy zeleně „analýza fonace“, v Protokolech
+  štítek „bez modelu“, filtr „Jen bez modelů“ v editoru jeho feature bere. Přibalený
+  protokol Fonace je `domain: acoustic`, nové feature bere sám. HNR v dimenzi Kvalita
+  hlasu zůstává `perturbation.hnr`, ale je to jiný výpočet: normy a hodnocení fonace
+  přepočítat. Fixtury a kopie dokumentace obnovené 21. 11. 2026 z rozpracované
+  (necommitované) knihovny.
 - Knihovna zapisuje `features.csv` průběžně po každé nahrávce (přes
   `.part` a přejmenování). Po Zrušit nebo chybě GUI ukáže částečnou
   tabulku. Soubor nesmí být během běhu otevřený v Excelu, **ani GUI ho

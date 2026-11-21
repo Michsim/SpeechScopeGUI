@@ -60,6 +60,8 @@ src/speechscope/
         acoustic/
             quality.py      # cpp, cpps
             pitch.py        # f0 statistiky
+            phonation.py    # fonace: F0, subharmonické, DVA, třes
+            perturbation.py # jitter, shimmer, HNR fonace
             intensity.py    # intenzita a pauzy
             spectral.py     # ltas, mfcc
             timing.py       # speech rate
@@ -343,15 +345,16 @@ Smlouva `--progress-json` beze změny podle CLAUDE.md.
 | legacy | nové jméno | úlohy | providery |
 |---|---|---|---|
 | `cpp` | `acoustic.quality.cpp` | všechny kromě ddk | segments (volitelně) |
-| `f0` | `acoustic.pitch.f0` | všechny kromě ddk | segments (volitelně) |
+| `f0` | `acoustic.pitch.f0` | spontaneous, reading (fonace má `acoustic.pitch.phonation`) | segments (volitelně) |
 | `int_pauses` | `acoustic.intensity.stats` (od 2.0 znělé rámce podle SWIPE, bez segmentace), `acoustic.pauses.all` | spontaneous, reading | segments jen pro pauzy a volitelný VAD |
-| `timing` (notebook) | `acoustic.pauses.silent.median` (DPI), `acoustic.pauses.breath.median` (DBI), `acoustic.timing.rhythm` (VSDR, STE, ΔSSR) | spontaneous, reading | segments, jen čtyři třídy conformeru |
+| `timing` (notebook) | `acoustic.pauses.silent.median` (DPI), `acoustic.pauses.breath.median` (DBI), `acoustic.timing.rhythm` (VSDR, STE, ΔSSR), `acoustic.respiration.rate` (RSR, `rate_of_speech_respiration`) | spontaneous, reading | segments, jen čtyři třídy conformeru |
 | `ltas` | `acoustic.spectral.ltas` | všechny kromě ddk | segments (volitelně) |
 | `mfcc` | `acoustic.spectral.mfcc` | všechny kromě ddk | segments (volitelně) |
 | `speech_rate` | `acoustic.timing.speech_rate` | spontaneous, reading | transcript |
 | `vowel_articulation` | `acoustic.articulation.vowels` | jen čeština | vlastní LSTM detektor |
 | `linguistics` | `linguistic.lexical.*`, `linguistic.syntactic.*` | spontaneous, reading | transcript |
 | DDK (Melechovsky: `predict_EVO_step1/2`, `featextract_final`) | `acoustic.ddk.rate` (DDKrate), `.regularity` (DDKreg), `.deceleration` (Acce), `.vot.median` (VOT), `.vot.iqr` (iqrVOT), `.vowel_length` (VowLen), `.intensity.slope` (slope), `.intensity.rirv` (RIRV) | ddk, jen /pataka/ | ddk_events (síť v ONNX) |
+| MATLAB skripty fonace (`features_phonationA`, `feaF0`, `JSHNR`, `tremor_features`) | `acoustic.pitch.phonation.median_hz` (meanF0), `.std` (stdF0), `acoustic.quality.perturbation.jitter|shimmer|hnr`, `acoustic.quality.subharmonics.psi|lsi|shi|gmi|pas`, `acoustic.quality.vocal_arrest` (DVA), `acoustic.quality.tremor.ff0t|pf0t|fat|pat`; nepřeneseno: MPT (je `acoustic.respiration.mpt`), MPTA, OQ, ClQ, stdPSD | phonation | phonation_f0 |
 
 Jazyk je parametr, ne úloha. `speech_rate` a `linguistics` už dnes berou
 `language` jako vstup, takže vícejazyčnost je v pořádku. Jediná výjimka je

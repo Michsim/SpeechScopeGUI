@@ -64,11 +64,12 @@ def test_providers_json_and_provider_params() -> None:
     assert [p["name"] for p in providers] == [
         "ddk_events",
         "nlp",
+        "phonation_f0",
         "phonemes",
         "segments",
         "transcript",
     ]
-    assert "model" in providers[3]["params"]
+    assert "model" in providers[4]["params"]
     seg = json.loads(run("list", "--params", "segments", "--json").stdout)
     assert seg["kind"] == "provider"
     assert seg["params"]["model"]["choices"] == ["auto", "labels", "pyannote", "conformer"]
@@ -217,6 +218,7 @@ def test_library_wrapper_reads_fake(fake_library: Library) -> None:
     assert [p.name for p in providers] == [
         "ddk_events",
         "nlp",
+        "phonation_f0",
         "phonemes",
         "segments",
         "transcript",

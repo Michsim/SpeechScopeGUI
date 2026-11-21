@@ -87,6 +87,44 @@
     }
   },
   {
+    "name": "phonation_f0",
+    "version": "1.0",
+    "requires": [],
+    "params": {
+      "f0_min": {
+        "default": 50.0,
+        "type": "float",
+        "description": "Lowest F0 searched (Hz)",
+        "gt": 0
+      },
+      "f0_max": {
+        "default": 500.0,
+        "type": "float",
+        "description": "Highest F0 searched (Hz)",
+        "gt": 0
+      },
+      "shr_threshold": {
+        "default": 0.1,
+        "type": "float",
+        "description": "Subharmonic-to-harmonic ratio from which a frame counts as subharmonic",
+        "ge": 0,
+        "le": 1
+      },
+      "merge_gap": {
+        "default": 0.3,
+        "type": "float",
+        "description": "Subharmonic intervals with a gap below this duration are merged (s)",
+        "ge": 0
+      },
+      "min_subharmonic": {
+        "default": 0.05,
+        "type": "float",
+        "description": "A shorter subharmonic interval is discarded (s)",
+        "ge": 0
+      }
+    }
+  },
+  {
     "name": "phonemes",
     "version": "1.1",
     "requires": [],

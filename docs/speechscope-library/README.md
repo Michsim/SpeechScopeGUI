@@ -339,8 +339,12 @@ Přenos laboratorních skriptů běží. Hotové jsou tyhle feature:
 | jméno | co počítá | sloupce |
 |---|---|---|
 | `acoustic.quality.cpp` | cepstrální vrcholová prominence, rozsah F0 60–333 Hz a trend 1–50 ms jako Praat, medián jen přes znělé rámce (SWIPE, `frames`), CPPS vyhlazené uvnitř souvislých znělých běhů, u souvislé řeči s VAD, u fonace po ořezu na hlas (verze 1.3) | `cpp`, `cpps`, `voiced_fraction` |
-| `acoustic.quality.perturbation` | jitter, shimmer a HNR přes Praat z prostředních dvou třetin hlasu (po ořezu ticha podle SWIPE), jen fonace (verze 1.1) | `jitter_local`, `jitter_rap`, `jitter_ppq5`, `shimmer_local`, `shimmer_apq3`, `shimmer_apq11`, `hnr` |
-| `acoustic.pitch.f0` | statistiky základní frekvence v půltónech i Hz, kontura bez rámců na mezi hledání a mimo medián ±12 půltónů (verze 1.1) | `std`, `median`, `mean`, `max`, `min`, `median_hz`, `mean_hz`, `range`, `voiced_fraction` |
+| `acoustic.quality.perturbation` | jitter, shimmer a HNR z analýzy fonace: okna deseti period, křížová korelace s první periodou, medián přes okna; poloha maxim korelace zpřesněná mezi vzorky (`peak_interpolation`, `none` = MATLAB originál); jen fonace (verze 2.0, dřív Praat) | `jitter`, `shimmer`, `hnr` |
+| `acoustic.pitch.phonation` | F0 prodloužené fonace (kepstrální odhad a Kalmanův filtr nad harmonickým spektrem): medián a robustní směrodatná odchylka; na fonaci nahrazuje `acoustic.pitch.f0` | `median_hz`, `std` |
+| `acoustic.quality.subharmonics` | subharmonické (hlas s dvojnásobnou periodou) ve fonaci: podíl rámců, začátek prvního úseku, poměr subharmonických k harmonickým celkem a uvnitř úseků, výskyt | `psi`, `lsi`, `shi`, `gmi`, `pas` |
+| `acoustic.quality.vocal_arrest` | přerušování hlasu ve fonaci (DVA): součet mezer mezi znělými úseky k době od prvního do posledního hlasu (%) | jedno číslo |
+| `acoustic.quality.tremor` | třes F0 a amplitudy ve fonaci: frekvence a výraznost nejsilnější pomalé modulace (pásmo `min_frequency`–`max_frequency`, výchozí 0,67–21 Hz); bez prahu, frekvence má smysl jen spolu s výrazností | `ff0t`, `pf0t`, `fat`, `pat` |
+| `acoustic.pitch.f0` | statistiky základní frekvence (SWIPE) v půltónech i Hz, kontura bez rámců na mezi hledání a mimo medián ±12 půltónů; souvislá řeč, na fonaci je `acoustic.pitch.phonation` (verze 1.1) | `std`, `median`, `mean`, `max`, `min`, `median_hz`, `mean_hz`, `range`, `voiced_fraction` |
 | `acoustic.spectral.ltas` | tvar dlouhodobého průměrného spektra po převzorkování na 16 kHz (`analysis_fs`), u souvislé řeči s VAD | `mean`, `std`, `skew`, `kurt` |
 | `acoustic.spectral.mfcc` | statistiky MFCC c1 až c16 a jejich regresních delt, Slaneyho banka filtrů 133–6854 Hz jako MATLAB originál, výběrová std, u souvislé řeči s VAD (delty uvnitř úseků), u fonace po ořezu na hlas; MATLAB dají `filterbank=slaney delta_method=difference_padded outlier_threshold=matlab`, verzi 1.2 `filterbank=mel std_ddof=0` (verze 2.0) | 50 sloupců: `mean_c1`–`mean_c16`, `std_c1`–`std_c16`, `std_delta_c1`–`std_delta_c16`, `global_c1_16`, `global_delta_c1_16` |
 | `acoustic.timing.speech_rate` | tempo řeči ze slabik v přepisu (jádra samohlásek); řečový čas pro artikulační tempo z Whisperu, volitelně upřesněný segmentací (`speech_time`) (verze 1.1) | `speech_rate`, `articulation_rate`, `speech_rate_variability`, `word_count` |
@@ -349,6 +353,8 @@ Přenos laboratorních skriptů běží. Hotové jsou tyhle feature:
 | `acoustic.pauses.silent` | jen tiché pauzy (`ps`, jen conformer); medián bez ořezu okrajů je DPI (verze 1.1, dřív `acoustic.timing.silences`) | stejné jako `all` |
 | `acoustic.pauses.breath` | jen pauzy s nádechem (`pb`, jen conformer); medián bez ořezu okrajů je DBI (verze 1.1, dřív `acoustic.timing.breaths`) | stejné jako `all` |
 | `acoustic.timing.rhythm` | rytmus řeči a dechu ze čtyř tříd conformeru (dřív `segmentation`) | `vsdr`, `ste`, `ssr_change` |
+| `acoustic.respiration.rate` | dechová frekvence při řeči, RSR: 60 / medián odstupu začátků po sobě jdoucích nádechů (`pb`, jen conformer), nádechy za minutu; `min_breaths` | jeden sloupec |
+| `acoustic.respiration.mpt` | maximální doba fonace: nejdelší souvislý znělý úsek podle SWIPE, výpadky do `max_gap` (0.2 s) se přemostí, druhý pokus se nepřičítá; jen fonace, bez provideru | `mpt`, `start`, `end`, `segments`, `truncated` |
 | `acoustic.articulation.vowels` | samohláskový trojúhelník z formantů, vrcholy jako mediány podle fonémů z prostřední třetiny samohlásky, krok 10 ms; VSA a VAI z krátkých i dlouhých samohlásek, ostatní z krátkých (verze 2.1) | `f1a` až `f2u`, `VSA`, `VAI`, `IU`, `FRI`, `SFRI` |
 | `linguistic.lexical.*` | slovní zásoba, 8 feature | `content_density`, `content_words`, `function_words`, `mattr`, `word_entropy`, `ngrams`, `pmi`, `rrtr` |
 | `linguistic.syntactic.*` | stavba výpovědí, 5 feature | `mlu`, `ccsr`, `scsr`, `csr`, `sdl` |
@@ -367,6 +373,31 @@ Tím je přenesených všech osm původních modulů a DDK. Feature
 `acoustic.recording.*` a `acoustic.ddk.count` neměří řeč, ale nahrávku:
 jsou to vstupy pro kontrolu kvality (příliš krátká fonace, málo opakování
 /pataka/, šum, přebuzení). Knihovna jen měří, prahy má GUI.
+
+Prodlouženou fonaci analyzuje výpočet přenesený z původních MATLAB skriptů:
+`acoustic.pitch.phonation`, `acoustic.quality.perturbation`,
+`acoustic.quality.subharmonics`, `acoustic.quality.vocal_arrest`
+a `acoustic.quality.tremor`. Všechny stojí na provideru `phonation_f0`:
+znělé úseky, hrubý odhad F0 z kepstra a Kalmanův filtr nad harmonickým
+spektrem, u každého rámce i poměr subharmonických k harmonickým. F0 po
+rámcích se ukládá do pracovní složky (`phonation_f0/<zaklad>.txt`). Rozsah
+F0 (50–500 Hz) a pravidla pro subharmonické úseky (`shr_threshold`,
+`merge_gap`, `min_subharmonic`) jsou parametry provideru, aby všechny
+feature počítaly z téže kontury. Výpočet trvá asi 5 s na nahrávku.
+
+Proti originálu se liší dvě věci, obě jdou vypnout. Jitter bere polohu
+period mezi vzorky (`peak_interpolation`): originál ji má na celé vzorky
+a jitter mu u poloviny nahrávek 48 kHz vychází přesně jeden vzorek na
+periodu, takže závisí na vzorkovací frekvenci. A horní propust 60 Hz před
+třesem amplitudy se počítá stabilně (`stable_filter`). S
+`peak_interpolation=none` a `stable_filter=false` dává knihovna čísla
+MATLABu (ověřeno na 91 nahrávkách).
+
+Na co si dát pozor: nahrávka pod 3 s se nehodnotí a třes potřebuje
+souvislý znělý úsek aspoň 3 s. Třes nemá práh, frekvenci vrátí i u hlasu
+bez třesu; vypovídá výraznost (`pf0t`, `pat`). DVA počítá i pauzu mezi
+dvěma pokusy v jedné nahrávce. U fonace s klouzavou výškou se F0 může
+v některém úseku chytit o oktávu vedle.
 
 Feature `acoustic.ddk.*` jsou jen pro úlohu `ddk` a jen pro /pataka/
 (metoda Melechovsky 2020 a 2026). Obecná akustika (F0, CPP, LTAS, MFCC)
@@ -477,11 +508,11 @@ uv run speechscope list --params acoustic.pitch.f0
 Změníš je buď jednorázově, nebo souborem:
 
 ```bash
-uv run speechscope extract data\ --task phonation ^
+uv run speechscope extract data\ --task spontaneous --domain acoustic ^
     --set acoustic.pitch.f0.f_min=75 ^
     --set acoustic.quality.cpp.window_length=0.05
 
-uv run speechscope extract data\ --task phonation --config cfg.yaml
+uv run speechscope extract data\ --task spontaneous --domain acoustic --config cfg.yaml
 ```
 
 ```yaml

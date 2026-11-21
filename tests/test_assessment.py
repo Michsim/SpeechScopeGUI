@@ -439,8 +439,8 @@ def test_column_labels_for_single_value_features(fake_library) -> None:  # noqa:
     index = column_index(fake_library.features())
     rate = index["acoustic.ddk.rate"]
     assert rate.short == "rate" and rate.description.startswith("Tempo DDK")
-    jitter = index["acoustic.quality.perturbation.jitter_local"]
-    assert jitter.short == "jitter_local" and jitter.description.startswith("Jitter")
+    jitter = index["acoustic.quality.perturbation.jitter"]
+    assert jitter.short == "jitter" and jitter.description.startswith("Jitter")
 
 
 def test_spider_orientation_switch(qtbot: QtBot) -> None:

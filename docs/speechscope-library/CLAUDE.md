@@ -298,6 +298,122 @@ vzory s hvězdičkou se nepřekládají (`acoustic.timing.*` pauzy už nevybere)
 Výstupní sloupce jsou vždy nové. GUI (`quality.yaml`, cokoli s pauzami)
 musí přejít, součást 0.4.0. Test `test_stara_jmena_pauz_jsou_aliasy`.
 
+## Dechová frekvence RSR (19. 11. 2026, necommitováno)
+`acoustic.respiration.rate` 1.0 (`timing.py`, `respiration_rate`): rate of
+speech respiration podle Hlavničky 2017 = 60 / medián odstupu začátků po
+sobě jdoucích `pb` (po `four_class_events`, sousední `pb` slité). Přenos
+`rate_of_speech_respiration` z notebooku `legacy/timing` beze změny, jeden
+sloupec, úlohy spontaneous a reading, jen čtyři třídy. Parametr
+`min_breaths` (2); méně nádechů = InsufficientData (notebook NaN). Nová
+skupina `respiration` je místo pro PIR, RLR a LRE (v notebooku jsou
+`pause_interval_per_respiration` a `latency_of_respiratory_exchange`,
+nepřeneseno). Není to `acoustic.pauses.breath.per_minute` (počet na délku):
+zkouska.wav 13.25 proti 10.85. Testy v `test_timing_segmentation.py`
+(12 náhodných posloupností proti notebooku). GUI nemá název skupiny
+`respiration`. Verze knihovny zůstala 0.4.0.
+
+## MPT (19. 11. 2026, necommitováno)
+`acoustic.respiration.mpt` 1.0 (`features/acoustic/respiration.py`), jen
+`phonation`, bez provideru a VAD: nejdelší souvislý běh znělých rámců
+SWIPE (`swipe_voiced_frames`, pravidla jako F0 1.1), výpadky do `max_gap`
+(0.2 s) se přemostí (`voiced_runs`), běhy pod `min_segment` (0.5 s) se
+zahodí, žádný = InsufficientData. Sloupce `mpt`, `start`, `end`,
+`segments` (víc než 1 = víc pokusů) a `truncated` (úsek sahá na kraj
+souboru, doba je dolní odhad; loguje varování). Rozhodnutí uživatele:
+nejdelší úsek, ne rozsah od prvního do posledního hlasu. Liší se od
+`acoustic.recording.duration.voiced` (součet všech znělých rámců).
+**`f_min` je 40 Hz, ne 60** jako jinde: hlas přeskočený o oktávu níž
+(ESBAD PHON_1_cut, 98 → 49 Hz na 2.2–3.2 a 5.2–6.1 s) jinak fonaci
+rozdělil (2.16 s místo 5.95 s). Práh síly 0.3 nechat, 0.2 a níž bere řeč
+vyšetřujícího před fonací. Ověřeno na 4 souborech jednoho mluvčího
+(`Downloads/ESBAD_254015.../cut`), plná a ořezaná verze dávají totéž.
+Testy `tests/test_mpt.py`. Verze knihovny zůstala 0.4.0.
+
+## Fonace z Dysanu (21. 11. 2026, commit bb23e14, pushnuto)
+**V kódu, testech, README a `docs/` se slova „Dysan“ ani „Hlavnička“ nepíšou**
+(pokyn uživatele 21. 11. 2026; platí i pro RSR, kde citace 2017 z README
+a `timing.py` zmizela). Píše se „původní MATLAB skripty analýzy fonace“.
+Chybová třída je `PhonationError`, otisk cache má `backend="kalman"`.
+Tenhle soubor a paměť jména drží, jinak by nešlo najít `legacy/dysan`.
+Originál MATLAB `legacy/dysan/scripts` (Jan Hlavnička). Rozhodnutí uživatele:
+na fonaci je F0 (medián, std) i jitter, shimmer a HNR **jen z Dysanu**,
+původní výpočty pryč.
+- Backend `providers/backends/phonation_analysis.py` (doslovný přenos; `analyze()` dává
+  16 hodnot originálu pro zlaté testy), provider `phonation_f0`
+  (`providers/phonation.py`): znělost, F0 a SHR po rámcích, subharmonické
+  úseky. Cache `phonation_f0/<zaklad>.txt` (JSON, jen rámce F0; otisk nese
+  jen `f0_min`, `f0_max`). Parametry provideru: `f0_min` 50, `f0_max` 500,
+  `shr_threshold` 0.1, `merge_gap` 0.3, `min_subharmonic` 0.05. Dvě úrovně
+  selhání: `problem` (ticho, pod 3 s, žádný hlas) a `f0_problem` (DVA se
+  spočítá, zbytek ne); feature z nich dělají `InsufficientData`.
+- Feature, jen `phonation`: `acoustic.pitch.phonation` 1.0 (`median_hz`,
+  `std` = 1.4826 × MAD v půltónech), `acoustic.quality.perturbation` **2.0**
+  (`jitter`, `shimmer`, `hnr`; Praat a sloupce rap/ppq5/apq3/apq11 smazány),
+  `acoustic.quality.subharmonics` 1.0 (`psi`, `lsi`, `shi`, `gmi`, `pas`),
+  `acoustic.quality.vocal_arrest` 1.0 (DVA), `acoustic.quality.tremor` 1.0
+  (`ff0t`, `pf0t`, `fat`, `pat`). Kód v `features/acoustic/phonation.py`
+  a `perturbation.py`.
+- **`acoustic.pitch.f0` (SWIPE) už není na fonaci** (`tasks` bez
+  `phonation`), jen spontaneous a reading; bez aliasu, je to `SelectionError`.
+  Testy, které ji braly na fonaci jako příklad, jedou na `reading`.
+  `conftest.wav_dir` má nahrávky 4 s (pod 3 s Dysan nehodnotí).
+- Odchylky od originálu (parametry pro shodu s MATLABem):
+  `peak_interpolation` both | position | **none** (ne `off`, YAML ho čte
+  jako False): poloha maxim korelace parabolou. Originál má jitter na celé
+  vzorky; na 48 kHz bylo 41/91 nahrávek přesně na mezi 1 vzorek/perioda,
+  16 kHz dávalo mediánově dvojnásobek. S interpolací 48 kHz = převzorkování
+  na 192 kHz (rho 0.999, max 7 %), 16 vs 48 kHz do 2 % (max 8 %).
+  `stable_filter` true: horní propust 60 Hz před třesem amplitudy po
+  sekcích (SOS, stejný řád jako originál). V přenosovém tvaru šumí MATLAB
+  i scipy (48 kHz ~3e-3, 16 kHz řád 8 až 3 % uvnitř signálu), každý jinak;
+  PN514a1 se tím liší FAT o 13 %. Překlep v `gaussian_interpolation.m`
+  (`S(i)` místo `Si(i)`) je opravený bez parametru, na 91 nahrávkách
+  (5.1 mil. bodů) ta větev nenastala.
+- Shoda: port na 91 nahrávkách (29 HC, 14 HN, 22 PN, 26 RBD, vše 48 kHz)
+  12 hodnot do 1.5e-13, FF0T/PF0T do 4e-13, FAT/PAT z obálky MATLABu
+  (`env50`) do 2e-15. Testy: `tests/test_phonation_matlab.py` (syntetická
+  `tests/data/phonation_matlab/synth.wav` + `reference.csv`, `envelope.csv`,
+  `voiced.csv` z `make_reference.m`), `tests/test_phonation.py`, zlatý
+  `tests/golden/test_golden_phonation.py` (`SPEECHSCOPE_GOLDEN_PHONATION_DIR`,
+  `make_phonation_golden.m` píše `<zaklad>_phonation.mat`; prošel na 9 nahrávkách).
+  MATLAB tu potřebuje náhrady `ecdf`, `normpdf`, `mahal`, `chi2inv`
+  (`legacy/dysan/port/overeni/shim`); oba .m skripty berou složky jako
+  proměnné `scriptsDir` a `shimDir`, cesta k legacy v nich není.
+- `matlab_compat.resample` si pamatuje návrh filtru (`_resample_filter`,
+  lru_cache); 48 kHz → 50 Hz trval 1.4 s na volání. Výpočet ~5 s na nahrávku.
+- **Známé meze, zatím se neřeší (rozhodnutí uživatele 21. 11. 2026):**
+  - **HN50a1: F0 selhala.** Fonace s klouzavou výškou (120–280 Hz).
+    Kalmanův filtr začíná každý znělý úsek z hrubého odhadu pro celou
+    nahrávku (kepstrum, ~200 Hz); poslední úsek (6.7–8.4 s) se chytil
+    o oktávu výš (300 proti 150 Hz u SWIPE i Praatu) a pravou F0 označil
+    za subharmonickou: medián 203 místo 163 Hz, PSI 23 %. Soudím z kontur
+    (`legacy/dysan/port/overeni/analyza/extremy_f0.png`), poslechem
+    neověřeno. Podobně HN02a3 (hlas nad 400 Hz) a HN16a1 (HNR 6 dB,
+    rozsypané rámce).
+  - **3 s:** nahrávka pod 3 s se nehodnotí vůbec (`MIN_DURATION` v backendu,
+    originál končí chybou), třes potřebuje souvislý úsek aspoň 3 s
+    (`TREMOR_MIN_DURATION`; HN15a2 nemá FF0T/PF0T) a stopa třesu taky 3 s.
+    Obojí jsou konstanty v backendu, ne parametry.
+  - Třes nemá práh (minY = 0): frekvenci vrátí vždy, vypovídá výraznost.
+    Pauzy pod 1.5 s se pro třes amplitudy slijí (přerušení zvedne PAT).
+    DVA počítá i mezeru mezi dvěma pokusy (HC001_Praha 17 %).
+  - Prahy subharmonických (SHR 0.1, medián 7 rámců) nejsou laděné.
+  - Pásmo třesu: s `min_frequency=3` (místo 0.67 Hz originálu) rozdíl HN
+    proti HC slábne (PAT AUC 0.92 → 0.74, PF0T 0.86 → 0.81) a frekvence
+    vychází u všech skupin kolem 4.2 Hz. HN tedy neodlišuje třes 4–7 Hz,
+    ale pomalá nestabilita pod 3 Hz; výchozí pásmo zůstalo původní
+    (`analyza/tremor_band.py`, `tremor_band.csv`).
+- Nepřeneseno z fonace /a/: MPT Dysanu (zůstává `acoustic.respiration.mpt`),
+  MPTA, OQ/ClQ (`dypsa.m`), stdPSD.
+- Po mluvčích proti HC (20 HC, 7 HN, 11 PN, 13 RBD, bez pohlaví a věku):
+  HN stdF0 AUC 0.88, DVA 4/7, PF0T AUC 0.86, PAT AUC 0.92; PN a RBD bez
+  rozdílu (PN lepší shimmer/HNR jen kvůli vyšší F0, tedy víc žen).
+- Analýzy, skripty a CSV: `legacy/dysan/port/overeni/` (`analyza/`,
+  `tremor/`), port `legacy/dysan/port/dysan_phonation.py`. Mimo git.
+- **GUI musí přejít:** `acoustic.pitch.f0` na fonaci neexistuje, perturbace
+  má jiné sloupce, pět nových jmen a provider `phonation_f0`; normy fonace
+  (F0, jitter, shimmer, HNR) přepočítat. Verze knihovny zůstala 0.4.0.
+
 ## MFCC 2.0 (2. 11. 2026, commity ef3e299 parametry beze změny výstupu, 1637b80 verze 2.0)
 Originál je MATLAB `../mfcc/scripts` (Illner 2023), `legacy/mfcc/mfcc.py`
 je jen nepřesný Python port a zlatý test 1.x hlídal shodu s ním. Rozdíly

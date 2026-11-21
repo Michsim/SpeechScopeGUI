@@ -71,7 +71,8 @@ def test_window_runs_batch_end_to_end(
     (row,) = window.batch_page.task_rows().values()  # bez manifestu jeden řádek úlohy
     assert row.task_combo is not None and row.task_combo.currentData() == "phonation"
     row = window.batch_page.task_rows()["phonation"]
-    assert "bez modelů" in row.status.text()  # doctor: všechno připravené
+    # fonaci počítá provider bez modelu: zeleně, nic se nekontroluje v doctor
+    assert "analýza fonace" in row.status.text() and "#16a34a" in row.status.text()
 
     runs = window.runs_page
     with qtbot.waitSignal(window.run_page.finished, timeout=15000):

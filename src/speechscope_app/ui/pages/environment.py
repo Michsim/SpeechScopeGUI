@@ -263,7 +263,13 @@ class EnvironmentPage(QWidget):
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(12)
         self.provider_cards: dict[str, StatusCard] = {}
-        for i, (name, title) in enumerate(contract.PROVIDER_LABELS.items()):
+        # jen providery s modelem; výpočetní (analýza fonace) doctor nehlásí
+        with_models = [
+            (name, title)
+            for name, title in contract.PROVIDER_LABELS.items()
+            if name not in contract.MODELLESS_PROVIDERS
+        ]
+        for i, (name, title) in enumerate(with_models):
             card = StatusCard(title)
             self.provider_cards[name] = card
             grid.addWidget(card, i // 2, i % 2)

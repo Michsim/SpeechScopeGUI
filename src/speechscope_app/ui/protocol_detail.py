@@ -80,6 +80,8 @@ class ProtocolDetailDialog(QDialog):
                 pill = QLabel(contract.PROVIDER_SHORT.get(name, name))
                 pill.setObjectName("pill")
                 ready = state.get(name, {}).get("ready") if name in state else None
+                if name in contract.MODELLESS_PROVIDERS:
+                    ready = True  # jen výpočet, žádný model
                 theme.set_role(
                     pill, "ok" if ready else ("missing" if ready is False else "neutral")
                 )

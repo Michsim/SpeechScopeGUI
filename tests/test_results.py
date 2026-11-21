@@ -60,7 +60,8 @@ def test_results_page_descriptions_search_and_detail(
     col = model.position(columns[0])
     tip = model.headerData(col, horizontal, Qt.ItemDataRole.ToolTipRole)
     assert columns[0] in tip and "verze" in tip  # popis, klíč a verze z list --json
-    assert model.headerData(col, horizontal) == columns[0].rsplit(".", 1)[1].upper()
+    short = columns[0].rsplit(".", 1)[1].replace("_", " ")  # záhlaví bez podtržítek
+    assert model.headerData(col, horizontal) == short.upper()
     assert model.headerData(col, horizontal, BAND_ROLE)  # pruh feature nad sloupcem
     status = model.position(STATUS)
     assert [model.index(r, status).data() for r in range(3)] == ["hotovo", "chyba", "poznámka"]

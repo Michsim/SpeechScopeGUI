@@ -1776,7 +1776,8 @@ class BatchPage(QWidget):
                 )
             elif providers:
                 row.set_status(
-                    "info", ", ".join(contract.PROVIDER_SHORT.get(p, p) for p in providers)
+                    "info" if contract.needs_models(providers) else "ok",
+                    ", ".join(contract.PROVIDER_SHORT.get(p, p) for p in providers),
                 )
             else:
                 row.set_status("ok", tr("bez modelů"))

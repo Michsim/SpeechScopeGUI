@@ -499,7 +499,7 @@ class FeaturePicker(QWidget):
             case "none":
                 names = set()
             case "nomodels":
-                names = {f.name for f in self._features if not f.requires}
+                names = {f.name for f in self._features if not contract.needs_models(f.requires)}
             case "notranscript":
                 names = {
                     f.name for f in self._features if not ({"transcript", "nlp"} & set(f.requires))

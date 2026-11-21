@@ -1,0 +1,39 @@
+{
+  "kind": "provider",
+  "name": "phonation_f0",
+  "version": "1.0",
+  "requires": [],
+  "params": {
+    "f0_min": {
+      "default": 50.0,
+      "type": "float",
+      "description": "Nejnižší hledaná F0 (Hz)",
+      "gt": 0
+    },
+    "f0_max": {
+      "default": 500.0,
+      "type": "float",
+      "description": "Nejvyšší hledaná F0 (Hz)",
+      "gt": 0
+    },
+    "shr_threshold": {
+      "default": 0.1,
+      "type": "float",
+      "description": "Poměr subharmonických k harmonickým, od kterého je rámec subharmonický",
+      "ge": 0,
+      "le": 1
+    },
+    "merge_gap": {
+      "default": 0.3,
+      "type": "float",
+      "description": "Subharmonické úseky s mezerou pod tuto dobu se slijí (s)",
+      "ge": 0
+    },
+    "min_subharmonic": {
+      "default": 0.05,
+      "type": "float",
+      "description": "Kratší subharmonický úsek se zahodí (s)",
+      "ge": 0
+    }
+  }
+}

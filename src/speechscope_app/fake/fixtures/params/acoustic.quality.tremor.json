@@ -1,0 +1,45 @@
+{
+  "kind": "feature",
+  "name": "acoustic.quality.tremor",
+  "version": "1.0",
+  "tasks": [
+    "phonation"
+  ],
+  "requires": [
+    "phonation_f0"
+  ],
+  "vad": {
+    "supported": false,
+    "required": false,
+    "default": {
+      "phonation": false
+    }
+  },
+  "description": "",
+  "outputs": {
+    "ff0t": "Frekvence třesu F0: nejsilnější pomalá modulace kontury F0, FF0T (Hz)",
+    "pf0t": "Výraznost třesu F0: hloubka té modulace, PF0T (půltóny)",
+    "fat": "Frekvence třesu amplitudy: nejsilnější pomalá modulace obálky, FAT (Hz)",
+    "pat": "Výraznost třesu amplitudy: hloubka té modulace, PAT (%)"
+  },
+  "params": {
+    "min_frequency": {
+      "default": 0.6666666666666666,
+      "type": "float",
+      "description": "Nejnižší frekvence modulace, která se bere jako třes (Hz)",
+      "gt": 0
+    },
+    "max_frequency": {
+      "default": 21.0,
+      "type": "float",
+      "description": "Nejvyšší frekvence modulace, která se bere jako třes (Hz)",
+      "gt": 0,
+      "lt": 25
+    },
+    "stable_filter": {
+      "default": true,
+      "type": "bool",
+      "description": "Horní propust 60 Hz před třesem amplitudy po sekcích druhého řádu; False = přenosový tvar jako MATLAB originál, který je na 48 kHz numericky nestabilní"
+    }
+  }
+}
